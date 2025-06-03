@@ -227,43 +227,58 @@ export class KeyringManager implements IKeyringManager {
     wallet?: IWalletState | null;
   }> => {
     try {
-      // Add retry logic for storage access
+      // Get vault-keys and utf8Error in parallel for efficiency
+      const [vaultKeysResult, utf8ErrorResult] = await Promise.allSettled([
+        this.storage.get('vault-keys'),
+        this.storage.get('utf8Error'),
+      ]);
+
+      // Handle vault-keys result with retry logic only if needed
       let vaultKeys;
-      let retries = 0;
-      const maxRetries = 3;
-      const retryDelay = 200; // milliseconds
+      if (
+        vaultKeysResult.status === 'fulfilled' &&
+        vaultKeysResult.value &&
+        vaultKeysResult.value.hash &&
+        vaultKeysResult.value.salt
+      ) {
+        vaultKeys = vaultKeysResult.value;
+      } else {
+        // Only retry if the first attempt failed or returned incomplete data
+        console.log(
+          `[KeyringManager] vault-keys not ready on first attempt, retrying...`
+        );
 
-      while (retries < maxRetries) {
-        try {
-          vaultKeys = await this.storage.get('vault-keys');
-          if (vaultKeys && vaultKeys.hash && vaultKeys.salt) {
-            break; // Successfully got vault keys
+        let retries = 0;
+        const maxRetries = 2; // Reduced from 3 to 2
+        const retryDelay = 150; // Reduced from 200ms to 150ms
+
+        while (retries < maxRetries) {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
+            vaultKeys = await this.storage.get('vault-keys');
+            if (vaultKeys && vaultKeys.hash && vaultKeys.salt) {
+              break; // Successfully got vault keys
+            }
+            console.log(
+              `[KeyringManager] vault-keys retry ${
+                retries + 1
+              }/${maxRetries} failed`
+            );
+            retries++;
+          } catch (error) {
+            console.error(
+              `[KeyringManager] vault-keys retry ${
+                retries + 1
+              }/${maxRetries} error:`,
+              error
+            );
+            retries++;
           }
-
-          // If vault keys are not ready, wait and retry
-          console.log(
-            `[KeyringManager] vault-keys not ready, retry ${
-              retries + 1
-            }/${maxRetries}`
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          retries++;
-        } catch (error) {
-          console.error(
-            `[KeyringManager] Error getting vault-keys, retry ${
-              retries + 1
-            }/${maxRetries}:`,
-            error
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          retries++;
         }
       }
 
       if (!vaultKeys || !vaultKeys.hash || !vaultKeys.salt) {
-        console.error(
-          '[KeyringManager] Failed to get vault-keys after retries'
-        );
+        console.error('[KeyringManager] Failed to get valid vault-keys');
         return {
           canLogin: false,
           wallet: null,
@@ -271,8 +286,10 @@ export class KeyringManager implements IKeyringManager {
       }
 
       const { hash, salt } = vaultKeys;
-      const utf8ErrorData = await this.storage.get('utf8Error');
-      const hasUtf8Error = utf8ErrorData ? utf8ErrorData.hasUtf8Error : false;
+      const hasUtf8Error =
+        utf8ErrorResult.status === 'fulfilled' && utf8ErrorResult.value
+          ? utf8ErrorResult.value.hasUtf8Error
+          : false;
       const hashPassword = this.encryptSHA512(password, salt);
 
       if (isForPvtKey) {
@@ -467,7 +484,6 @@ export class KeyringManager implements IKeyringManager {
       } else if (this.sessionPassword !== genPwd) {
         throw new Error('Invalid password');
       }
-
       const accounts = this.wallet.accounts[acountType];
 
       const account = Object.values(accounts).find(
@@ -734,7 +750,6 @@ export class KeyringManager implements IKeyringManager {
 
   public importWeb3Account = (mnemonicOrPrivKey: string) => {
     // Check if it's a hex string (Ethereum private key)
-    // eslint-disable-next-line import/namespace
     if (ethers.utils.isHexString(mnemonicOrPrivKey)) {
       return new ethers.Wallet(mnemonicOrPrivKey);
     }
@@ -1842,7 +1857,6 @@ export class KeyringManager implements IKeyringManager {
       const walletAccountsArray = isHDAccount
         ? Object.values(accounts)
         : Object.values(accounts).filter(
-            // eslint-disable-next-line import/namespace
             ({ address }) => !ethers.utils.isAddress(address)
           );
 
@@ -1924,7 +1938,6 @@ export class KeyringManager implements IKeyringManager {
     account: IKeyringAccountState,
     activeAccountId?: number
   ) {
-    // eslint-disable-next-line import/namespace
     const isEthAddress = ethers.utils.isAddress(account.address);
     let balance: null | number = null;
 
@@ -2101,7 +2114,6 @@ export class KeyringManager implements IKeyringManager {
           for (const id in accounts[accountTypeKey as KeyringAccountType]) {
             const activeAccount =
               accounts[accountTypeKey as KeyringAccountType][id];
-            // eslint-disable-next-line import/namespace
             const isBitcoinBased = !ethers.utils.isHexString(
               activeAccount.address
             );
