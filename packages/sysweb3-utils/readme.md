@@ -45,7 +45,7 @@ console.log(sysweb3);
 
 Inside of source folder, you'll find some files like:
 
-- `contracts.ts`: this file have the `createContractUsingAbi`, `isContractAddress`, `getErc20Abi`  and `getErc721Abi` methods. There, you'll be able to use the main abi methods with your preferred contract, besides ensuring your contract address validate.
+- `contracts.ts`: this file have the `createContractUsingAbi`, `isContractAddress`, `getErc20Abi` and `getErc721Abi` methods. There, you'll be able to use the main abi methods with your preferred contract, besides ensuring your contract address validate.
 - `tokens.ts`: this file have some methods like `getNftImage`, `getWeb3TokenData` and `validateToken`. There, you'll be able to use all functions related to tokens data like icons, token validate, if is NFT or not, price and somethings like these.
 
 These methods are just some of the ones available in our library.

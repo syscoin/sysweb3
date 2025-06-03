@@ -12,5 +12,8 @@ module.exports = {
     '^@pollum-io/sysweb3-keyring$': '<rootDir>/../sysweb3-keyring/src',
     'isomorphic-fetch': '<rootDir>/../../__mocks__/isomorphic-fetch.js',
   },
-  setupFilesAfterEnv: ['<rootDir>/../../jest.setup.js', '<rootDir>/test/setup.ts'],
-}; 
+  setupFilesAfterEnv: [
+    '<rootDir>/../../jest.setup.js',
+    '<rootDir>/test/setup.ts',
+  ],
+};

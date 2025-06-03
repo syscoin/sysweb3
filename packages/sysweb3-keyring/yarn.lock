@@ -7,6 +7,17 @@
   resolved "https://registry.yarnpkg.com/@babel/runtime/-/runtime-7.27.4.tgz#a91ec580e6c00c67118127777c316dfd5a5a6abf"
   integrity sha512-t3yaEOuGu9NlIZ+hIeGbBjFtZT7j2cb2tg0fuaJKeGotchRjjLfrBA9Kwf8quhpP1EUuxModQg04q/mBwyg8uA==
 
+"@bitcoinerlab/descriptors@^1.0.2":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@bitcoinerlab/descriptors/-/descriptors-1.1.1.tgz#0d1a828cea66c51ebc9863d3e5c43c4ffcde2fe5"
+  integrity sha512-AMFkbBBg9T1iWtEmWB23oADk7zaOQix6wUPLXalhTyFDjhkFXDd6pCRfto/HAdaPg/ccM4GMTVgYLee9WdYFyQ==
+  dependencies:
+    "@bitcoinerlab/miniscript" "^1.2.1"
+    "@bitcoinerlab/secp256k1" "^1.0.5"
+    bip32 "^4.0.0"
+    bitcoinjs-lib "^6.1.3"
+    ecpair "^2.1.0"
+
 "@bitcoinerlab/descriptors@^2.0.1":
   version "2.3.1"
   resolved "https://registry.yarnpkg.com/@bitcoinerlab/descriptors/-/descriptors-2.3.1.tgz#08654470d1d4733ce9068d287a6f03761384dcf8"
@@ -20,7 +31,7 @@
     lodash.memoize "^4.1.2"
     varuint-bitcoin "^1.1.2"
 
-"@bitcoinerlab/miniscript@^1.4.0":
+"@bitcoinerlab/miniscript@^1.2.1", "@bitcoinerlab/miniscript@^1.4.0":
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/@bitcoinerlab/miniscript/-/miniscript-1.4.0.tgz#9beda21d4dadb1cb806de6f846470927cfd96f6c"
   integrity sha512-BsG3dmwQmgKHnRZecDgUsPjwcpnf1wgaZbolcMTByS10k1zYzIx97W51LzG7GvokRJ+wnzTX/GhC8Y3L2X0CQA==
@@ -896,7 +907,7 @@
     "@ledgerhq/hw-transport" "^6.31.5"
     "@ledgerhq/logs" "^6.12.0"
 
-"@ledgerhq/hw-transport@^6.31.5":
+"@ledgerhq/hw-transport@^6.20.0", "@ledgerhq/hw-transport@^6.31.5":
   version "6.31.5"
   resolved "https://registry.yarnpkg.com/@ledgerhq/hw-transport/-/hw-transport-6.31.5.tgz#985122b018fa30e92fcf23261d6e7c077774a9bf"
   integrity sha512-P7nyHU2EnotdWfN9XUKvCw4sllbERNmzb7ruyljqyiBuUfdDvzLJVFgVhu6j+8Y9cGxPysf3i3QtImFsZwKkdQ==
@@ -2982,21 +2993,7 @@ eth-lib@^0.1.26:
     ws "^3.0.0"
     xhr-request-promise "^0.1.2"
 
-eth-object@^1.0.3:
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/eth-object/-/eth-object-1.0.3.tgz#5e7a58615793e570c6b1c009eb282876b4d059b6"
-  integrity sha512-VOWso/tO0Pz66wNlzUveYN0FgaqHQGVr+n60GL6QWQSUW3kwTyyaMxrHNnaDCeq/61YvMUxygGr9FJsnmWKqEg==
-  dependencies:
-    eth-util-lite "^1.0.1"
-
-"eth-object@git+https://github.com/syscoin/eth-object.git":
-  version "1.0.3"
-  uid b5ff300f57c136138b31d6e570c816a147e0f1c9
-  resolved "git+https://github.com/syscoin/eth-object.git#b5ff300f57c136138b31d6e570c816a147e0f1c9"
-  dependencies:
-    eth-util-lite "^1.0.1"
-
-"eth-object@https://github.com/syscoin/eth-object.git":
+eth-object@^1.0.3, "eth-object@https://github.com/syscoin/eth-object.git":
   version "1.0.3"
   resolved "https://github.com/syscoin/eth-object.git#b5ff300f57c136138b31d6e570c816a147e0f1c9"
   dependencies:
@@ -3893,6 +3890,17 @@ keyv@^4.0.0:
   integrity sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==
   dependencies:
     json-buffer "3.0.1"
+
+ledger-bitcoin@^0.2.3:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/ledger-bitcoin/-/ledger-bitcoin-0.2.3.tgz#9954f4464f1f439e393d228ae477ad86573d023b"
+  integrity sha512-sWdvMTR5CkebNlM0Mam9ROdpsD7Y4087kj4cbIaCCq8IXShCQ44vE3j0wTmt+sHp13eETgY63OWN1rkuIfMfuQ==
+  dependencies:
+    "@bitcoinerlab/descriptors" "^1.0.2"
+    "@bitcoinerlab/secp256k1" "^1.0.5"
+    "@ledgerhq/hw-transport" "^6.20.0"
+    bip32-path "^0.4.2"
+    bitcoinjs-lib "^6.1.3"
 
 level-codec@^9.0.0:
   version "9.0.2"

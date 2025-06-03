@@ -13,4 +13,4 @@ module.exports = {
     'isomorphic-fetch': '<rootDir>/../../__mocks__/isomorphic-fetch.js',
   },
   setupFilesAfterEnv: ['<rootDir>/../../jest.setup.js'],
-}; 
+};

@@ -17,4 +17,4 @@ module.exports = {
     frame: () => Buffer.from([]),
     unframe: () => ({ data: Buffer.from([]), more: false }),
   }),
-}; 
+};
