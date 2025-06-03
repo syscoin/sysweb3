@@ -227,7 +227,50 @@ export class KeyringManager implements IKeyringManager {
     wallet?: IWalletState | null;
   }> => {
     try {
-      const { hash, salt } = await this.storage.get('vault-keys');
+      // Add retry logic for storage access
+      let vaultKeys;
+      let retries = 0;
+      const maxRetries = 3;
+      const retryDelay = 200; // milliseconds
+
+      while (retries < maxRetries) {
+        try {
+          vaultKeys = await this.storage.get('vault-keys');
+          if (vaultKeys && vaultKeys.hash && vaultKeys.salt) {
+            break; // Successfully got vault keys
+          }
+
+          // If vault keys are not ready, wait and retry
+          console.log(
+            `[KeyringManager] vault-keys not ready, retry ${
+              retries + 1
+            }/${maxRetries}`
+          );
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          retries++;
+        } catch (error) {
+          console.error(
+            `[KeyringManager] Error getting vault-keys, retry ${
+              retries + 1
+            }/${maxRetries}:`,
+            error
+          );
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          retries++;
+        }
+      }
+
+      if (!vaultKeys || !vaultKeys.hash || !vaultKeys.salt) {
+        console.error(
+          '[KeyringManager] Failed to get vault-keys after retries'
+        );
+        return {
+          canLogin: false,
+          wallet: null,
+        };
+      }
+
+      const { hash, salt } = vaultKeys;
       const utf8ErrorData = await this.storage.get('utf8Error');
       const hasUtf8Error = utf8ErrorData ? utf8ErrorData.hasUtf8Error : false;
       const hashPassword = this.encryptSHA512(password, salt);
@@ -244,7 +287,9 @@ export class KeyringManager implements IKeyringManager {
         this.sessionPassword = await this.recoverLastSessionPassword(password);
 
         const isHdCreated = !!this.hd;
+        let needsRestore = false;
 
+        // Check if we need to restore the wallet
         if (hasUtf8Error) {
           const sysMainnetNetwork = {
             apiUrl: '',
@@ -258,15 +303,17 @@ export class KeyringManager implements IKeyringManager {
           };
 
           await this.setSignerNetwork(sysMainnetNetwork, INetworkType.Syscoin);
-
-          await this.restoreWallet(isHdCreated, password);
-
-          wallet = this.wallet;
+          needsRestore = true;
           this.storage.set('utf8Error', { hasUtf8Error: false });
         }
 
-        if (!isHdCreated || !this.sessionMnemonic) {
+        // Only restore once if needed
+        if (needsRestore || !isHdCreated || !this.sessionMnemonic) {
           await this.restoreWallet(isHdCreated, password);
+        }
+
+        if (hasUtf8Error) {
+          wallet = this.wallet;
         }
 
         await this.updateWalletKeys(password);
@@ -413,6 +460,14 @@ export class KeyringManager implements IKeyringManager {
     pwd: string
   ): string => {
     try {
+      // Validate password first
+      const genPwd = this.encryptSHA512(pwd, this.currentSessionSalt);
+      if (!this.sessionPassword) {
+        throw new Error('Unlock wallet first');
+      } else if (this.sessionPassword !== genPwd) {
+        throw new Error('Invalid password');
+      }
+
       const accounts = this.wallet.accounts[acountType];
 
       const account = Object.values(accounts).find(
@@ -679,6 +734,7 @@ export class KeyringManager implements IKeyringManager {
 
   public importWeb3Account = (mnemonicOrPrivKey: string) => {
     // Check if it's a hex string (Ethereum private key)
+    // eslint-disable-next-line import/namespace
     if (ethers.utils.isHexString(mnemonicOrPrivKey)) {
       return new ethers.Wallet(mnemonicOrPrivKey);
     }
@@ -1682,12 +1738,39 @@ export class KeyringManager implements IKeyringManager {
   private getSignerUTXO = async (
     network: INetwork
   ): Promise<{ rpc: any; isTestnet: boolean }> => {
-    const { rpc, chain } = await getSysRpc(network);
+    try {
+      const { rpc, chain } = await getSysRpc(network);
 
-    return {
-      rpc,
-      isTestnet: chain === 'test',
-    };
+      return {
+        rpc,
+        isTestnet: chain === 'test',
+      };
+    } catch (error) {
+      console.error('[KeyringManager] getSignerUTXO error:', error);
+
+      // Check if it's a JSON parsing error (HTML response)
+      if (
+        error?.message?.includes('Unexpected token') ||
+        error?.message?.includes('is not valid JSON')
+      ) {
+        console.error(
+          '[KeyringManager] RPC returned non-JSON response, likely an error page'
+        );
+
+        // Try to extract the actual error message from the error
+        const match = error.message.match(/"([^"]+)"\s*is not valid JSON/);
+        if (match && match[1]) {
+          throw new Error(`RPC error: ${match[1]}`);
+        }
+
+        throw new Error(
+          `Invalid RPC response from ${network.url}. Please check your RPC endpoint.`
+        );
+      }
+
+      // Re-throw other errors
+      throw error;
+    }
   };
 
   private setSignerEVM = async (network: INetwork): Promise<void> => {
@@ -1759,6 +1842,7 @@ export class KeyringManager implements IKeyringManager {
       const walletAccountsArray = isHDAccount
         ? Object.values(accounts)
         : Object.values(accounts).filter(
+            // eslint-disable-next-line import/namespace
             ({ address }) => !ethers.utils.isAddress(address)
           );
 
@@ -1840,6 +1924,7 @@ export class KeyringManager implements IKeyringManager {
     account: IKeyringAccountState,
     activeAccountId?: number
   ) {
+    // eslint-disable-next-line import/namespace
     const isEthAddress = ethers.utils.isAddress(account.address);
     let balance: null | number = null;
 
@@ -2016,6 +2101,7 @@ export class KeyringManager implements IKeyringManager {
           for (const id in accounts[accountTypeKey as KeyringAccountType]) {
             const activeAccount =
               accounts[accountTypeKey as KeyringAccountType][id];
+            // eslint-disable-next-line import/namespace
             const isBitcoinBased = !ethers.utils.isHexString(
               activeAccount.address
             );
