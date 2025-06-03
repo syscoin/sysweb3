@@ -344,7 +344,7 @@ export const getERC721OwnersInSingleCall = async (
     return [];
   }
 
-  const allBalances = [];
+  const allBalances: string[] = [];
   for (let i = 0; i <= tokens.length / 500; i++) {
     const sliced_tokens = tokens.slice(i * 500, (i + 1) * 500);
     const sliced_ids = ids.slice(i * 500, (i + 1) * 500);
@@ -392,7 +392,7 @@ export const getERC721OwnersInSingleCallInternal = async (
     contract
       .owners([walletAddress], tokens, ids)
       .then((result: string[]) => {
-        let allBalances = [];
+        let allBalances: string[] = [];
 
         allBalances = result;
         resolve(allBalances);
@@ -427,7 +427,7 @@ export const getERC1155BalancesInSingleCall = async (
     return [];
   }
 
-  const allBalances = [];
+  const allBalances: BigNumber[] = [];
   for (let i = 0; i <= tokens.length / 500; i++) {
     const sliced_tokens = tokens.slice(i * 500, (i + 1) * 500);
     const sliced_ids = ids.slice(i * 500, (i + 1) * 500);

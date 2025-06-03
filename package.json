@@ -13,7 +13,6 @@
   "workspaces": [
     "packages/*/dist/*"
   ],
-
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --ext .ts",
@@ -33,7 +32,6 @@
     "url": "https://github.com/Pollum-io/sysweb3/issues"
   },
   "devDependencies": {
-    "dotenv": "^16.0.3",
     "@babel/core": "^7.17.4",
     "@babel/preset-env": "^7.16.11",
     "@babel/preset-typescript": "^7.16.7",
@@ -43,12 +41,14 @@
     "@types/node": "^17.0.13",
     "@typescript-eslint/eslint-plugin": "^5.10.1",
     "@typescript-eslint/parser": "^5.10.1",
+    "dotenv": "^16.0.3",
     "eslint": "^8.7.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-import": "^2.25.4",
     "eslint-plugin-prettier": "^4.0.0",
     "husky": "^7.0.4",
+    "isomorphic-fetch": "^3.0.0",
     "jest": "^27.5.1",
     "lint-staged": "^12.4.1",
     "minimist": "1.2.6",
@@ -62,5 +62,8 @@
     "web3": "^1.7.0",
     "web3-core": "^1.7.1",
     "web3-utils": "^1.7.0"
+  },
+  "dependencies": {
+    "@ledgerhq/devices": "^8.4.5"
   }
 }

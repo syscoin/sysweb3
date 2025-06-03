@@ -1,12 +1,12 @@
 import axios from 'axios';
 import camelcaseKeys from 'camelcase-keys';
 import { ethers as ethersModule } from 'ethers';
+import * as sys from 'syscoinjs-lib';
 
 import { createContractUsingAbi } from '.';
 import ABI1155 from './abi/erc1155.json';
 import abi20 from './abi/erc20.json';
 import ABI721 from './abi/erc721.json';
-import * as sys from './syscoints';
 import tokens from './tokens.json';
 
 import type {
@@ -88,7 +88,7 @@ export const normalizeNiftyGatewayUrl = (url: string): string => {
     }
 
     // Without final slash, the Nifty Gateway API server
-    // doesn’t set the CORS headers properly.
+    // doesn't set the CORS headers properly.
     _url.pathname = _url.pathname + '/';
 
     return String(_url);

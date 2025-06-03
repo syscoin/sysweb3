@@ -57,7 +57,7 @@ export const initialNetworksState = {
       currency: 'tsys',
       apiUrl: '',
       explorer: '',
-      slip44: 5700,
+      slip44: 1,
       isTestnet: true,
     },
   },

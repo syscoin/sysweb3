@@ -1,11 +1,4 @@
 import {
-  getBip44Chain,
-  isValidChainIdForEthNetworks,
-  validateChainId,
-  validateEthRpc,
-  validateSysRpc,
-} from '../src/rpc';
-import {
   CHAIN_ID_HEX,
   CHAIN_ID_NUMBER,
   RPC_URL,
@@ -15,6 +8,13 @@ import {
   VALID_ETH_RPC_RESPONSE,
   SYS_RPC_URL,
 } from './constants';
+import {
+  getBip44Chain,
+  isValidChainIdForEthNetworks,
+  validateChainId,
+  validateEthRpc,
+  validateSysRpc,
+} from '../src/rpc';
 import 'isomorphic-fetch';
 
 describe('rpc tests', () => {
@@ -32,7 +32,7 @@ describe('rpc tests', () => {
   });
 
   it('should validate given eth rpc', async () => {
-    const response = await validateEthRpc(RPC_URL);
+    const response = await validateEthRpc(RPC_URL, false);
 
     expect(response).toStrictEqual(VALID_ETH_RPC_RESPONSE);
   });

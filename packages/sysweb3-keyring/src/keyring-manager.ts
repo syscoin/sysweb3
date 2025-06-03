@@ -2,7 +2,7 @@
 import ecc from '@bitcoinerlab/secp256k1';
 import { BIP32Factory } from 'bip32';
 import { generateMnemonic, validateMnemonic, mnemonicToSeed } from 'bip39';
-import BIP84, { fromZPrv } from 'bip84';
+import BIP84 from 'bip84';
 import * as bjs from 'bitcoinjs-lib';
 import bs58check from 'bs58check';
 import crypto from 'crypto';
@@ -11,6 +11,7 @@ import { hdkey } from 'ethereumjs-wallet';
 import { ethers } from 'ethers';
 import mapValues from 'lodash/mapValues';
 import omit from 'lodash/omit';
+import * as syscoinjs from 'syscoinjs-lib';
 
 import {
   initialActiveImportedAccountState,
@@ -44,8 +45,8 @@ import {
   IPubTypes,
   INetwork,
   INetworkType,
+  getNetworkConfig,
 } from '@pollum-io/sysweb3-network';
-import { sys } from '@pollum-io/sysweb3-utils';
 
 export interface ISysAccount {
   xprv?: string;
@@ -89,11 +90,9 @@ export class KeyringManager implements IKeyringManager {
   private sessionMnemonic: string; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
   private sessionMainMnemonic: string; // mnemonic of the main account, does not change
   private sessionSeed: string;
-  private trezorAccounts: any[];
 
   constructor(opts?: IkeyringManagerOpts | null) {
     this.storage = sysweb3.sysweb3Di.getStateStorageDb();
-    this.trezorAccounts = [];
     this.currentSessionSalt = this.generateSalt();
     this.sessionPassword = '';
     this.storage.set('utf8Error', {
@@ -101,13 +100,22 @@ export class KeyringManager implements IKeyringManager {
     });
     if (opts) {
       this.wallet = opts.wallet;
+      // Defensive: Ensure all account type objects exist for migration compatibility
+      if (!this.wallet.accounts[KeyringAccountType.Imported]) {
+        this.wallet.accounts[KeyringAccountType.Imported] = {};
+      }
+      if (!this.wallet.accounts[KeyringAccountType.Trezor]) {
+        this.wallet.accounts[KeyringAccountType.Trezor] = {};
+      }
+      if (!this.wallet.accounts[KeyringAccountType.Ledger]) {
+        this.wallet.accounts[KeyringAccountType.Ledger] = {};
+      }
       this.activeChain = opts.activeChain;
       this.hd = null;
     } else {
       this.wallet = initialWalletState;
       this.activeChain = INetworkType.Syscoin;
-      // @ts-ignore
-      this.hd = new sys.utils.HDSigner('');
+      this.hd = null;
     }
     this.utf8Error = false;
     this.memMnemonic = '';
@@ -122,7 +130,6 @@ export class KeyringManager implements IKeyringManager {
 
     // this.syscoinTransaction = SyscoinTransactions();
     this.syscoinTransaction = new SyscoinTransactions(
-      this.getNetwork,
       this.getSigner,
       this.getAccountsState,
       this.getAddress,
@@ -171,7 +178,7 @@ export class KeyringManager implements IKeyringManager {
     return this.addNewAccountToEth(label);
   };
 
-  public setWalletPassword = (pwd: string, prvPwd?: string) => {
+  public setWalletPassword = async (pwd: string, prvPwd?: string) => {
     if (this.sessionPassword) {
       if (!prvPwd) {
         throw new Error('Previous password is required to change the password');
@@ -187,7 +194,7 @@ export class KeyringManager implements IKeyringManager {
     this.sessionPassword = this.encryptSHA512(pwd, this.currentSessionSalt);
 
     if (this.memMnemonic) {
-      setEncryptedVault(
+      await setEncryptedVault(
         {
           mnemonic: CryptoJS.AES.encrypt(this.memMnemonic, pwd).toString(),
         },
@@ -272,50 +279,33 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR unlock', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(password),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
+      return {
+        canLogin: false,
+        wallet: null,
+      };
     }
   };
 
   public getNewChangeAddress = async (): Promise<string> => {
-    if (this.hd === null)
-      throw new Error('HD not created yet, unlock or initialize wallet first');
-    //Sysweb3 only allow segwit change addresses for now
-    return await this.hd.getNewChangeAddress(true, 84);
+    const { activeAccountType, accounts, activeAccountId } = this.wallet;
+    const { xpub } = accounts[activeAccountType][activeAccountId];
+    return await this.getAddress(xpub, true); // Don't skip increment - get next unused
   };
 
   public getChangeAddress = async (id: number): Promise<string> => {
-    if (this.hd === null)
-      throw new Error('HD not created yet, unlock or initialize wallet first');
-    this.hd.setAccountIndex(id);
-    const address = await this.hd.getNewChangeAddress(true);
-    this.hd.setAccountIndex(this.wallet.activeAccountId);
-    return address;
+    const { activeAccountType, accounts } = this.wallet;
+    const { xpub } = accounts[activeAccountType][id];
+
+    return await this.getAddress(xpub, true);
   };
 
   public updateReceivingAddress = async (): Promise<string> => {
     const { activeAccountType, accounts, activeAccountId } = this.wallet;
     const { xpub } = accounts[activeAccountType][activeAccountId];
-    let address = '';
-    if (this.hd === null)
-      throw new Error('HD not created yet, unlock or initialize wallet first');
-    switch (activeAccountType) {
-      case KeyringAccountType.HDAccount:
-        address = await this.hd.getNewReceivingAddress(true, 84);
-        break;
-      case KeyringAccountType.Trezor:
-        address = await this.getAddress(xpub, false, activeAccountId);
-        break;
-      default:
-        break;
-    }
 
+    const address = await this.getAddress(xpub, false);
     this.wallet.accounts[activeAccountType][activeAccountId].address = address;
     return address;
   };
@@ -353,12 +343,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR createKeyringVault', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -373,9 +357,7 @@ export class KeyringManager implements IKeyringManager {
         'Initialise wallet first, cant change accounts without an active HD'
       );
 
-    if (this.wallet.accounts[accountType][accountId].address && this.hd) {
-      this.hd.setAccountIndex(accountId);
-    }
+    // Don't set account index here - it will be set after updateUTXOAccounts
 
     const accounts = this.wallet.accounts[accountType];
     if (!accounts[accountId].xpub) throw new Error('Account not set');
@@ -396,7 +378,17 @@ export class KeyringManager implements IKeyringManager {
         this.wallet.activeNetwork
       );
 
-      await this.updateUTXOAccounts(rpc, isTestnet);
+      // Check if HD signer needs to be recreated due to network changes
+      const needsHDSignerUpdate = this.shouldUpdateHDSigner(rpc, isTestnet);
+
+      if (needsHDSignerUpdate) {
+        await this.updateUTXOAccounts(rpc, isTestnet);
+      }
+
+      // Set account index for any account type that has an HD signer
+      if (this.hd) {
+        this.hd.setAccountIndex(accountId);
+      }
     }
   };
 
@@ -439,12 +431,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR getPrivateKeyByAccountId', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(pwd),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -598,6 +584,14 @@ export class KeyringManager implements IKeyringManager {
     wallet?: IWalletState;
     activeChain?: INetworkType;
   }> => {
+    // FIX #4: Check network type before making calls
+    if (this.isSyscoinChain(network) && chain === INetworkType.Ethereum) {
+      throw new Error('Cannot use Ethereum chain type with Syscoin network');
+    }
+    if (!this.isSyscoinChain(network) && chain === INetworkType.Syscoin) {
+      throw new Error('Cannot use Syscoin chain type with Ethereum network');
+    }
+
     if (INetworkType.Ethereum !== chain && INetworkType.Syscoin !== chain) {
       throw new Error('Unsupported chain');
     }
@@ -613,7 +607,14 @@ export class KeyringManager implements IKeyringManager {
     try {
       if (chain === INetworkType.Syscoin) {
         const { rpc, isTestnet } = await this.getSignerUTXO(network);
-        await this.updateUTXOAccounts(rpc, isTestnet);
+
+        // Check if HD signer needs to be recreated due to network changes
+        const needsHDSignerUpdate = this.shouldUpdateHDSigner(rpc, isTestnet);
+
+        if (needsHDSignerUpdate) {
+          await this.updateUTXOAccounts(rpc, isTestnet);
+        }
+
         if (!this.hd) throw new Error('Error initialising HD');
         this.hd.setAccountIndex(this.wallet.activeAccountId);
       } else if (chain === INetworkType.Ethereum) {
@@ -644,12 +645,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (err) {
       console.log('ERROR setSignerNetwork', {
         err,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
 
       this.validateAndHandleErrorByMessage(err.message);
@@ -671,7 +666,7 @@ export class KeyringManager implements IKeyringManager {
     }
   };
 
-  public forgetMainWallet = (pwd: string) => {
+  public forgetMainWallet = async (pwd: string) => {
     const genPwd = this.encryptSHA512(pwd, this.currentSessionSalt);
     if (!this.sessionPassword) {
       throw new Error('Unlock wallet first');
@@ -679,14 +674,24 @@ export class KeyringManager implements IKeyringManager {
       throw new Error('Invalid password');
     }
 
-    this.clearTemporaryLocalKeys(pwd);
+    await this.clearTemporaryLocalKeys(pwd);
   };
 
   public importWeb3Account = (mnemonicOrPrivKey: string) => {
+    // Check if it's a hex string (Ethereum private key)
     if (ethers.utils.isHexString(mnemonicOrPrivKey)) {
       return new ethers.Wallet(mnemonicOrPrivKey);
     }
 
+    // Check if it's a zprv/tprv (Syscoin private key)
+    const zprvPrefixes = ['zprv', 'tprv', 'vprv', 'xprv'];
+    if (zprvPrefixes.some((prefix) => mnemonicOrPrivKey.startsWith(prefix))) {
+      throw new Error(
+        'Syscoin extended private keys (zprv/tprv) should be imported using importAccount, not importWeb3Account'
+      );
+    }
+
+    // Otherwise, assume it's a mnemonic
     const account = ethers.Wallet.fromMnemonic(mnemonicOrPrivKey);
 
     return account;
@@ -803,21 +808,18 @@ export class KeyringManager implements IKeyringManager {
   public createEthAccount = (privateKey: string) =>
     new ethers.Wallet(privateKey);
 
-  public getAddress = async (
-    xpub: string,
-    isChangeAddress: boolean,
-    index: number
-  ) => {
+  public getAddress = async (xpub: string, isChangeAddress: boolean) => {
     const { hd, main } = this.getSigner();
     const options = 'tokens=used&details=tokens';
 
-    const { tokens } = await sys.utils.fetchBackendAccount(
+    const { tokens } = await syscoinjs.utils.fetchBackendAccount(
       main.blockbookURL,
       xpub,
       options,
       true,
       undefined
     );
+
     const { receivingIndex, changeIndex } =
       this.setLatestIndexesFromXPubTokens(tokens);
 
@@ -827,19 +829,11 @@ export class KeyringManager implements IKeyringManager {
       hd.Signer.networks
     );
 
-    this.trezorAccounts.push(currentAccount);
-
-    const address = this.trezorAccounts[index]
-      ? (this.trezorAccounts[index].getAddress(
-          isChangeAddress ? changeIndex : receivingIndex,
-          isChangeAddress,
-          84
-        ) as string)
-      : (this.trezorAccounts[this.trezorAccounts.length - 1].getAddress(
-          isChangeAddress ? changeIndex : receivingIndex,
-          isChangeAddress,
-          84
-        ) as string);
+    const address = currentAccount.getAddress(
+      isChangeAddress ? changeIndex : receivingIndex,
+      isChangeAddress,
+      84
+    ) as string;
 
     return address;
   };
@@ -851,13 +845,19 @@ export class KeyringManager implements IKeyringManager {
     this.sessionMainMnemonic = '';
   };
 
-  public async importAccount(privKey: string, label?: string) {
+  public async importAccount(
+    privKey: string,
+    label?: string,
+    targetNetwork?: INetwork
+  ) {
     const importedAccount = await this._getPrivateKeyAccountInfos(
       privKey,
-      label
+      label,
+      targetNetwork
     );
 
-    this.wallet.accounts.Imported[importedAccount.id] = importedAccount;
+    this.wallet.accounts[KeyringAccountType.Imported][importedAccount.id] =
+      importedAccount;
 
     return importedAccount;
   }
@@ -875,12 +875,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR updateAllPrivateKeyAccounts', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -894,37 +888,10 @@ export class KeyringManager implements IKeyringManager {
     this.wallet.accounts[accountType][accountId].label = label;
   };
 
-  public validateZprv(zprv: string) {
-    const isTestnet = this.verifyIfIsTestnet();
-
-    const networks = {
-      mainnet: {
-        messagePrefix: '\x18Syscoin Signed Message:\n',
-        bech32: 'sys',
-        bip32: {
-          public: 0x04b24746, // zpub
-          private: 0x04b2430c, // zprv
-        },
-        pubKeyHash: 0x3f,
-        scriptHash: 0x05,
-        slip44: 57,
-        wif: 0x80,
-      },
-      testnet: {
-        messagePrefix: '\x18Syscoin Signed Message:\n',
-        bech32: 'tsys',
-        bip32: {
-          public: 0x043587cf, // tpub
-          private: 0x04358394, // tprv
-        },
-        pubKeyHash: 0x6f,
-        scriptHash: 0xc4,
-        slip44: 1,
-        wif: 0xef,
-      },
-    };
-
-    const network = isTestnet ? networks.testnet : networks.mainnet;
+  public validateZprv(zprv: string, targetNetwork: INetwork) {
+    if (!targetNetwork) {
+      throw new Error('Target network is required for validation');
+    }
 
     try {
       const bip32 = BIP32Factory(ecc);
@@ -934,14 +901,22 @@ export class KeyringManager implements IKeyringManager {
         throw new Error('Invalid length for a BIP-32 key');
       }
 
+      // Use the network's currency and slip44 to get proper network config
+      const { networks } = getNetworkConfig(
+        targetNetwork.slip44 || targetNetwork.chainId,
+        targetNetwork.currency || 'Bitcoin'
+      );
+
+      const isTestnet =
+        targetNetwork.isTestnet || targetNetwork.chainId === 5700;
+      const network = isTestnet ? networks.testnet : networks.mainnet;
+
       const node = bip32.fromBase58(zprv, network);
-
       if (!node.privateKey) {
-        throw new Error('Private key not found in zprv');
+        throw new Error('Private key not found in extended private key');
       }
-
       if (!ecc.isPrivate(node.privateKey)) {
-        throw new Error('Invalid private key for secp256k1 curve.');
+        throw new Error('Invalid private key for secp256k1 curve');
       }
 
       return {
@@ -982,12 +957,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR getDecryptedPrivateKey', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1060,17 +1029,22 @@ export class KeyringManager implements IKeyringManager {
   private createMainWallet = async (
     mnemonic: string
   ): Promise<IKeyringAccountState> => {
+    // Check if we're on testnet based on the active network
+    const isTestnet =
+      this.wallet.activeNetwork.isTestnet ||
+      this.wallet.activeNetwork.chainId === 5700;
+
     //@ts-ignore
-    this.hd = new sys.utils.HDSigner(
+    this.hd = new syscoinjs.utils.HDSigner(
       mnemonic,
       null,
-      false,
+      isTestnet, // Use actual network instead of hardcoded false
       undefined,
       undefined,
       undefined,
       84
     ) as SyscoinHDSigner; //To understand better this look at: https://github.com/syscoin/syscoinjs-lib/blob/298fda26b26d7007f0c915a6f77626fb2d3c852f/utils.js#L894
-    this.syscoinSigner = new sys.SyscoinJSLib(
+    this.syscoinSigner = new syscoinjs.SyscoinJSLib(
       this.hd,
       this.wallet.activeNetwork.url,
       undefined
@@ -1083,6 +1057,7 @@ export class KeyringManager implements IKeyringManager {
         url: this.wallet.activeNetwork.url,
         xpub,
         id: this.hd.Signer.accountIndex,
+        activeAccountId: this.hd.Signer.accountIndex,
       });
 
     const account = this.getInitialAccountData({
@@ -1126,29 +1101,44 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
-  private addUTXOAccount = async (accountId: number): Promise<any> => {
+  private addUTXOAccount = async (
+    accountId: number,
+    activeAccountId: number
+  ): Promise<any> => {
     try {
       if (this.hd === null) throw new Error('No HD Signer');
-      if (accountId !== 0 && !this.hd.Signer.accounts[accountId]) {
-        //We must recreate the account if it doesn't exist at the signer
+
+      // Create the specific account if it doesn't exist
+      if (!this.hd.Signer.accounts[accountId]) {
+        // Derive the specific account we need
         const childAccount = this.hd.deriveAccount(accountId, 84);
 
-        const derivedAccount = new fromZPrv(
+        // Create the BIP84 account directly and insert it at the correct index
+        const derivedAccount = new BIP84.fromZPrv(
           childAccount,
           this.hd.Signer.pubTypes,
           this.hd.Signer.networks
         );
 
-        this.hd.Signer.accounts.push(derivedAccount);
-        this.hd.setAccountIndex(accountId);
+        // Ensure the accounts array is large enough and insert at the correct index
+        while (this.hd.Signer.accounts.length <= accountId) {
+          this.hd.Signer.accounts.push(null);
+        }
+        this.hd.Signer.accounts[accountId] = derivedAccount;
       }
 
+      // Temporarily set account index to get correct xpub/xprv for this specific account
+      const originalAccountIndex = this.hd.Signer.accountIndex;
+      this.hd.setAccountIndex(accountId);
       const xpub = this.hd.getAccountXpub();
       const xprv = this.getEncryptedXprv();
+      // Restore original account index
+      this.hd.setAccountIndex(originalAccountIndex);
 
       const basicAccountInfo = await this.getBasicSysAccountInfo(
         xpub,
-        accountId
+        accountId,
+        activeAccountId
       );
 
       const isImported =
@@ -1164,24 +1154,23 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR addUTXOAccount', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
   };
 
-  private getBasicSysAccountInfo = async (xpub: string, id: number) => {
+  private getBasicSysAccountInfo = async (
+    xpub: string,
+    id: number,
+    activeAccountId: number
+  ) => {
     if (!this.syscoinSigner) throw new Error('No HD Signer');
     const label = this.wallet.accounts[KeyringAccountType.HDAccount][id].label;
     const formattedBackendAccount = await this.getFormattedBackendAccount({
       url: this.syscoinSigner.blockbookURL,
       xpub,
       id,
+      activeAccountId,
     });
     return {
       id,
@@ -1216,7 +1205,7 @@ export class KeyringManager implements IKeyringManager {
 
     const isEVM = coin === 'eth';
 
-    const address = isEVM ? xpub : await this.getAddress(xpub, false, +index);
+    const address = isEVM ? xpub : await this.getAddress(xpub, false);
 
     if (isEVM) {
       const response = await this.trezorSigner.getPublicKey({
@@ -1307,13 +1296,14 @@ export class KeyringManager implements IKeyringManager {
         });
 
         const options = 'tokens=used&details=tokens';
-        const { balance: sysBalance } = await sys.utils.fetchBackendAccount(
-          this.wallet.activeNetwork.url,
-          xpub,
-          options,
-          true,
-          undefined
-        );
+        const { balance: sysBalance } =
+          await syscoinjs.utils.fetchBackendAccount(
+            this.wallet.activeNetwork.url,
+            xpub,
+            options,
+            true,
+            undefined
+          );
         balance = sysBalance;
       } catch (e) {
         throw new Error(e);
@@ -1373,26 +1363,34 @@ export class KeyringManager implements IKeyringManager {
     url,
     xpub,
     id,
+    activeAccountId,
   }: {
     url: string;
     xpub: string;
     id: number;
+    activeAccountId: number;
   }): Promise<ISysAccount> => {
     if (this.hd === null) throw new Error('No HD Signer');
     const bipNum = 84; //TODO: we need to change this logic to use descriptors for now we only use bip84
     const options = 'tokens=used&details=tokens';
-    let balance = 0,
-      stealthAddr = '';
+    let balance = 0;
+    let receivingIndex = 0;
+    let stealthAddr = '';
     try {
-      const { balance: _balance, tokens } = await sys.utils.fetchBackendAccount(
-        url,
-        xpub,
-        options,
-        true,
-        undefined
-      );
-      const { receivingIndex } = this.setLatestIndexesFromXPubTokens(tokens);
-      balance = _balance;
+      // only fetch backend account for the active account
+      if (id === activeAccountId) {
+        const { balance: _balance, tokens } =
+          await syscoinjs.utils.fetchBackendAccount(
+            url,
+            xpub,
+            options,
+            true,
+            undefined
+          );
+        const indexes = this.setLatestIndexesFromXPubTokens(tokens);
+        receivingIndex = indexes.receivingIndex;
+        balance = _balance;
+      }
       stealthAddr = this.hd.Signer.accounts[id].getAddress(
         receivingIndex,
         false,
@@ -1411,63 +1409,39 @@ export class KeyringManager implements IKeyringManager {
       },
     };
   };
-
-  private setLatestIndexesFromXPubTokens = (tokens: any) => {
-    let maxChangeIndex = 0;
-    let maxReceivingIndex = 0;
-
-    if (tokens && tokens.length > 0) {
-      for (let i = tokens.length - 1; i >= 0; i--) {
-        const token = tokens[i];
+  private setLatestIndexesFromXPubTokens = function (tokens) {
+    let changeIndexInternal = -1,
+      receivingIndexInternal = -1;
+    if (tokens) {
+      tokens.forEach((token) => {
         if (!token.transfers || !token.path) {
-          continue;
+          return {
+            changeIndex: changeIndexInternal + 1,
+            receivingIndex: receivingIndexInternal + 1,
+          };
         }
-
         const transfers = parseInt(token.transfers, 10);
         if (token.path && transfers > 0) {
           const splitPath = token.path.split('/');
           if (splitPath.length >= 6) {
             const change = parseInt(splitPath[4], 10);
             const index = parseInt(splitPath[5], 10);
-
-            // set the max index for change and receiving
-            if (change === 1 && maxChangeIndex === 0) {
-              maxChangeIndex = index;
-            } else if (change === 0 && maxReceivingIndex === 0) {
-              maxReceivingIndex = index;
-            }
-
-            if (maxChangeIndex !== 0 && maxReceivingIndex !== 0) {
-              // we found both indexes
-              break;
+            if (change === 1) {
+              if (index > changeIndexInternal) {
+                changeIndexInternal = index;
+              }
+            } else if (index > receivingIndexInternal) {
+              receivingIndexInternal = index;
             }
           }
         }
-      }
+      });
     }
-
-    // create a range
-    const changeRange = Array.from({ length: maxChangeIndex + 1 }, (_, i) => i);
-    const receivingRange = Array.from(
-      { length: maxReceivingIndex + 1 },
-      (_, i) => i
-    );
-
-    const getRandomIndex = (type: 'change' | 'receiving') => {
-      const range = type === 'change' ? changeRange : receivingRange;
-      return range[Math.floor(Math.random() * range.length)];
-    };
-
-    // select random indexes (using the max index as the range)
-    const randomChangeIndex = changeRange[getRandomIndex('change')];
-    const randomReceivingIndex = receivingRange[getRandomIndex('receiving')];
-
     return {
-      changeIndex: randomChangeIndex,
-      receivingIndex: randomReceivingIndex,
+      changeIndex: changeIndexInternal + 1,
+      receivingIndex: receivingIndexInternal + 1,
     };
   };
-
   //todo network type
   private async addNewAccountToSyscoinChain(network: any, label?: string) {
     try {
@@ -1488,6 +1462,7 @@ export class KeyringManager implements IKeyringManager {
       const latestUpdate: ISysAccount = await this.getFormattedBackendAccount({
         url: network.url,
         xpub,
+        id,
         id,
       });
 
@@ -1517,12 +1492,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR addNewAccountToSyscoinChain', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1578,12 +1547,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR addNewAccountToEth', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1634,12 +1597,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR updateWeb3Accounts', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1682,12 +1639,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR setDerivedWeb3Accounts', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1707,6 +1658,11 @@ export class KeyringManager implements IKeyringManager {
   private setSignerEVM = async (network: INetwork): Promise<void> => {
     const abortController = new AbortController();
     try {
+      // FIX #4: Don't make ETH calls for UTXO networks
+      if (this.isSyscoinChain(network)) {
+        throw new Error('Cannot use EVM signer for UTXO network');
+      }
+
       const web3Provider = new CustomJsonRpcProvider(
         abortController.signal,
         network.url
@@ -1739,7 +1695,6 @@ export class KeyringManager implements IKeyringManager {
       if (!this.sessionPassword) {
         throw new Error('Unlock wallet first');
       }
-
       const accounts = this.wallet.accounts[this.wallet.activeAccountType];
       const isHDAccount =
         this.wallet.activeAccountType === KeyringAccountType.HDAccount;
@@ -1761,6 +1716,11 @@ export class KeyringManager implements IKeyringManager {
 
       this.hd = hd;
       this.syscoinSigner = main;
+
+      // Initialize with account index 0, will be set correctly after account restoration
+      this.hd.setAccountIndex(0);
+
+      // Recreate all existing accounts in the new HD signer
       const walletAccountsArray = isHDAccount
         ? Object.values(accounts)
         : Object.values(accounts).filter(
@@ -1769,27 +1729,23 @@ export class KeyringManager implements IKeyringManager {
 
       // Create an array of promises.
       const accountPromises = walletAccountsArray.map(async ({ id }) => {
-        await this.addUTXOAccount(Number(id));
+        await this.addUTXOAccount(Number(id), this.wallet.activeAccountId);
       });
       await Promise.all(accountPromises);
+
+      // Note: Don't set account index here - it will be set correctly by setActiveAccount
     } catch (error) {
       console.log('ERROR updateUTXOAccounts', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(this.memPassword),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
   };
 
-  private clearTemporaryLocalKeys = (pwd: string) => {
+  private clearTemporaryLocalKeys = async (pwd: string) => {
     this.wallet = initialWalletState;
 
-    setEncryptedVault(
+    await setEncryptedVault(
       {
         mnemonic: '',
       },
@@ -1805,6 +1761,45 @@ export class KeyringManager implements IKeyringManager {
 
   private generateSalt = () => crypto.randomBytes(16).toString('hex');
 
+  private shouldUpdateHDSigner = (rpc: any, isTestnet: boolean): boolean => {
+    // Always update if no HD signer exists
+    if (!this.hd || !this.syscoinSigner) {
+      return true;
+    }
+
+    try {
+      const currentSlip44 = this.hd.Signer.SLIP44;
+      const currentIsTestnet = this.hd.Signer.isTestnet;
+      const currentURL = this.syscoinSigner.blockbookURL;
+
+      const newSlip44 =
+        rpc.formattedNetwork.slip44 || rpc.formattedNetwork.chainId;
+      const newURL = rpc.formattedNetwork.url;
+
+      // 1. Check testnet/mainnet status mismatch
+      if (currentIsTestnet !== isTestnet) {
+        return true;
+      }
+
+      // 2. Check SLIP44/chainId mismatch (covers different UTXO networks)
+      if (currentSlip44 !== newSlip44) {
+        return true;
+      }
+
+      // 3. Check blockbook URL mismatch (handles custom RPC endpoints)
+      if (currentURL !== newURL) {
+        return true;
+      }
+
+      // No mismatch detected - no need to update HD signer
+      return false;
+    } catch (error) {
+      // If we can't determine the current state, err on the side of updating
+      console.log('Error checking HD signer state, forcing update:', error);
+      return true;
+    }
+  };
+
   // ===================================== PRIVATE KEY ACCOUNTS METHODS - SIMPLE KEYRING ===================================== //
   private async updatePrivWeb3Account(account: IKeyringAccountState) {
     const isEthAddress = ethers.utils.isAddress(account.address);
@@ -1818,7 +1813,7 @@ export class KeyringManager implements IKeyringManager {
           this.wallet.activeNetwork.isTestnet ? '5700' : '57'
         ].url;
       const options = 'tokens=used&details=tokens';
-      const response = await sys.utils.fetchBackendAccount(
+      const response = await syscoinjs.utils.fetchBackendAccount(
         networkUrl,
         account.xpub,
         options,
@@ -1938,12 +1933,6 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR updateValuesToUpdateWalletKeys', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(pwd),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
@@ -1990,16 +1979,35 @@ export class KeyringManager implements IKeyringManager {
             let encryptNewXprv = '';
 
             if (!isBitcoinBased) {
-              let { mnemonic } = await getDecryptedVault(pwd);
-              mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
-                CryptoJS.enc.Utf8
-              );
-              const { privateKey } = ethers.Wallet.fromMnemonic(mnemonic);
+              try {
+                let { mnemonic } = await getDecryptedVault(pwd);
+                mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
+                  CryptoJS.enc.Utf8
+                );
 
-              encryptNewXprv = CryptoJS.AES.encrypt(
-                privateKey,
-                this.sessionPassword
-              ).toString();
+                // Validate mnemonic before using it
+                if (!mnemonic || mnemonic.length < 10) {
+                  console.warn(
+                    'Invalid mnemonic detected, skipping Ethereum key update for account',
+                    id
+                  );
+                  continue;
+                }
+
+                const { privateKey } = ethers.Wallet.fromMnemonic(mnemonic);
+
+                encryptNewXprv = CryptoJS.AES.encrypt(
+                  privateKey,
+                  this.sessionPassword
+                ).toString();
+              } catch (mnemonicError) {
+                console.warn(
+                  'Failed to process mnemonic for Ethereum account',
+                  id,
+                  mnemonicError.message
+                );
+                continue;
+              }
             } else {
               encryptNewXprv = CryptoJS.AES.encrypt(
                 decryptedXprvs[accountTypeKey as KeyringAccountType][id],
@@ -2019,18 +2027,16 @@ export class KeyringManager implements IKeyringManager {
     } catch (error) {
       console.log('ERROR updateWalletKeys', {
         error,
-        values: {
-          memPass: this.memPassword,
-          memMnemonic: this.memMnemonic,
-          vaultKeys: this.storage.get('vault-keys'),
-          vault: getDecryptedVault(pwd),
-        },
       });
       this.validateAndHandleErrorByMessage(error.message);
     }
   }
 
-  private async _getPrivateKeyAccountInfos(privKey: string, label?: string) {
+  private async _getPrivateKeyAccountInfos(
+    privKey: string,
+    label?: string,
+    targetNetwork?: INetwork
+  ) {
     const { accounts } = this.wallet;
     let importedAccountValue: {
       address: string;
@@ -2043,19 +2049,24 @@ export class KeyringManager implements IKeyringManager {
       ethereum: 0,
     };
 
-    //Validate if the private key value that we receive already starts with 0x or not
-    const { isValid: isZprv, node, network } = this.validateZprv(privKey);
+    // Try to validate as extended private key first, regardless of prefix
+    const networkToUse = targetNetwork || this.wallet.activeNetwork;
+    const zprvValidation = this.validateZprv(privKey, networkToUse);
 
-    if (isZprv) {
-      const { balance: _balance, tokens } = await sys.utils.fetchBackendAccount(
-        this.wallet.activeNetwork.url,
-        node.neutered().toBase58(),
-        'tokens=used&details=tokens',
-        true,
-        undefined
-      );
+    if (zprvValidation.isValid) {
+      const { node, network } = zprvValidation;
 
+      // Use the target network's URL for balance fetching
+      const { balance: _balance, tokens } =
+        await syscoinjs.utils.fetchBackendAccount(
+          networkToUse.url,
+          node.neutered().toBase58(),
+          'tokens=used&details=tokens',
+          true,
+          undefined
+        );
       const { receivingIndex } = this.setLatestIndexesFromXPubTokens(tokens);
+
       const nodeChild = node.derivePath(`0/${receivingIndex}`);
       const { address } = bjs.payments.p2wpkh({
         pubkey: Buffer.from(nodeChild.publicKey),
@@ -2070,8 +2081,16 @@ export class KeyringManager implements IKeyringManager {
 
       balances.syscoin = _balance / 1e8;
     } else {
+      // It's an Ethereum private key
       const hexPrivateKey =
         privKey.slice(0, 2) === '0x' ? privKey : `0x${privKey}`;
+
+      // Validate it's a valid hex string
+      if (!/^0x[0-9a-fA-F]{64}$/.test(hexPrivateKey)) {
+        throw new Error(
+          'Invalid private key format. Expected 32-byte hex string or extended private key.'
+        );
+      }
 
       importedAccountValue =
         this.ethereumTransaction.importAccount(hexPrivateKey);

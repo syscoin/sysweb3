@@ -44,7 +44,7 @@ Inside of source folder, you'll find some others folders like:
 
 - `accounts`: this folder have the `eth-accounts` file. There, you'll be able to use all the web3 functions related to web3 account, like `getBalance` and `getTokens`, `sendTransaction`
 - `address`: this folder have the `syscoin` file. There, you'll be able to use all the sys functions related to sys account, like `getValidAddress` and `getChangeAddress`
-- `transactions`: this folder have the `syscoin` file. There, you'll be able to use all the sys functions related to sys transactions, like `confirmTokenCreation` and `signTransaction`
+- `transactions`: this folder have the `syscoin` file. There, you'll be able to use all the sys functions related to sys transactions like `signTransaction`
 - `trezor`: this folder have the `init`, `transactions` and `wallet` files. There, you'll be able to use all the sys functions related to trezor wallet, like `initialize`, `TrezorTransactions` and `TrezorWallet`
 - `wallets`: this folder have the `main` file. There, you'll be able to use all the sys functions related to wallet, like `getAccountXpub` and `createWallet`
 

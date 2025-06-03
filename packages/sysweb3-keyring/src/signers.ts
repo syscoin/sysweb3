@@ -1,12 +1,12 @@
 import { BIP32Interface } from 'bip32';
 import { Psbt } from 'bitcoinjs-lib';
+import * as syscoinjs from 'syscoinjs-lib';
 
 import {
   BitcoinNetwork,
   IPubTypes,
   INetwork,
 } from '@pollum-io/sysweb3-network';
-import { sys } from '@pollum-io/sysweb3-utils';
 
 export const getSyscoinSigners = ({
   mnemonic,
@@ -15,23 +15,25 @@ export const getSyscoinSigners = ({
 }: ISyscoinSignerParams): { hd: SyscoinHDSigner; main: any } => {
   const { url } = rpc.formattedNetwork;
   let config: BitcoinNetwork | null = null;
-  let slip44: number | null = null;
   let pubTypes: IPubTypes | null = null;
   let networks: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork } | null =
     null;
+
+  // Use explicit SLIP44 from network configuration - all networks now have correct slip44 values
+  const slip44 = rpc.formattedNetwork.slip44;
+
   if (rpc.networkConfig) {
-    const { formattedNetwork, networkConfig } = rpc;
+    const { networkConfig } = rpc;
 
     const { networks: _networkConfig, types } = networkConfig;
 
     config = isTestnet ? _networkConfig.testnet : _networkConfig.mainnet;
 
     networks = _networkConfig;
-    slip44 = formattedNetwork.chainId;
     pubTypes = types.zPubType;
   }
   // @ts-ignore
-  const hd: SyscoinHDSigner = new sys.utils.HDSigner(
+  const hd: SyscoinHDSigner = new syscoinjs.utils.HDSigner(
     mnemonic,
     null,
     isTestnet,
@@ -41,7 +43,7 @@ export const getSyscoinSigners = ({
     84
   );
 
-  const main: any = new sys.SyscoinJSLib(hd, url, config);
+  const main: any = new syscoinjs.SyscoinJSLib(hd, url, config);
 
   return {
     hd,
@@ -108,7 +110,8 @@ export interface SyscoinHDSigner {
     setIndexFlag: number;
     blockbookURL: string;
   };
-  mnemonicOrZprv: string;
+  mnemonicOrZprv: string; // Updated to reflect the enhanced property name
+  importMethod: string; // Added new property for import method tracking
   node: {
     seed: Buffer;
     isTestnet: boolean;
@@ -117,16 +120,22 @@ export interface SyscoinHDSigner {
     network: BitcoinNetwork;
   };
   blockbookURL: string;
-  signPSBT: (psbt: Psbt, pathIn?: string) => Psbt;
-  sign: (psbt: Psbt, pathIn?: string) => Psbt;
+  signPSBT: (psbt: Psbt, pathIn?: string) => Promise<Psbt>; // Made async
+  sign: (psbt: Psbt, pathIn?: string) => Promise<Psbt>; // Made async
   getMasterFingerprint: () => Buffer;
   deriveAccount: (index: number, bipNum?: number) => string;
   setAccountIndex: (accountIndex: number) => void;
   restore: (password: string, bipNum?: number) => boolean;
   backup: () => void;
-  getNewChangeAddress: (skipIncrement?: boolean, bipNum?: number) => string;
-  getNewReceivingAddress: (skipIncrement?: boolean, bipNum?: number) => string;
-  createAccount: (bipNum?: number) => number;
+  getNewChangeAddress: (
+    skipIncrement?: boolean,
+    bipNum?: number
+  ) => Promise<string>; // Already async
+  getNewReceivingAddress: (
+    skipIncrement?: boolean,
+    bipNum?: number
+  ) => Promise<string>; // Already async
+  createAccount: (bipNum?: number, zprv?: string) => number; // Updated signature
   getAccountXpub: () => string;
   setLatestIndexesFromXPubTokens: (tokens: any) => void;
   createAddress: (

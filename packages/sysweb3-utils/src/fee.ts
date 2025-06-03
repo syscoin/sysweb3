@@ -1,9 +1,7 @@
 import coinSelectSyscoin from 'coinselectsyscoin';
 import { ethers } from 'ethers';
+import * as syscoinjs from 'syscoinjs-lib';
 import syscointx from 'syscointx-js';
-
-// @ts-ignore
-import * as sys from './syscoints';
 
 type EstimateFeeParams = {
   outputs: { value: number; address: string }[];
@@ -25,8 +23,8 @@ export const feeUtils = () => {
   }: EstimateFeeParams) => {
     const txOpts = { rbf: false };
 
-    const utxos = await sys.utils.fetchBackendUTXOS(explorerUrl, xpub);
-    const utxosSanitized = sys.utils.sanitizeBlockbookUTXOs(
+    const utxos = await syscoinjs.utils.fetchBackendUTXOS(explorerUrl, xpub);
+    const utxosSanitized = syscoinjs.utils.sanitizeBlockbookUTXOs(
       null,
       utxos,
       network
@@ -38,19 +36,20 @@ export const feeUtils = () => {
       utxosSanitized,
       changeAddress,
       outputs,
-      new sys.utils.BN(0)
+      new syscoinjs.utils.BN(0)
     );
     const bytes = coinSelectSyscoin.utils.transactionBytes(
       tx.inputs,
       tx.outputs
     );
-    const txFee = feeRateBN.mul(new sys.utils.BN(bytes));
+    const txFee = feeRateBN.mul(new syscoinjs.utils.BN(bytes));
 
     return txFee;
   };
 
-  const getRecommendedFee = async (explorerUrl: string): Promise<number> =>
-    (await sys.utils.fetchEstimateFee(explorerUrl, 1)) / 10 ** 8;
+  const getRecommendedFee = async (explorerUrl: string): Promise<number> => {
+    return (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1)) / 10 ** 8;
+  };
 
   const convertGasFee = (value: string) =>
     ethers.utils.formatEther(String(value));

@@ -12,12 +12,7 @@ import {
 import { LedgerKeyring } from './ledger';
 import { TrezorKeyring } from './trezor';
 import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
-import {
-  ITokenMint,
-  ITokenSend,
-  ITokenUpdate,
-  ITxid,
-} from '@pollum-io/sysweb3-utils';
+import { ITokenSend, ITxid } from '@pollum-io/sysweb3-utils';
 
 export interface ITrezorWallet {
   createHardwareWallet: () => Promise<IKeyringAccountState>;
@@ -154,16 +149,6 @@ export interface ISyscoinTransactions {
     amount: number;
     receivingAddress: string;
   }) => Promise<number>;
-  confirmNftCreation: (tx: any) => { success: boolean };
-  confirmTokenMint: (transaction: ITokenMint) => Promise<ITxid>;
-  confirmTokenCreation: (transaction: any) => Promise<{
-    transactionData: any;
-    txid: string;
-    confirmations: number;
-    guid: string;
-  }>;
-  transferAssetOwnership: (transaction: any) => Promise<ITxid>;
-  confirmUpdateToken: (transaction: ITokenUpdate) => Promise<ITxid>;
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
   sendTransaction: (
     transaction: ITokenSend,
@@ -245,7 +230,10 @@ export interface IKeyringManager {
     accountType: KeyringAccountType
   ) => void;
   utf8Error: boolean;
-  validateZprv: (zprv: string) => IValidateZprvResponse;
+  validateZprv: (
+    zprv: string,
+    targetNetwork?: INetwork
+  ) => IValidateZprvResponse;
 }
 
 export enum KeyringAccountType {
@@ -300,9 +288,24 @@ type IsBitcoinBased = {
 
 type IOriginNetwork = INetwork & IsBitcoinBased;
 
+interface INetworkParams {
+  messagePrefix: string;
+  bech32: string;
+  bip32: {
+    public: number;
+    private: number;
+  };
+  pubKeyHash: number;
+  scriptHash: number;
+  slip44: number;
+  wif: number;
+}
+
 interface IValidateZprvResponse {
   isValid: boolean;
   message: string;
+  node?: any;
+  network?: INetworkParams | null;
 }
 
 export interface IKeyringAccountState {

@@ -5,7 +5,7 @@ dotenv.config();
 export const CHAIN_ID_NUMBER = 1;
 export const CHAIN_ID_HEX = '0x01';
 export const RPC_URL = 'https://1rpc.io/eth';
-export const SYS_RPC_URL = 'https://blockbook-dev.elint.services/';
+export const SYS_RPC_URL = 'https://blockbook.syscoin.org/';
 
 export const CHAINS_EXPLORERS = [
   {
@@ -42,6 +42,7 @@ export const VALID_ETH_RPC_RESPONSE = {
   valid: true,
   chainId: 1,
   details: CHAINS_DETAILS,
+  isTestnet: false,
 };
 
 export const FORMATTED_BEDROCK_TESTNET = {
@@ -81,8 +82,8 @@ export const VALID_BLOCKBOOK_RPC_RESPONSE = {
 };
 export const VALID_SYS_BLOCKBOOK_RESPONSE = {
   valid: true,
-  coin: 'Syscoin Testnet',
-  chain: 'test',
+  coin: 'Syscoin',
+  chain: 'main',
 };
 export const VALID_BIP44_DATA_RESPONSE = {
   nativeCurrency: { name: 'Litecoin', symbol: 'ltc', decimals: 8 },
@@ -98,6 +99,7 @@ export const VALID_BITCOIN_LIKE_NETWORK = {
       messagePrefix: '\x19Litecoin Signed Message:',
       pubKeyHash: '0x30',
       scriptHash: '0x05',
+      slip44: 2,
       wif: 176,
     },
     testnet: {
@@ -106,6 +108,7 @@ export const VALID_BITCOIN_LIKE_NETWORK = {
       messagePrefix: '\x19Litecoin Signed Message:',
       pubKeyHash: '0x30',
       scriptHash: '0x05',
+      slip44: 2,
       wif: 176,
     },
   },
@@ -123,5 +126,5 @@ export const VALID_BITCOIN_LIKE_NETWORK = {
 
 /** litecoin */
 export const VALID_ADDRESS_TYPE = 48;
-export const VALID_ADDRESS_START = 'L' || 'M';
+export const VALID_ADDRESS_START = ['L', 'M'];
 export const REGEX_LITECOIN_ADDRESS = /^[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}$/g;

@@ -212,9 +212,6 @@ export const NetworkConfig: { [type: number]: any } = {
   },
 };
 
-
-
-
 export const BaseChainConfig = {
   1: {
     balances_address: '0xb1f8e55c7f64d203c1400b9d8555d050f94adf39',
@@ -257,8 +254,8 @@ export const toLowerCaseEquals = (a: string, b: string) => {
   return tlc(a) === tlc(b);
 };
 
-let etherscanAvailable = true;
-let etherscanAvailableChecked = false;
+const etherscanAvailable = true;
+const etherscanAvailableChecked = false;
 export async function isEtherscanAvailableAsync() {
   // eslint-disable-next-line no-unmodified-loop-condition
   while (!etherscanAvailableChecked) {
@@ -331,7 +328,6 @@ export function getBaseHeaders() {
   };
 }
 
-
 /**
  * Execute fetch and verify that the response was successful
  *
@@ -348,7 +344,6 @@ export async function successfulFetch(request: string, options?: RequestInit) {
   }
   return response;
 }
-
 
 /**
  * Fetch that fails after timeout

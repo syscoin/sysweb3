@@ -37,7 +37,6 @@
     "@trezor/connect-web": "^9.1.5",
     "@trezor/connect-webextension": "^9.3.0",
     "@trezor/utxo-lib": "^1.0.12",
-    "axios": "^1.6.0",
     "bip32-path": "^0.4.2",
     "bip39": "^3.0.4",
     "bip84": "^0.2.7",
@@ -47,21 +46,21 @@
     "coinselectsyscoin": "^1.0.77",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.3.1",
-    "eth-chains": "^2.0.0",
     "eth-sig-util": "^3.0.1",
     "ethereumjs-util": "^7.1.5",
     "ethereumjs-wallet": "^1.0.2",
     "ethers": "^5.6.4",
     "lodash": "^4.17.21",
     "satoshi-bitcoin": "^1.0.5",
-    "syscoinjs-lib": "^1.0.218",
-    "syscointx-js": "^1.0.106",
+    "syscoinjs-lib": "^1.0.230",
+    "syscointx-js": "^1.0.110",
     "web3": "^1.7.1",
     "zksync-ethers": "5"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.1.3",
     "@types/lodash": "^4.14.200",
-    "@types/node": "^20.8.10"
+    "@types/node": "^20.8.10",
+    "rimraf": "^6.0.1"
   }
 }

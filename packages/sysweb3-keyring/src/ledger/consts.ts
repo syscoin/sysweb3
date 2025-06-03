@@ -23,7 +23,7 @@ export const SYSCOIN_NETWORKS = {
   },
 };
 
-export const BLOCKBOOK_API_URL = 'https://blockbook.elint.services';
+export const BLOCKBOOK_API_URL = 'https://explorer-blockbook.syscoin.org/';
 export const DESCRIPTOR = 'wpkh(@0/**)';
 export const RECEIVING_ADDRESS_INDEX = 0;
 export const WILL_NOT_DISPLAY = false;

@@ -10,6 +10,4 @@ export * from './coins';
 export * from './address';
 export * from './constants';
 export * from './getContract';
-export * as sys from './syscoints';
-export * from './nfts'
-
+export * from './nfts';

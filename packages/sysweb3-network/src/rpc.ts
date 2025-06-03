@@ -7,7 +7,6 @@ import { hexlify } from 'ethers/lib/utils';
 import { getNetworkConfig, toDecimalFromHex, INetwork } from './networks';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
-const syscoinSLIP = 84;
 
 export const validateChainId = (
   chainId: number | string
@@ -232,51 +231,32 @@ export const getBip44Chain = (coin: string, isTestnet?: boolean) => {
 export const getSysRpc = async (data: any) => {
   try {
     const { valid, coin, chain } = await validateSysRpc(data.url);
-    if (coin.toLowerCase().includes('syscoin')) {
-      const chainId = chain === 'test' ? 5700 : 57;
-
-      return {
-        rpc: { formattedNetwork: { ...data, chainId }, networkConfig: null },
-        coin,
-        chain,
-      };
-    }
-    const { nativeCurrency, chainId: _chainID } = getBip44Chain(
-      coin,
-      chain === 'test'
-    );
-    let explorer: string | undefined = data.explorer;
-    let chainId = _chainID;
 
     if (!valid) throw new Error('Invalid Trezor Blockbook Explorer URL');
-    let networkConfig = null;
-    let defaultNetwork = false;
-    if (!coin.toLowerCase().includes('syscoin')) {
-      networkConfig = getNetworkConfig(chainId, coin);
-      defaultNetwork = true;
-    }
-    if (coin.toLowerCase().includes('syscoin testnet')) {
-      //This actually not true, its just a convetion used in pali to diferentiate syscoin testnet from other utxo testnets
-      chainId = 5700;
-    }
+
+    // Use standard BIP44 approach for all networks - no special cases
+    const { nativeCurrency, chainId } = getBip44Chain(coin, chain === 'test');
+    const networkConfig = getNetworkConfig(chainId, coin);
+
+    let explorer: string | undefined = data.explorer;
     if (!explorer) {
-      //We accept only trezor blockbook for UTXO chains, this method won't work for non trezor apis
-      explorer = data.url.replace(/\/api\/v[12]/, ''); //trimming /api/v{number}/ from explorer
+      // We accept only trezor blockbook for UTXO chains, this method won't work for non trezor apis
+      explorer = data.url.replace(/\/api\/v[12]/, ''); // trimming /api/v{number}/ from explorer
     }
+
     const networkType = chain === 'test' ? 'testnet' : 'mainnet';
     const formattedNetwork = {
       url: data.url,
-      apiUrl: data.url, //apiURL and URL are the same for blockbooks explorer TODO: remove this field from UTXO networks
+      apiUrl: data.url, // apiURL and URL are the same for blockbooks explorer TODO: remove this field from UTXO networks
       explorer,
       currency: nativeCurrency.symbol,
       label: data.label || coin,
-      default: defaultNetwork,
+      default: true,
       chainId,
-      slip44: networkConfig
-        ? networkConfig.networks[networkType].slip44
-        : syscoinSLIP,
+      slip44: networkConfig.networks[networkType].slip44,
       isTestnet: chain === 'test',
     };
+
     const rpc = {
       formattedNetwork,
       networkConfig,

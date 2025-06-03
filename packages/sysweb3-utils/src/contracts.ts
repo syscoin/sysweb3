@@ -21,6 +21,7 @@ export const isContractAddress = async (address: string, web3Provider: any) => {
     return Boolean(code !== '0x');
   } catch (error) {
     if (String(error).includes('bad address checksum')) return false;
+    return false; // Return false for any other error
   }
 };
 

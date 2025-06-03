@@ -1,14 +1,17 @@
+import * as syscoinjs from 'syscoinjs-lib';
+
 import { ITokenMap, ISyscoinToken } from '.';
-import * as sys from './syscoints';
 // import { web3Provider } from '@pollum-io/sysweb3-network';
 
 export const txUtils = () => {
-  const getRawTransaction = (explorerUrl: string, txid: string) =>
-    sys.utils.fetchBackendRawTx(explorerUrl, txid);
+  const getRawTransaction = (explorerUrl: string, txid: string) => {
+    return syscoinjs.utils.fetchBackendRawTx(explorerUrl, txid);
+  };
 
-  const getPsbtFromJson = (psbt: JSON): string =>
+  const getPsbtFromJson = (psbt: JSON): string => {
     //@ts-ignore
-    sys.utils.importPsbtFromJson(psbt);
+    return syscoinjs.utils.importPsbtFromJson(psbt);
+  };
 
   const getTokenMap = ({
     guid,
@@ -36,8 +39,10 @@ export const txUtils = () => {
       ],
     ]);
   };
-  //@ts-ignore
-  const getFeeRate = (fee: number): bigint => new sys.utils.BN(fee * 1e8);
+
+  const getFeeRate = (fee: number): bigint => {
+    return new syscoinjs.utils.BN(fee * 1e8);
+  };
 
   return {
     getPsbtFromJson,
@@ -102,37 +107,6 @@ export type ITransactionInfo = {
   token: ISyscoinToken | null;
 };
 
-export type INotaryDetails = {
-  endpoint?: string | null;
-  hdrequired?: boolean;
-  instanttransfers?: boolean;
-};
-
-export type IAuxFees = {
-  [auxfees: number]: {
-    bound: number;
-    percent: number;
-  };
-};
-
-export type INewToken = {
-  advanced?: {
-    auxfeedetails?: IAuxFees[];
-    capabilityflags?: string | '127';
-    initialSupply?: number;
-    notaryAddress?: string;
-    notarydetails?: INotaryDetails;
-    payoutAddress?: string;
-  };
-  description?: string;
-  fee: number;
-  maxsupply: number;
-  precision: number | 8;
-  receiver?: string;
-  symbol: string;
-  initialSupply?: number;
-};
-
 export type ITokenSend = {
   amount: number;
   fee: number;
@@ -143,51 +117,10 @@ export type ITokenSend = {
   token: { symbol: string; guid: string };
 };
 
-export type ITokenMint = {
-  amount: number;
-  assetGuid: string;
-  fee: number;
-};
-
-export type INewNFT = {
-  description: string;
-  fee: number;
-  precision: number;
-  receivingAddress: string;
-  symbol: string;
-};
-
-export type ITokenUpdate = {
-  advanced?: {
-    auxfeedetails?: IAuxFees[];
-    notaryAddress?: string;
-    notarydetails?: INotaryDetails;
-    payoutAddress?: string;
-  };
-  assetGuid: number;
-  assetWhiteList: string;
-  capabilityflags: string | '127';
-  contract: string;
-  description: string;
-  fee: number;
-};
-
-export type ITokenTransfer = {
-  assetGuid: string;
-  fee: number;
-  newOwner: string;
-};
-
 export type ITemporaryTransaction = {
-  mintAsset: ITokenMint | null;
-  mintNFT: ITokenMint | null;
-  newAsset: INewToken | null;
-  newNFT: INewNFT | null;
   sendAsset: ITokenSend | null;
   signAndSendPSBT: any | null;
   signPSBT: any | null;
-  transferAsset: ITokenTransfer | null;
-  updateAsset: ITokenUpdate | null;
 };
 
 export type IETHTxConfig = {
