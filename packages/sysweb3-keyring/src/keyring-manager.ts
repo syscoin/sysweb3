@@ -865,9 +865,14 @@ export class KeyringManager implements IKeyringManager {
   //TODO: validate updateAllPrivateKeyAccounts updating 2 accounts or more works properly
   public async updateAllPrivateKeyAccounts() {
     try {
+      const { activeAccountId } = this.wallet;
+
       const accountPromises = Object.values(
         this.wallet.accounts[KeyringAccountType.Imported]
-      ).map(async (account) => await this.updatePrivWeb3Account(account));
+      ).map(
+        async (account) =>
+          await this.updatePrivWeb3Account(account, activeAccountId)
+      );
 
       const updatedWallets = await Promise.all(accountPromises);
 
@@ -1127,30 +1132,38 @@ export class KeyringManager implements IKeyringManager {
         this.hd.Signer.accounts[accountId] = derivedAccount;
       }
 
-      // Temporarily set account index to get correct xpub/xprv for this specific account
-      const originalAccountIndex = this.hd.Signer.accountIndex;
-      this.hd.setAccountIndex(accountId);
-      const xpub = this.hd.getAccountXpub();
-      const xprv = this.getEncryptedXprv();
-      // Restore original account index
-      this.hd.setAccountIndex(originalAccountIndex);
+      // Check if wallet account already exists and we're not dealing with the active account
+      const existingWalletAccount =
+        this.wallet.accounts[this.wallet.activeAccountType][accountId];
+      const isActiveAccount = accountId === activeAccountId;
 
-      const basicAccountInfo = await this.getBasicSysAccountInfo(
-        xpub,
-        accountId,
-        activeAccountId
-      );
+      // Only update wallet account if it doesn't exist or if it's the active account (which needs fresh balance data)
+      if (!existingWalletAccount || isActiveAccount) {
+        // Temporarily set account index to get correct xpub/xprv for this specific account
+        const originalAccountIndex = this.hd.Signer.accountIndex;
+        this.hd.setAccountIndex(accountId);
+        const xpub = this.hd.getAccountXpub();
+        const xprv = this.getEncryptedXprv();
+        // Restore original account index
+        this.hd.setAccountIndex(originalAccountIndex);
 
-      const isImported =
-        this.wallet.activeAccountType === KeyringAccountType.Imported;
+        const basicAccountInfo = await this.getBasicSysAccountInfo(
+          xpub,
+          accountId,
+          activeAccountId
+        );
 
-      const createdAccount = {
-        xprv,
-        isImported,
-        ...basicAccountInfo,
-      };
-      this.wallet.accounts[this.wallet.activeAccountType][accountId] =
-        createdAccount;
+        const isImported =
+          this.wallet.activeAccountType === KeyringAccountType.Imported;
+
+        const createdAccount = {
+          xprv,
+          isImported,
+          ...basicAccountInfo,
+        };
+        this.wallet.accounts[this.wallet.activeAccountType][accountId] =
+          createdAccount;
+      }
     } catch (error) {
       console.log('ERROR addUTXOAccount', {
         error,
@@ -1520,7 +1533,8 @@ export class KeyringManager implements IKeyringManager {
       const basicAccountInfo = await this.getBasicWeb3AccountInfo(
         address,
         length,
-        label
+        label,
+        length // This new account will become active, so fetch balance
       );
 
       const createdAccount: IKeyringAccountState = {
@@ -1555,9 +1569,15 @@ export class KeyringManager implements IKeyringManager {
   private getBasicWeb3AccountInfo = async (
     address: string,
     id: number,
-    label?: string
+    label?: string,
+    activeAccountId?: number
   ) => {
-    const balance = await this.ethereumTransaction.getBalance(address);
+    let balance = 0;
+
+    // Only fetch balance for the active account
+    if (activeAccountId !== undefined && id === activeAccountId) {
+      balance = await this.ethereumTransaction.getBalance(address);
+    }
 
     return {
       id,
@@ -1577,14 +1597,16 @@ export class KeyringManager implements IKeyringManager {
       const hdAccounts = Object.values(accounts[KeyringAccountType.HDAccount]);
 
       //Account of HDAccount is always initialized as it is required to create a network
-      for (const index in hdAccounts) {
+      // Create array of promises for parallel execution
+      const hdAccountPromises = hdAccounts.map((_, index) => {
         const id = Number(index);
-
         const label =
           this.wallet.accounts[KeyringAccountType.HDAccount][id].label;
+        return this.setDerivedWeb3Accounts(id, label, activeAccountId);
+      });
 
-        await this.setDerivedWeb3Accounts(id, label);
-      }
+      // Execute all HD account updates in parallel
+      await Promise.all(hdAccountPromises);
 
       if (
         accounts[KeyringAccountType.Imported] &&
@@ -1602,40 +1624,53 @@ export class KeyringManager implements IKeyringManager {
     }
   };
 
-  private setDerivedWeb3Accounts = async (id: number, label: string) => {
+  private setDerivedWeb3Accounts = async (
+    id: number,
+    label: string,
+    activeAccountId: number
+  ) => {
     try {
-      const seed = Buffer.from(
-        CryptoJS.AES.decrypt(this.sessionSeed, this.sessionPassword).toString(
-          CryptoJS.enc.Utf8
-        ),
-        'hex'
-      );
-      const privateRoot = hdkey.fromMasterSeed(seed);
+      // Check if wallet account already exists and we're not dealing with the active account
+      const existingWalletAccount =
+        this.wallet.accounts[KeyringAccountType.HDAccount][id];
+      const isActiveAccount = id === activeAccountId;
 
-      const derivedCurrentAccount = privateRoot.derivePath(
-        `${ethHdPath}/0/${String(id)}`
-      );
+      // Only update wallet account if it doesn't exist or if it's the active account (which needs fresh balance data)
+      if (!existingWalletAccount || isActiveAccount) {
+        const seed = Buffer.from(
+          CryptoJS.AES.decrypt(this.sessionSeed, this.sessionPassword).toString(
+            CryptoJS.enc.Utf8
+          ),
+          'hex'
+        );
+        const privateRoot = hdkey.fromMasterSeed(seed);
 
-      const derievedWallet = derivedCurrentAccount.getWallet();
-      const address = derievedWallet.getAddressString();
-      const xprv = derievedWallet.getPrivateKeyString();
-      const xpub = derievedWallet.getPublicKeyString();
+        const derivedCurrentAccount = privateRoot.derivePath(
+          `${ethHdPath}/0/${String(id)}`
+        );
 
-      const basicAccountInfo = await this.getBasicWeb3AccountInfo(
-        address,
-        id,
-        label
-      );
+        const derievedWallet = derivedCurrentAccount.getWallet();
+        const address = derievedWallet.getAddressString();
+        const xprv = derievedWallet.getPrivateKeyString();
+        const xpub = derievedWallet.getPublicKeyString();
 
-      const createdAccount = {
-        address,
-        xpub,
-        xprv: CryptoJS.AES.encrypt(xprv, this.sessionPassword).toString(),
-        isImported: false,
-        ...basicAccountInfo,
-      };
+        const basicAccountInfo = await this.getBasicWeb3AccountInfo(
+          address,
+          id,
+          label,
+          activeAccountId
+        );
 
-      this.wallet.accounts[KeyringAccountType.HDAccount][id] = createdAccount;
+        const createdAccount = {
+          address,
+          xpub,
+          xprv: CryptoJS.AES.encrypt(xprv, this.sessionPassword).toString(),
+          isImported: false,
+          ...basicAccountInfo,
+        };
+
+        this.wallet.accounts[KeyringAccountType.HDAccount][id] = createdAccount;
+      }
     } catch (error) {
       console.log('ERROR setDerivedWeb3Accounts', {
         error,
@@ -1801,27 +1836,36 @@ export class KeyringManager implements IKeyringManager {
   };
 
   // ===================================== PRIVATE KEY ACCOUNTS METHODS - SIMPLE KEYRING ===================================== //
-  private async updatePrivWeb3Account(account: IKeyringAccountState) {
+  private async updatePrivWeb3Account(
+    account: IKeyringAccountState,
+    activeAccountId?: number
+  ) {
     const isEthAddress = ethers.utils.isAddress(account.address);
     let balance: null | number = null;
 
-    if (isEthAddress) {
-      balance = await this.ethereumTransaction.getBalance(account.address);
-    } else {
-      const networkUrl =
-        this.wallet.networks.syscoin[
-          this.wallet.activeNetwork.isTestnet ? '5700' : '57'
-        ].url;
-      const options = 'tokens=used&details=tokens';
-      const response = await syscoinjs.utils.fetchBackendAccount(
-        networkUrl,
-        account.xpub,
-        options,
-        true,
-        undefined
-      );
+    // Only fetch balance for the active account
+    const isActiveAccount =
+      activeAccountId !== undefined && account.id === activeAccountId;
 
-      if (response !== null) balance = response.balance / 1e8;
+    if (isActiveAccount) {
+      if (isEthAddress) {
+        balance = await this.ethereumTransaction.getBalance(account.address);
+      } else {
+        const networkUrl =
+          this.wallet.networks.syscoin[
+            this.wallet.activeNetwork.isTestnet ? '5700' : '57'
+          ].url;
+        const options = 'tokens=used&details=tokens';
+        const response = await syscoinjs.utils.fetchBackendAccount(
+          networkUrl,
+          account.xpub,
+          options,
+          true,
+          undefined
+        );
+
+        if (response !== null) balance = response.balance / 1e8;
+      }
     }
 
     const updatedAccount = {
