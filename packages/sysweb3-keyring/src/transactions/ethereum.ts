@@ -47,6 +47,17 @@ import {
   getErc55Abi,
 } from '@pollum-io/sysweb3-utils';
 
+/**
+ * Chain IDs for zkSync Era networks that require specialized L2 provider functionality.
+ * These networks use CustomL2JsonRpcProvider (which extends zksync-ethers.Provider)
+ * instead of CustomJsonRpcProvider.
+ *
+ * zkSync Era networks:
+ * - 324: zkSync Era Mainnet
+ * - 300: zkSync Era Sepolia Testnet
+ */
+const L2_NETWORK_CHAIN_IDS = [324, 300];
+
 export class EthereumTransactions implements IEthereumTransactions {
   public web3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
   public contentScriptWeb3Provider:
@@ -1777,8 +1788,7 @@ export class EthereumTransactions implements IEthereumTransactions {
   public setWeb3Provider(network: INetwork) {
     this.abortController.abort();
     this.abortController = new AbortController();
-    const L2Networks = [324, 300];
-    const isL2Network = L2Networks.includes(network.chainId);
+    const isL2Network = L2_NETWORK_CHAIN_IDS.includes(network.chainId);
 
     const CurrentProvider = isL2Network
       ? CustomL2JsonRpcProvider
