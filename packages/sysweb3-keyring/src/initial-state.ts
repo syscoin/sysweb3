@@ -118,7 +118,7 @@ export const initialNetworksState = {
       default: false,
       label: 'Tanenbaum Testnet',
       url: 'https://rpc.tanenbaum.io',
-      apiUrl: 'https://tanenbaum.io/api',
+      apiUrl: 'https://explorer.tanenbaum.io/api',
       explorer: 'https://tanenbaum.io/',
       isTestnet: true,
     },

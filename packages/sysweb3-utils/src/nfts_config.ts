@@ -167,8 +167,8 @@ export const NetworkConfig: { [type: number]: any } = {
           ticker: 'tSYS',
           nickname: 'Syscoin',
         },
-        ExplorerUrl: 'https://tanenbaum.io',
-        ExplorerApiUrl: 'https://tanenbaum.io',
+        ExplorerUrl: 'https://explorer.tanenbaum.io',
+        ExplorerApiUrl: 'https://explorer.tanenbaum.io',
       },
     },
   },
@@ -195,7 +195,7 @@ export const NetworkConfig: { [type: number]: any } = {
           nickname: 'Rollux',
         },
         ExplorerUrl: 'https://explorer.rollux.com/',
-        ExplorerApiUrl: 'https://explorer.rollux.com/',
+        ExplorerApiUrl: 'https://explorer.rollux.com',
       },
       'Rollux Testnet': {
         provider: {
