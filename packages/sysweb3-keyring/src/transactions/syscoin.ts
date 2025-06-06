@@ -1,9 +1,9 @@
 import coinSelectSyscoin from 'coinselectsyscoin';
 import * as syscoinjs from 'syscoinjs-lib';
-import syscointx from 'syscointx-js';
 // import { BIP_84, ONE_HUNDRED_MILLION, SYSCOIN_BASIC_FEE } from 'utils';
 
 import { LedgerKeyring } from '../ledger';
+import { DefaultWalletPolicy } from '../ledger/bitcoin_client';
 import { SyscoinHDSigner } from '../signers';
 import { TrezorKeyring } from '../trezor';
 import {
@@ -11,27 +11,29 @@ import {
   KeyringAccountType,
   accountType,
 } from '../types';
+import { PsbtUtils } from '../utils/psbt';
 import { INetwork } from '@pollum-io/sysweb3-network';
-import {
-  isBase64,
-  repairBase64,
-  ITokenSend,
-  ITxid,
-  txUtils,
-  getAsset,
-  countDecimals,
-} from '@pollum-io/sysweb3-utils';
+import { ITxid, txUtils, getAsset } from '@pollum-io/sysweb3-utils';
 
 type EstimateFeeParams = {
-  outputs: { value: number; address: string }[];
   changeAddress: string;
   feeRateBN: any;
+  outputs: { address: string; value: number }[];
+  txOptions: any;
   xpub: string;
-  explorerUrl: string;
 };
 
 export class SyscoinTransactions implements ISyscoinTransactions {
-  //TODO: test and validate for general UTXO chains which will be the working methods, for now we just allow contentScripts for syscoin Chains
+  // New separated transaction flow for better UX:
+  // 1. Call getEstimateSysTransactionFee() - creates UNSIGNED PSBT and calculates fee
+  // 2. Call signPSBT() - signs the PSBT with appropriate wallet (HD/Trezor/Ledger)
+  // 3. Call sendTransaction() - broadcasts the signed PSBT
+  //
+  // This separation allows:
+  // - Independent error handling for each step
+  // - Better UX feedback (fee estimation, signing, broadcasting)
+  // - Hardware wallet compatibility with proper PSBT enhancement
+
   private getSigner: () => {
     hd: SyscoinHDSigner;
     main: any;
@@ -39,13 +41,13 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   private trezor: TrezorKeyring;
   private ledger: LedgerKeyring;
   private getState: () => {
-    activeAccountId: number;
     accounts: {
-      Trezor: accountType;
-      Imported: accountType;
       HDAccount: accountType;
+      Imported: accountType;
       Ledger: accountType;
+      Trezor: accountType;
     };
+    activeAccountId: number;
     activeAccountType: KeyringAccountType;
     activeNetwork: INetwork;
   };
@@ -60,13 +62,13 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       main: any;
     },
     getState: () => {
-      activeAccountId: number;
       accounts: {
-        Trezor: accountType;
-        Imported: accountType;
         HDAccount: accountType;
+        Imported: accountType;
         Ledger: accountType;
+        Trezor: accountType;
       };
+      activeAccountId: number;
       activeAccountType: KeyringAccountType;
       activeNetwork: INetwork;
     },
@@ -80,420 +82,368 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     this.ledger = ledgerSigner;
   }
 
-  public estimateSysTransactionFee = async ({
-    outputs,
-    changeAddress,
-    feeRateBN,
-    xpub,
-    explorerUrl,
-  }: EstimateFeeParams) => {
-    const { hd } = this.getSigner();
-
-    const txOpts = { rbf: true };
-
-    const utxos = await syscoinjs.utils.fetchBackendUTXOS(
-      explorerUrl,
-      xpub,
-      undefined
-    );
-    const utxosSanitized = syscoinjs.utils.sanitizeBlockbookUTXOs(
-      null,
-      utxos,
-      hd.Signer.network,
-      undefined,
-      undefined,
-      undefined
-    );
-
-    // 0 feerate to create tx, then find bytes and multiply feeRate by bytes to get estimated txfee
-    const tx = await syscointx.createTransaction(
-      txOpts,
-      utxosSanitized,
-      changeAddress,
-      outputs,
-      new syscoinjs.utils.BN(0)
-    );
-    const bytes = coinSelectSyscoin.utils.transactionBytes(
-      tx.inputs,
-      tx.outputs
-    );
-    const txFee = feeRateBN.mul(new syscoinjs.utils.BN(bytes));
-
-    return txFee;
-  };
-
-  public getTransactionPSBT = async ({
+  private getTransactionPSBT = async ({
+    txOptions,
     outputs,
     changeAddress,
     xpub,
-    explorerUrl,
     feeRateBN,
   }: EstimateFeeParams) => {
-    const { hd, main } = this.getSigner();
+    const { main } = this.getSigner();
 
-    const txOpts = { rbf: true };
-
-    const utxos = await syscoinjs.utils.fetchBackendUTXOS(
-      explorerUrl,
-      xpub,
-      undefined
-    );
-    const utxosSanitized = syscoinjs.utils.sanitizeBlockbookUTXOs(
-      null,
-      utxos,
-      hd.Signer.network,
-      undefined,
-      undefined,
-      undefined
-    );
-
-    const tx = await syscointx.createTransaction(
-      txOpts,
-      utxosSanitized,
+    // Use syscoinjs-lib directly for transaction creation
+    const psbt = await main.createTransaction(
+      txOptions,
       changeAddress,
       outputs,
-      feeRateBN
+      feeRateBN,
+      xpub // sysFromXpubOrAddress
     );
 
-    const psbt = await main.createPSBTFromRes(tx);
-    if (psbt) return psbt;
+    if (psbt) {
+      return psbt;
+    }
     throw new Error('psbt not found');
   };
 
-  public getRecommendedFee = async (explorerUrl: string): Promise<number> => {
-    return (
-      (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) /
-      10 ** 8
-    );
-  };
+  public getRecommendedFee = async (explorerUrl: string): Promise<number> =>
+    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) /
+    10 ** 8;
 
   public txUtilsFunctions = () => {
-    const { getFeeRate, getRawTransaction, getTokenMap } = txUtils();
+    const { getRawTransaction } = txUtils();
     return {
-      getFeeRate,
       getRawTransaction,
-      getTokenMap,
     };
   };
 
-  public signPSBT = async ({
+  // Internal method for signing with the HD signer
+  private signPSBTWithSigner = async ({
     psbt,
     signer,
     pathIn,
   }: {
+    pathIn?: string;
     psbt: string;
     signer: any;
-    pathIn?: string;
-  }): Promise<JSON> => {
-    return syscoinjs.utils.exportPsbtToJson(
-      await signer.sign(psbt, pathIn),
-      undefined
-    ) as any;
-  };
+  }): Promise<any> => await signer.sign(psbt, pathIn);
 
-  public signAndSendPsbt = async ({
-    psbt,
-  }: {
-    psbt: string;
-  }): Promise<JSON> => {
-    const { main } = this.getSigner();
-    return syscoinjs.utils.exportPsbtToJson(
-      await main.signAndSend(psbt),
-      undefined
-    ) as any;
-  };
-
-  signTransaction = async (
-    data: { psbt: string },
-    isSignOnly: boolean,
-    pathIn?: string
-  ): Promise<any> => {
-    const { hd } = this.getSigner();
-
-    if (!isBase64(data.psbt)) {
-      //Trying to recover from a bad base64 string, replacing spaces with + which happens by lack of encodeURI usage
-      data.psbt = repairBase64(data.psbt);
-    }
-
-    if (!isBase64(data.psbt)) {
-      throw new Error(
-        'Bad Request: PSBT must be in Base64 format. Please check the documentation to see the correct format.'
-      );
-    }
-
-    try {
-      if (isSignOnly) {
-        return await this.signPSBT({
-          psbt: data.psbt,
-          signer: hd,
-          pathIn,
-        });
-      }
-
-      return await this.signAndSendPsbt({
-        psbt: data.psbt,
-      });
-    } catch (error) {
-      throw new Error(
-        String('Bad Request: Could not create transaction. ' + error)
-      );
-    }
-  };
-
-  public confirmCustomTokenSend = async (
-    temporaryTransaction: ITokenSend
-  ): Promise<ITxid> => {
-    const { activeAccountId, accounts, activeAccountType } = this.getState();
-    const { main } = this.getSigner();
-    const { xpub }: any = accounts[activeAccountType][activeAccountId];
-
-    const { getTokenMap } = this.txUtilsFunctions();
-
-    const { amount, rbf, receivingAddress, fee, token } = temporaryTransaction;
-    const { guid } = token;
-    const asset = await getAsset(main.blockbookURL, guid);
-
-    if (!asset)
-      throw new Error(
-        'Bad Request: Could not create transaction. Token not found.'
-      );
-
-    const txOptions = { rbf };
-    const value = new syscoinjs.utils.BN(amount * 10 ** 8);
-    const valueDecimals = countDecimals(amount);
-    const feeRate = new syscoinjs.utils.BN(fee * 1e8);
-
-    const { decimals } = asset;
-
-    if (valueDecimals > decimals) {
-      throw new Error(
-        `This token has ${decimals} decimals and you are trying to send a value with ${decimals} decimals, please check your tx`
-      );
-    }
-
-    try {
-      const changeAddress = await this.getAddress(xpub, true);
-      const tokenOptions = getTokenMap({
-        guid,
-        changeAddress,
-        amount: value as any,
-        receivingAddress,
-      });
-
-      const pendingTransaction = await main.assetAllocationSend(
-        txOptions,
-        tokenOptions,
-        null,
-        feeRate
-      );
-
-      const txid = pendingTransaction.extractTransaction().getId();
-
-      return { txid };
-    } catch (error) {
-      throw new Error('Bad Request: Could not create transaction.');
-    }
-  };
-
-  public getEstimateSysTransactionFee = async ({
+  // Create unsigned PSBT for any transaction type
+  private createUnsignedPSBT = async ({
+    txOptions = {},
     amount,
     receivingAddress,
+    feeRate,
+    token = null,
   }: {
     amount: number;
+    feeRate: number;
     receivingAddress: string;
-  }) => {
-    const { hd, main } = this.getSigner();
+    token?: { guid: string; symbol?: string } | null;
+    txOptions?: any;
+  }): Promise<any> => {
+    // Ensure RBF is enabled by default if not explicitly set
+    const finalTxOptions = { rbf: true, ...txOptions };
+    const { activeAccountId, accounts, activeAccountType } = this.getState();
+    const { main } = this.getSigner();
+    const xpub = accounts[activeAccountType][activeAccountId].xpub;
     const value = new syscoinjs.utils.BN(amount * 1e8);
-    const feeRate = new syscoinjs.utils.BN(0.00001 * 1e8);
-    const xpub = hd.getAccountXpub();
-    const outputs = [
-      {
-        address: receivingAddress,
-        value,
-      },
-    ] as any;
+    const feeRateBN = new syscoinjs.utils.BN(feeRate * 1e8);
+    const changeAddress = await this.getAddress(xpub, true);
 
-    const changeAddress = await hd.getNewChangeAddress(true, 84);
+    if (token && token.guid) {
+      // Token transaction: use assetAllocationSend
+      const asset = await getAsset(main.blockbookURL, token.guid);
 
-    try {
-      const txFee = await this.estimateSysTransactionFee({
-        outputs,
+      if (!asset) {
+        throw new Error('Token not found');
+      }
+
+      // Create a Map for the asset allocation
+      const assetMap = new Map();
+      assetMap.set(token.guid, {
         changeAddress,
-        feeRateBN: feeRate,
-        xpub,
-        explorerUrl: main.blockbookURL,
+        outputs: [
+          {
+            value: value as any,
+            address: receivingAddress,
+          },
+        ],
       });
 
-      return +`${txFee.toNumber() / 1e8}`;
-    } catch (error) {
-      console.log(error);
-      return 0.00001;
+      // Pass xpub to get back just the PSBT without signing and sending
+      const result = await main.assetAllocationSend(
+        finalTxOptions,
+        assetMap,
+        changeAddress,
+        feeRateBN,
+        xpub // Pass xpub to get PSBT back
+      );
+
+      // Return PSBT in Pali format
+      return result.psbt;
+    } else {
+      // Native transaction: use getTransactionPSBT to create unsigned PSBT
+      const outputs = [
+        {
+          address: receivingAddress,
+          value,
+        },
+      ];
+
+      const psbt = await this.getTransactionPSBT({
+        txOptions: finalTxOptions,
+        outputs,
+        changeAddress,
+        feeRateBN,
+        xpub,
+      });
+
+      return psbt;
     }
   };
 
-  public confirmNativeTokenSend = async (
-    temporaryTransaction: ITokenSend,
-    isTrezor?: boolean
-  ): Promise<ITxid> => {
-    const { activeAccountId, accounts, activeAccountType, activeNetwork } =
-      this.getState();
-    const { main } = this.getSigner();
-    const { receivingAddress, amount, fee } = temporaryTransaction;
+  // Calculate fee from PSBT
+  private calculateFeeFromPSBT = (psbt: any, feeRate: number): number => {
+    try {
+      // Method 1: Extract transaction and use coinselectsyscoin for size calculation
 
-    const {
-      xpub,
-      balances: { syscoin },
-    }: any = accounts[activeAccountType][activeAccountId];
-    if (isTrezor) {
+      // Validate PSBT structure
+      if (
+        !psbt.txInputs ||
+        !psbt.data ||
+        !psbt.data.inputs ||
+        !psbt.txOutputs
+      ) {
+        throw new Error('Invalid PSBT structure');
+      }
+
+      // Create inputs/outputs format that coinselectsyscoin expects with bounds checking
+      const inputs = psbt.txInputs.map((input: any, index: number) => {
+        // Ensure data.inputs[index] exists before accessing
+        const dataInput = psbt.data.inputs[index] || {};
+        return {
+          ...dataInput,
+          ...input,
+        };
+      });
+      const outputs = psbt.txOutputs;
+
+      // Validate that we have matching input counts
+      if (inputs.length !== psbt.txInputs.length) {
+        throw new Error('Mismatch between txInputs and data.inputs length');
+      }
+
+      // Use coinselectsyscoin.utils.transactionBytes for Syscoin-compatible calculation
+      const txBytes = coinSelectSyscoin.utils.transactionBytes(inputs, outputs);
+
+      // Calculate fee: bytes * feeRate (in SYS/byte)
+      const fee = txBytes * feeRate;
+      return fee;
+    } catch (error) {
+      // Fallback: Use virtualSize as secondary method
       try {
-        const coin =
-          activeNetwork.currency && activeNetwork.currency.toLocaleLowerCase();
+        const tx = psbt.extractTransaction();
+        const txBytes = tx.virtualSize();
+        const fee = txBytes * feeRate;
+        return fee;
+      } catch (fallbackError) {
+        // Final fallback: Use base64 size estimation
+        // Base64: 4 chars = 3 bytes, so base64Length * 3/4 = actual bytes
+        const psbtBase64 = psbt.toBase64();
+        const psbtBytes = Math.ceil((psbtBase64.length * 3) / 4);
 
-        const feeRate = new syscoinjs.utils.BN(fee * 1e8);
-        const value = new syscoinjs.utils.BN(amount * 1e8);
+        const fee = psbtBytes * feeRate;
+        return fee;
+      }
+    }
+  };
 
-        let outputs = [
-          {
-            address: receivingAddress,
-            value,
-          },
-        ] as any;
+  // Sign PSBT with appropriate method - separated for better error handling
+  private signPSBTWithMethod = async (
+    psbt: any,
+    isTrezor: boolean,
+    isLedger = false,
+    pathIn = ''
+  ): Promise<any> => {
+    const { activeNetwork, activeAccountId, activeAccountType, accounts } =
+      this.getState();
 
-        const changeAddress = await this.getAddress(xpub, true);
-
-        const txFee = await this.estimateSysTransactionFee({
-          outputs,
-          changeAddress: `${changeAddress}`,
-          feeRateBN: feeRate,
-          xpub,
-          explorerUrl: main.blockbookURL,
-        });
-
-        if (value.add(txFee).gte(syscoin)) {
-          outputs = [
-            {
-              address: receivingAddress,
-              value: value,
-            },
-          ];
+    try {
+      if (isLedger) {
+        // Initialize Ledger connection if needed
+        if (!this.ledger.ledgerTransport) {
+          await this.ledger.connectToLedgerDevice();
         }
 
-        const psbt = await this.getTransactionPSBT({
-          outputs,
-          changeAddress: `${changeAddress}`,
-          feeRateBN: feeRate,
-          xpub,
-          explorerUrl: main.blockbookURL,
+        // CRITICAL: Enhance PSBT with required Ledger fields
+        const accountXpub = accounts[activeAccountType][activeAccountId].xpub;
+        const accountId = accounts[activeAccountType][activeAccountId].id;
+        const enhancedPsbt = await this.ledger.convertToLedgerFormat(
+          psbt,
+          accountXpub,
+          accountId
+        );
+
+        // Get wallet policy for Ledger
+        const fingerprint =
+          await this.ledger.ledgerUtxoClient.getMasterFingerprint();
+        const hdPath = pathIn.length > 0 ? pathIn : `m/84'/57'/${accountId}'`;
+
+        const xpubWithDescriptor = `[${hdPath}]${accountXpub}`.replace(
+          'm',
+          fingerprint
+        );
+        const walletPolicy = new DefaultWalletPolicy(
+          'wpkh(@0/**)',
+          xpubWithDescriptor
+        );
+
+        // Sign the enhanced PSBT with Ledger
+        const signatureEntries = await this.ledger.ledgerUtxoClient.signPsbt(
+          enhancedPsbt.toBase64(),
+          walletPolicy,
+          null // No HMAC needed for standard policy
+        );
+
+        signatureEntries.forEach(([inputIndex, partialSig]) => {
+          enhancedPsbt.updateInput(inputIndex, {
+            partialSig: [partialSig],
+          });
         });
 
+        // Finalize all inputs
+        enhancedPsbt.finalizeAllInputs();
+
+        return enhancedPsbt;
+      } else if (isTrezor) {
+        // Initialize Trezor connection before signing
+        await this.trezor.init();
+
+        // Handle Trezor signing for UTXO
+        const coin = activeNetwork.currency?.toLowerCase() || 'sys';
         const trezorTx = this.trezor.convertToTrezorFormat({
           psbt,
-          coin: `${coin ? coin : 'sys'}`,
+          pathIn, // Pass pathIn to Trezor
+          coin,
         });
         const signedPsbt = await this.trezor.signUtxoTransaction(
           trezorTx,
           psbt
         );
-
-        try {
-          // syscoinjs.send() now returns a PSBT after broadcasting
-          const resultPsbt = await main.send(signedPsbt);
-
-          // Extract the transaction from the PSBT to get the txid
-          const tx = resultPsbt.extractTransaction();
-          return { txid: tx.getId() };
-        } catch (error) {
-          // If send fails, throw the error
-          throw new Error(`Failed to broadcast transaction. Error: ${error}`);
-        }
-      } catch (error) {
-        throw new Error(
-          `Bad Request: Could not create transaction. Error: ${error}`
-        );
+        return signedPsbt;
+      } else {
+        const { hd } = this.getSigner();
+        const signedPsbt = await this.signPSBTWithSigner({
+          psbt,
+          signer: hd,
+          pathIn,
+        });
+        return signedPsbt;
       }
-    }
-
-    const feeRate = new syscoinjs.utils.BN(fee * 1e8);
-
-    const backendAccount = await syscoinjs.utils.fetchBackendAccount(
-      main.blockbookURL,
-      xpub,
-      {},
-      true,
-      undefined
-    );
-
-    const value = new syscoinjs.utils.BN(amount * 1e8);
-
-    let outputs = [
-      {
-        address: receivingAddress,
-        value,
-      },
-    ] as any;
-
-    const changeAddress = await this.getAddress(xpub, true);
-
-    const txOptions = { rbf: true };
-
-    try {
-      const txFee = await this.estimateSysTransactionFee({
-        outputs,
-        changeAddress,
-        feeRateBN: feeRate,
-        xpub,
-        explorerUrl: main.blockbookURL,
-      });
-
-      if (value.add(txFee).gte(backendAccount.balance)) {
-        outputs = [
-          {
-            address: receivingAddress,
-            value: value,
-          },
-        ];
-      }
-
-      // createTransaction now returns a PSBT since it calls signAndSend internally
-      const pendingTransaction = await main.createTransaction(
-        txOptions,
-        changeAddress,
-        outputs,
-        feeRate
-      );
-
-      // Extract the transaction from the PSBT to get the txid
-      const txid = pendingTransaction.extractTransaction().getId();
-
-      return { txid };
     } catch (error) {
-      throw new Error(
-        `Bad Request: Could not create transaction. Error: ${error}`
-      );
+      console.error('Error signing PSBT:', error);
+      throw new Error(`Failed to sign transaction: ${error.message}`);
     }
   };
 
-  public sendTransaction = async (
-    temporaryTransaction: ITokenSend,
-    isTrezor: boolean,
-    isLedger: boolean
-  ): Promise<ITxid> => {
-    const { isToken, token } = temporaryTransaction;
-    const { accounts, activeAccountId, activeAccountType } = this.getState();
-    const activeAccount = accounts[activeAccountType][activeAccountId];
+  // Create unsigned PSBT and estimate fee - NO SIGNING
+  public getEstimateSysTransactionFee = async ({
+    txOptions = {},
+    amount,
+    receivingAddress,
+    feeRate,
+    token = null,
+  }: {
+    amount: number;
+    feeRate?: number;
+    receivingAddress: string;
+    // Optional fee rate in SYS/byte
+    token?: { guid: string; symbol?: string } | null;
+    txOptions?: any;
+  }) => {
+    // Ensure RBF is enabled by default if not explicitly set
+    const finalTxOptions = { rbf: true, ...txOptions };
+    const { main } = this.getSigner();
 
-    if (isLedger) {
-      return await this.ledger.utxo.sendTransaction({
-        accountIndex: activeAccount.id,
-        amount: temporaryTransaction.amount,
-        receivingAddress: temporaryTransaction.receivingAddress,
+    try {
+      // Step 1: Determine fee rate
+      let actualFeeRate;
+      if (feeRate !== undefined) {
+        actualFeeRate = feeRate;
+      } else {
+        actualFeeRate = await this.getRecommendedFee(main.blockbookURL);
+      }
+
+      // Step 2: Create unsigned PSBT
+      const unsignedPsbt = await this.createUnsignedPSBT({
+        txOptions: finalTxOptions,
+        amount,
+        receivingAddress,
+        feeRate: actualFeeRate,
+        token,
       });
-    }
 
-    if (isToken && token) {
-      return await this.confirmCustomTokenSend(temporaryTransaction);
-    }
+      // Step 3: Calculate fee from unsigned PSBT
+      const fee = this.calculateFeeFromPSBT(unsignedPsbt, actualFeeRate);
 
-    return await this.confirmNativeTokenSend(temporaryTransaction, isTrezor);
+      return {
+        fee,
+        psbt: PsbtUtils.toPali(unsignedPsbt), // Return UNSIGNED PSBT as JSON
+      };
+    } catch (error) {
+      throw new Error(`Failed to create transaction: ${error.message}`);
+    }
+  };
+
+  // Removed createAndSignSysTransaction - functionality merged into getEstimateSysTransactionFee
+
+  private sendSignedTransaction = async (psbt): Promise<ITxid> => {
+    const { main } = this.getSigner();
+
+    try {
+      // Send the transaction
+      const result = await main.send(psbt);
+
+      // Extract the transaction ID
+      const txid = result.extractTransaction().getId();
+      return { txid };
+    } catch (error) {
+      console.error('Error sending transaction:', error);
+      throw new Error('Failed to send transaction');
+    }
+  };
+
+  // Sign a PSBT with the appropriate wallet method
+  public signPSBT = async ({
+    psbt,
+    isTrezor = false,
+    isLedger = false,
+    pathIn,
+  }: {
+    isLedger?: boolean;
+    isTrezor?: boolean;
+    pathIn?: string;
+    psbt: string;
+  }): Promise<string> => {
+    try {
+      const psbtObj = PsbtUtils.fromPali(psbt);
+      const signedPsbt = await this.signPSBTWithMethod(
+        psbtObj,
+        isTrezor,
+        isLedger,
+        pathIn
+      );
+      return PsbtUtils.toPali(signedPsbt);
+    } catch (error) {
+      throw new Error(`Failed to sign transaction: ${error.message}`);
+    }
+  };
+
+  public sendTransaction = async (psbt: string): Promise<ITxid> => {
+    if (!psbt) {
+      throw new Error('Signed PSBT is required for broadcasting.');
+    }
+    return await this.sendSignedTransaction(PsbtUtils.fromPali(psbt));
   };
 }

@@ -76,13 +76,13 @@ export class EthereumTransactions implements IEthereumTransactions {
     main: any;
   };
   private getState: () => {
-    activeAccountId: number;
     accounts: {
-      Trezor: accountType;
-      Imported: accountType;
       HDAccount: accountType;
+      Imported: accountType;
       Ledger: accountType;
+      Trezor: accountType;
     };
+    activeAccountId: number;
     activeAccountType: KeyringAccountType;
     activeNetwork: INetwork;
   };
@@ -98,13 +98,13 @@ export class EthereumTransactions implements IEthereumTransactions {
       main: any;
     },
     getState: () => {
-      activeAccountId: number;
       accounts: {
-        Trezor: accountType;
-        Imported: accountType;
         HDAccount: accountType;
+        Imported: accountType;
         Ledger: accountType;
+        Trezor: accountType;
       };
+      activeAccountId: number;
       activeAccountType: KeyringAccountType;
       activeNetwork: INetwork;
     },
@@ -502,9 +502,9 @@ export class EthereumTransactions implements IEthereumTransactions {
     txHash: string,
     isLegacy?: boolean
   ): Promise<{
+    error?: boolean;
     isCanceled: boolean;
     transaction?: TransactionResponse;
-    error?: boolean;
   }> => {
     const tx = (await this.web3Provider.getTransaction(
       txHash
@@ -800,9 +800,9 @@ export class EthereumTransactions implements IEthereumTransactions {
     txHash: string,
     isLegacy?: boolean
   ): Promise<{
+    error?: boolean;
     isSpeedUp: boolean;
     transaction?: TransactionResponse;
-    error?: boolean;
   }> => {
     const tx = (await this.web3Provider.getTransaction(
       txHash

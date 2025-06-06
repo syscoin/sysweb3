@@ -214,34 +214,34 @@ export const NetworkConfig: { [type: number]: any } = {
 
 export const BaseChainConfig = {
   1: {
-    balances_address: '0xb1f8e55c7f64d203c1400b9d8555d050f94adf39',
-    coingecko_path: 'ethereum',
-    tokeninfos_address: '0x4c4CE947f2cFb993B0ADdEB7373450bf2F4f54Fe',
-    nftbalances_address: '0x557cF37ABEA8b81fA7fbB02a5f1907fDdFE96cA3',
+    balancesAddress: '0xb1f8e55c7f64d203c1400b9d8555d050f94adf39',
+    coingeckoPath: 'ethereum',
+    tokeninfosAddress: '0x4c4CE947f2cFb993B0ADdEB7373450bf2F4f54Fe',
+    nftbalancesAddress: '0x557cF37ABEA8b81fA7fbB02a5f1907fDdFE96cA3',
   },
   137: {
-    balances_address: '0x2352c63A83f9Fd126af8676146721Fa00924d7e4',
-    coingecko_path: 'polygon-pos',
-    tokeninfos_address: '0xfe73731e5CbBaA28C43740A2953BB4Dc343dddDa',
-    nftbalances_address: '0x65067414772F3153476E23C8394055838b48798A',
+    balancesAddress: '0x2352c63A83f9Fd126af8676146721Fa00924d7e4',
+    coingeckoPath: 'polygon-pos',
+    tokeninfosAddress: '0xfe73731e5CbBaA28C43740A2953BB4Dc343dddDa',
+    nftbalancesAddress: '0x65067414772F3153476E23C8394055838b48798A',
   },
   57: {
-    coingecko_path: 'syscoin',
-    balances_address: '0xBFD340EB52D77ADeDA7622367877072E72E5bfDb',
-    tokeninfos_address: '0x4a5eE16E6885C7C351d02A6034c49061EA07AFE7',
-    nftbalances_address: '0x667AD1C77181FA247a1220d9a95b054802e52777',
+    coingeckoPath: 'syscoin',
+    balancesAddress: '0xBFD340EB52D77ADeDA7622367877072E72E5bfDb',
+    tokeninfosAddress: '0x4a5eE16E6885C7C351d02A6034c49061EA07AFE7',
+    nftbalancesAddress: '0x667AD1C77181FA247a1220d9a95b054802e52777',
   },
   570: {
-    coingecko_path: 'rollux',
-    balances_address: '0xa66b2E50c2b805F31712beA422D0D9e7D0Fd0F35',
-    tokeninfos_address: '0x4DFc340487bbec780bA8458e614b732d7226AE8f',
-    nftbalances_address: '0xdBB59E294A93487822d1d7e164609Cd59d396fb5',
+    coingeckoPath: 'rollux',
+    balancesAddress: '0xa66b2E50c2b805F31712beA422D0D9e7D0Fd0F35',
+    tokeninfosAddress: '0x4DFc340487bbec780bA8458e614b732d7226AE8f',
+    nftbalancesAddress: '0xdBB59E294A93487822d1d7e164609Cd59d396fb5',
   },
   57000: {
-    coingecko_path: 'rollux',
-    balances_address: '0x1ACD0B3bCC084D02Fa4E9017997BaF2F4aa256F4',
-    tokeninfos_address: '0xAbD231AA41B691585F029Ecfd43B4B93b15b1D3a',
-    nftbalances_address: '0x78eE491E6339421592e0043db9618F4d36B2aBAB',
+    coingeckoPath: 'rollux',
+    balancesAddress: '0x1ACD0B3bCC084D02Fa4E9017997BaF2F4aa256F4',
+    tokeninfosAddress: '0xAbD231AA41B691585F029Ecfd43B4B93b15b1D3a',
+    nftbalancesAddress: '0x78eE491E6339421592e0043db9618F4d36B2aBAB',
   },
 };
 
@@ -266,7 +266,7 @@ export async function isEtherscanAvailableAsync() {
 
 export async function getAvailableUrl(
   url: string
-): Promise<{ url: string; options: RequestInit }> {
+): Promise<{ options: RequestInit; url: string }> {
   let options: RequestInit = { method: 'GET' };
   if (!(await isEtherscanAvailableAsync())) {
     const formData = new FormData();

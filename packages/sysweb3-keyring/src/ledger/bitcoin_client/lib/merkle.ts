@@ -38,8 +38,8 @@ export class Merkle {
   }
 
   calculateRoot(leaves: Buffer[]): {
-    root: Node;
     leaves: Node[];
+    root: Node;
   } {
     const n = leaves.length;
     if (n == 0) {

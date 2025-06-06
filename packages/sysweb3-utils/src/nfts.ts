@@ -12,13 +12,11 @@ import {
 
 const LOAD_NFT_MAX = 400;
 
-export const isSupportOpensea = (chainId: number) => {
-  return chainId === 1 || chainId === 137;
-};
+export const isSupportOpensea = (chainId: number) =>
+  chainId === 1 || chainId === 137;
 
-export const isSupportLuxy = (chainId: number) => {
-  return chainId === 57 || chainId === 570;
-};
+export const isSupportLuxy = (chainId: number) =>
+  chainId === 57 || chainId === 570;
 
 export const getOwnerCollectiblesApi = (
   chainId: number,
@@ -83,13 +81,13 @@ export const fetchLuxyNFTs = async (
 
     do {
       const response = await fetch(url);
-      const { assets, more_pages } = await response.json();
+      const { assets, more_pages: morePages } = await response.json();
 
       if (assets?.length) {
         collectibles = [...collectibles, ...assets];
       }
 
-      if (!more_pages || collectibles.length >= LOAD_NFT_MAX) {
+      if (!morePages || collectibles.length >= LOAD_NFT_MAX) {
         pagingFinish = true;
       }
 
@@ -230,10 +228,10 @@ export const fixDataCollectibles = async (
   collectibles.forEach((collectible: any) => {
     if (collectible.asset_contract.schema_name === 'ERC721') {
       erc721Tokens.push(collectible.asset_contract.address);
-      erc721Ids.push(collectible.token_id);
+      erc721Ids.push(collectible.tokenId);
     } else if (collectible.asset_contract.schema_name === 'ERC1155') {
       erc1155Tokens.push(collectible.asset_contract.address);
-      erc1155Ids.push(collectible.token_id);
+      erc1155Ids.push(collectible.tokenId);
     }
   });
 
@@ -257,7 +255,7 @@ export const fixDataCollectibles = async (
           allOwners.push({
             balanceOf: new BigNumber(1),
             address,
-            token_id: erc721Ids[index],
+            tokenId: erc721Ids[index],
           });
         }
       });
@@ -289,7 +287,7 @@ export const fixDataCollectibles = async (
           allOwners.push({
             balanceOf: owners[index],
             address,
-            token_id: erc1155Ids[index],
+            tokenId: erc1155Ids[index],
           });
         }
       });
@@ -308,7 +306,7 @@ export const fixDataCollectibles = async (
     const owner = allOwners.find(
       (item) =>
         item.address === collectible.asset_contract.address &&
-        item.token_id === collectible.token_id
+        item.tokenId === collectible.tokenId
     );
 
     if (owner) {
@@ -339,19 +337,19 @@ export const getERC721OwnersInSingleCall = async (
   }
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalances_address;
+  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalancesAddress;
   if (!ADDRESS) {
     return [];
   }
 
   const allBalances: string[] = [];
   for (let i = 0; i <= tokens.length / 500; i++) {
-    const sliced_tokens = tokens.slice(i * 500, (i + 1) * 500);
-    const sliced_ids = ids.slice(i * 500, (i + 1) * 500);
+    const slicedTokens = tokens.slice(i * 500, (i + 1) * 500);
+    const slicedIds = ids.slice(i * 500, (i + 1) * 500);
     const result = await getERC721OwnersInSingleCallInternal(
       walletAddress,
-      sliced_tokens,
-      sliced_ids,
+      slicedTokens,
+      slicedIds,
       rpcUrl,
       currentChainId,
       targetChainId as number
@@ -377,7 +375,7 @@ export const getERC721OwnersInSingleCallInternal = async (
   }
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalances_address;
+  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalancesAddress;
   if (!ADDRESS) {
     return [];
   }
@@ -422,19 +420,19 @@ export const getERC1155BalancesInSingleCall = async (
   }
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalances_address;
+  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalancesAddress;
   if (!ADDRESS) {
     return [];
   }
 
   const allBalances: BigNumber[] = [];
   for (let i = 0; i <= tokens.length / 500; i++) {
-    const sliced_tokens = tokens.slice(i * 500, (i + 1) * 500);
-    const sliced_ids = ids.slice(i * 500, (i + 1) * 500);
+    const slicedTokens = tokens.slice(i * 500, (i + 1) * 500);
+    const slicedIds = ids.slice(i * 500, (i + 1) * 500);
     const result = await getERC1155BalancesInSingleCallInternal(
       walletAddress,
-      sliced_tokens,
-      sliced_ids,
+      slicedTokens,
+      slicedIds,
       rpcUrl,
       currentChainId,
       targetChainId
@@ -460,7 +458,7 @@ export const getERC1155BalancesInSingleCallInternal = async (
   }
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalances_address;
+  const ADDRESS = BaseChainConfig[currentChainId]?.nftbalancesAddress;
   if (!ADDRESS) {
     return [];
   }
@@ -488,41 +486,41 @@ export const getERC1155BalancesInSingleCallInternal = async (
 };
 
 export interface IApiNftsCreator {
-  user: { username: string };
-  profile_img_url: string;
   address: string;
+  profile_img_url: string;
+  user: { username: string };
 }
 
 export interface IApiNftsLastSale {
   event_timestamp: string;
   total_price: string;
-  transaction: { transaction_hash: string; block_hash: string };
+  transaction: { block_hash: string; transaction_hash: string };
 }
 
 export interface IApiNftsCollection {
+  description: string;
+  image_url: string;
   name: string;
   slug: string;
-  image_url: string;
-  description: string;
 }
 
 export interface INftsStructure {
-  chainId: string;
-  token_id: string;
   address: string;
-  collection: IApiNftsCollection | null;
-  num_sales: number | null;
-  background_color: string | null;
-  image_url: string | null;
-  image_preview_url: string | null;
-  image_thumbnail_url: string | null;
-  image_original_url: string | null;
-  animation_url: string | null;
   animation_original_url: string | null;
-  name: string | null;
+  animation_url: string | null;
+  background_color: string | null;
+  balanceOf: BigNumber;
+  chainId: string;
+  collection: IApiNftsCollection | null;
+  creator: IApiNftsCreator | null;
   description: string | null;
   external_link: string | null;
-  creator: IApiNftsCreator | null;
+  image_original_url: string | null;
+  image_preview_url: string | null;
+  image_thumbnail_url: string | null;
+  image_url: string | null;
+  name: string | null;
+  token_id: string;
   last_sale: IApiNftsLastSale | null;
-  balanceOf: BigNumber;
+  num_sales: number | null;
 }

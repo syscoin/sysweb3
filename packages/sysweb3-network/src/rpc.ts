@@ -10,7 +10,7 @@ const hexRegEx = /^0x[0-9a-f]+$/iu;
 
 export const validateChainId = (
   chainId: number | string
-): { valid: boolean; hexChainId: string } => {
+): { hexChainId: string; valid: boolean } => {
   const hexChainId = hexlify(chainId);
 
   const isHexChainIdValid =
@@ -81,12 +81,12 @@ export const validateEthRpc = async (
   url: string,
   isInCooldown: boolean
 ): Promise<{
-  chainId: number;
-  valid: boolean;
-  hexChainId: string;
-  details: Chain | undefined;
-  isTestnet: boolean;
   chain: string;
+  chainId: number;
+  details: Chain | undefined;
+  hexChainId: string;
+  isTestnet: boolean;
+  valid: boolean;
 }> => {
   try {
     const { chainId } = await getEthChainId(url, isInCooldown);
@@ -169,9 +169,9 @@ export const getEthRpc = async (
 export const validateSysRpc = async (
   url: string
 ): Promise<{
-  valid: boolean;
-  coin: string;
   chain: string;
+  coin: string;
+  valid: boolean;
 }> => {
   try {
     const formatURL = `${url.endsWith('/') ? url.slice(0, -1) : url}/api/v2`;

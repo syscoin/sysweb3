@@ -58,6 +58,6 @@ export const getContractType = async (
 };
 
 export interface ISupportsInterfaceProps {
-  type: string;
   message?: string;
+  type: string;
 }

@@ -26,7 +26,9 @@ global.self = global as any;
 (global as any).document = {
   createElement: () => ({}),
   body: {
-    appendChild: () => {},
+    appendChild: () => {
+      // Empty implementation for mock DOM element appendChild
+    },
   },
 };
 
@@ -105,7 +107,7 @@ jest.mock('../src/providers', () => ({
         transactions: [],
         hash: '0x1234567890123456789012345678901234567890123456789012345678901234',
       }),
-      send: jest.fn().mockImplementation((method: string, _params: any[]) => {
+      send: jest.fn().mockImplementation((method: string) => {
         if (method === 'eth_maxPriorityFeePerGas') {
           return Promise.resolve('0x5f5e100'); // 1 gwei
         }

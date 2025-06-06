@@ -9,9 +9,7 @@ export const createContractUsingAbi = (
   AbiContract: ContractInterface,
   address: string,
   web3Provider: any
-): Contract => {
-  return new ethers.Contract(String(address), AbiContract, web3Provider);
-};
+): Contract => new ethers.Contract(String(address), AbiContract, web3Provider);
 
 export const isContractAddress = async (address: string, web3Provider: any) => {
   if (!address) return false;

@@ -23,6 +23,6 @@ export const getFormattedBip44Coins = () => {
 export type IBip44Coin = [number, string, string];
 export type IBip44FormattedCoin = {
   coinType: number;
-  symbol: string;
   name: string;
+  symbol: string;
 };

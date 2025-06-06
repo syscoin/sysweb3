@@ -19,13 +19,13 @@ import type { BaseProvider, JsonRpcProvider } from '@ethersproject/providers';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
 type NftMetadataMixedInJsonSchema = {
+  properties: {
+    description: { description: string; type: 'string' };
+    image: { description: string; type: 'string' };
+    name: { description: string; type: 'string' };
+  };
   title: string;
   type: 'object';
-  properties: {
-    name: { type: 'string'; description: string };
-    image: { type: 'string'; description: string };
-    description: { type: 'string'; description: string };
-  };
 };
 
 export const RARIBLE_MATCH_RE =
@@ -46,15 +46,14 @@ export const parseNftUrl = (url: string): [string, string] | null => {
   return null;
 };
 
-export const fetchImage = (src: string): Promise<HTMLImageElement> => {
-  return new Promise((resolve, reject) => {
+export const fetchImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
     const image = new Image();
     image.src = src;
     image.crossOrigin = '';
     image.onload = () => resolve(image);
     image.onerror = (error) => reject(error);
   });
-};
 
 export const normalizeOpenSeaUrl = (url: string, tokenId: string): string => {
   try {
@@ -127,18 +126,18 @@ export const ERC20ABI = [
 ];
 
 type NftContract = InstanceType<typeof Contract> & {
+  balanceOf: ContractFunction<number>;
   ownerOf: ContractFunction<string>;
   tokenURI: ContractFunction<string>;
   uri: ContractFunction<string>;
-  balanceOf: ContractFunction<number>;
 };
 
 type TokenContract = InstanceType<typeof Contract> & {
+  Transfer: Event;
   balanceOf: ContractFunction<number>;
   decimals: ContractFunction<number>;
   symbol: ContractFunction<string>;
   transfer: ContractFunction<any>;
-  Transfer: Event;
 };
 
 export const url = async (
@@ -365,16 +364,13 @@ export const isNftMetadata = (data: unknown): data is NftMetadata => {
 export const addressesEqual = (
   address: Address,
   addressToCompare: Address
-): boolean => {
-  return address.toLowerCase() === addressToCompare.toLowerCase();
-};
+): boolean => address.toLowerCase() === addressToCompare.toLowerCase();
 
 // Promise.any() implementation from https://github.com/m0ppers/promise-any
-export const promiseAny = (promises: Promise<any>[]): Promise<any> => {
-  return reversePromise(
+export const promiseAny = (promises: Promise<any>[]): Promise<any> =>
+  reversePromise(
     Promise.all([...promises].map(reversePromise))
   ) as Promise<any>;
-};
 
 export const reversePromise = (promise: Promise<unknown>): Promise<unknown> =>
   new Promise((resolve, reject) => {
@@ -776,50 +772,50 @@ export const countDecimals = (x: number) => {
 
 // the source is in snake case
 export interface ICoingeckoToken {
-  id: string;
-  symbol: string;
-  name: string;
   assetPlatformId: string;
-  platforms: object;
   blockTimeInMinutes: number;
-  hashingAlgorithm?: string;
   categories: string[];
-  localization: object;
+  coingeckoRank: number;
+  coingeckoScore: number;
+  communityData: object;
+  communityScore: number;
+  contractAddress?: string;
+  countryOrigin: string;
   description: object;
-  links: object;
+  developerData: object;
+  developerScore: number;
+  genesisDate?: string;
+  localization: object;
+  icoData?: object;
+  id: string;
+  sentimentVotesDownPercentage: number;
+  name: string;
+  marketCapRank: number;
+  liquidityScore: number;
+  platforms: object;
   image: {
     thumb: string;
     small: string;
     large: string;
   };
-  countryOrigin: string;
-  genesisDate?: string;
-  contractAddress?: string;
-  sentimentVotesUpPercentage: number;
-  sentimentVotesDownPercentage: number;
-  icoData?: object;
-  marketCapRank: number;
-  coingeckoRank: number;
-  coingeckoScore: number;
-  developerScore: number;
-  communityScore: number;
-  liquidityScore: number;
-  publicInterestScore: number;
   marketData: {
+    circulatingSupply: number;
     currentPrice: { [fiat: string]: number };
-    marketCap: { [fiat: string]: number };
-    totalVolume: { [fiat: string]: number };
+    fdvToTvlRatio?: number;
     fullyDilutedValuation: object;
     totalValueLocked?: object;
-    fdvToTvlRatio?: number;
+    totalVolume: { [fiat: string]: number };
     mcapToTvlRatio?: number;
-    circulatingSupply: number;
+    marketCap: { [fiat: string]: number };
     totalSupply?: number;
     maxSupply?: number;
     priceChange24H: number;
   };
-  communityData: object;
-  developerData: object;
+  sentimentVotesUpPercentage: number;
+  publicInterestScore: number;
+  hashingAlgorithm?: string;
+  symbol: string;
+  links: object;
   publicInterestStats: object;
   lastUpdated: string;
   tickers: object[];
@@ -827,28 +823,28 @@ export interface ICoingeckoToken {
 
 export interface ICoingeckoSearchResultToken {
   id: string;
+  large: string;
+  marketCapRank: number;
   name: string;
   symbol: string;
-  marketCapRank: number;
   thumb: string;
-  large: string;
 }
 
 export interface ICoingeckoSearchResults {
+  categories: object[];
   coins: ICoingeckoSearchResultToken[];
   exchanges: object[];
   icos: object[];
-  categories: object[];
   nfts: object[];
 }
 
 export type EthTokenDetails = {
-  id: string;
-  symbol: string;
-  name: string;
+  contract: string;
   decimals: number;
   description: string;
-  contract: string;
+  id: string;
+  name: string;
+  symbol: string;
 };
 
 export type IEthereumAddress = {
@@ -872,46 +868,46 @@ export type IEthereumTokensResponse = {
 
 export type IEthereumToken = {
   id: string;
+  large: string;
+  market_cap_rank: number;
   name: string;
   symbol: string;
-  market_cap_rank: number;
   thumb: string;
-  large: string;
 };
 
 export type TokenIcon = {
-  thumbImage: string;
   largeImage: string;
+  thumbImage: string;
 };
 
 export type NftResultDone = {
-  status: 'done';
-  loading: false;
   error: undefined;
+  loading: false;
   nft: NftMetadata;
   reload: () => Promise<boolean>;
+  status: 'done';
 };
 
 export interface IEtherscanNFT {
-  blockNumber: string;
-  timeStamp: string;
-  hash: string;
-  nonce: string;
   blockHash: string;
-  from: string;
+  blockNumber: string;
+  confirmations: string;
   contractAddress: string;
-  to: string;
-  tokenID: string;
-  tokenName: string;
-  tokenSymbol: string;
-  tokenDecimal: string;
-  transactionIndex: string;
+  cumulativeGasUsed: string;
+  from: string;
   gas: string;
   gasPrice: string;
   gasUsed: string;
-  cumulativeGasUsed: string;
+  hash: string;
   input: string;
-  confirmations: string;
+  nonce: string;
+  transactionIndex: string;
+  to: string;
+  tokenDecimal: string;
+  tokenID: string;
+  tokenName: string;
+  tokenSymbol: string;
+  timeStamp: string;
 }
 
 export interface NftMetadata {
@@ -920,36 +916,36 @@ export interface NftMetadata {
 }
 
 export type IErc20Token = {
+  decimals: number;
   name: string;
   symbol: string;
-  decimals: number;
 };
 
 export enum IKeyringTokenType {
-  SYS = 'SYS',
-  ETH = 'ETH',
   ERC20 = 'ERC20',
+  ETH = 'ETH',
+  SYS = 'SYS',
 }
 
 export type ISyscoinToken = {
-  type: string;
+  balance: number;
+  decimals: number;
   name: string;
   path: string;
-  tokenId: string;
-  transfers: number;
   symbol: string;
-  decimals: number;
-  balance: number;
+  tokenId: string;
   totalReceived: string;
   totalSent: string;
+  transfers: number;
+  type: string;
 };
 
 export type IAddressMap = {
   changeAddress: string;
   outputs: [
     {
-      value: number;
       address: string;
+      value: number;
     }
   ];
 };
@@ -975,19 +971,19 @@ export type EthereumProviderEip1193 = {
 export type Address = string;
 
 export type NftResultLoading = {
-  status: 'loading';
-  loading: true;
   error: undefined;
+  loading: true;
   nft: undefined;
   reload: () => Promise<boolean>;
+  status: 'loading';
 };
 
 export type NftResultError = {
-  status: 'error';
-  loading: false;
   error: Error;
+  loading: false;
   nft: undefined;
   reload: () => Promise<boolean>;
+  status: 'error';
 };
 
 export type IQueryFilterResult = Promise<Array<Event>>;
@@ -1003,9 +999,9 @@ export type NftJsonMetadata = {
 
 export type ContractMethod = {
   address: string;
-  methodName: string;
-  methodHash: string;
   humanReadableAbi: [string];
+  methodHash: string;
+  methodName: string;
 };
 
 interface ITokenEthProps {
@@ -1030,6 +1026,4 @@ interface IERC1155Collection {
   tokenId: number;
   tokenSymbol: string;
 }
-
-export type ITokenMap = Map<string, IAddressMap>;
 /** end */

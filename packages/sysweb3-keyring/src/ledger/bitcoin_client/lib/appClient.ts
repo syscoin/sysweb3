@@ -125,9 +125,9 @@ export class AppClient {
    * @returns an object with app name, version and device status flags.
    */
   public async getAppAndVersion(): Promise<{
+    flags: number | Buffer;
     name: string;
     version: string;
-    flags: number | Buffer;
   }> {
     const r = await this.transport.send(0xb0, 0x01, 0x00, 0x00);
     let i = 0;

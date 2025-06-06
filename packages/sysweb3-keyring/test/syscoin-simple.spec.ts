@@ -61,8 +61,13 @@ describe('SyscoinTransactions', () => {
           }),
         })),
         createTransaction: jest.fn(() => ({
+          toBase64: () => 'mock-base64',
+          txInputs: [{ index: 0, hash: Buffer.alloc(32) }],
+          txOutputs: [{ value: 1000000, address: 'tsys1test' }],
+          data: { inputs: [{}] },
           extractTransaction: () => ({
             getId: () => 'mock-txid-12345',
+            virtualSize: () => 250,
           }),
         })),
         createPSBTFromRes: jest.fn(() => 'mock-psbt'),
@@ -121,68 +126,74 @@ describe('SyscoinTransactions', () => {
     });
   });
 
-  describe('signTransaction', () => {
+  describe('signPSBT', () => {
     it('should sign a PSBT', async () => {
-      const mockPsbt =
-        'cHNidP8BANmCAAAAAXV1yEYFkSVeffIhpGoiJeEYWdwHtfutBmNrQq9Y3+yXAgAAAAD/////A6AJAQAAAAAAFgAUZMBLT7xge2bLcHuAmhtOdCUnv4kA4fUFAAAAAF9qTFwCg7Wg6XcBAAAAhsNAAQIJAAjBCGNHRnNhVEU9CTt7ImRlc2MiOiJjR0ZzYVNCa1pXMXZJR1JoY0hBZ2RHOXJaVzRnWTNKbFlYUmxJSFJsYzNRZ01RPT0ifQB/APS5PDADAAAAFgAUtji2FZyTh0hQCpxBnA47GNrn9fQAAAAAAAEBH/R8NzYDAAAAFgAUTTxsbg+2G8pcJY7dAQcZx1QtYHEBCGsCRzBEAiB8cJut6NP2IOGiFgAD2/0YM2otMAgvYlY51VyEoYWl0gIgYHXg85w1sJsHXuklbBYFarSVeYAuxoCIeU39HkLiO+IBIQKDuln5k6NYVB+eI+UIS6GMvaICoPDxp892khDysiiybgdhZGRyZXNzLHRzeXMxcWY1N3hjbXMwa2NkdTVocDkzbXdzenBjZWNhMno2Y3IzcjNjamNzBHBhdGgSbS84NCcvMScvMCcvMS8xNjU0AAAAAA==';
+      // Mock PSBT in Pali JSON format (what PsbtUtils.fromPali expects)
+      const mockPaliPsbt = JSON.stringify({
+        psbt: 'cHNidP8BANmCAAAAAXV1yEYFkSVeffIhpGoiJeEYWdwHtfutBmNrQq9Y3+yXAgAAAAD/////A6AJAQAAAAAAFgAUZMBLT7xge2bLcHuAmhtOdCUnv4kA4fUFAAAAAF9qTFwCg7Wg6XcBAAAAhsNAAQIJAAjBCGNHRnNhVEU9CTt7ImRlc2MiOiJjR0ZzYVNCa1pXMXZJR1JoY0hBZ2RHOXJaVzRnWTNKbFlYUmxJSFJsYzNRZ01RPT0ifQB/APS5PDADAAAAFgAUtji2FZyTh0hQCpxBnA47GNrn9fQAAAAAAAEBH/R8NzYDAAAAFgAUTTxsbg+2G8pcJY7dAQcZx1QtYHEBCGsCRzBEAiB8cJut6NP2IOGiFgAD2/0YM2otMAgvYlY51VyEoYWl0gIgYHXg85w1sJsHXuklbBYFarSVeYAuxoCIeU39HkLiO+IBIQKDuln5k6NYVB+eI+UIS6GMvaICoPDxp892khDysiiybgdhZGRyZXNzLHRzeXMxcWY1N3hjbXMwa2NkdTVocDkzbXdzenBjZWNhMno2Y3IzcjNjamNzBHBhdGgSbS84NCcvMScvMCcvMS8xNjU0AAAAAA==',
+        // Additional properties that might be in Pali format
+      });
+
+      // Mock importPsbtFromJson to return a mock PSBT object
+      const mockPsbtObj = {
+        toBase64: () => 'mock-base64',
+        txInputs: [],
+        txOutputs: [],
+        data: { inputs: [] },
+      };
+      jest.spyOn(sjs.utils, 'importPsbtFromJson').mockReturnValue(mockPsbtObj);
 
       // Mock exportPsbtToJson
       jest
         .spyOn(sjs.utils, 'exportPsbtToJson')
         .mockReturnValue({ signed: true } as any);
 
-      const result = await syscoinTransactions.signTransaction(
-        { psbt: mockPsbt },
-        true
-      );
+      const result = await syscoinTransactions.signPSBT({
+        psbt: mockPaliPsbt,
+        isTrezor: false,
+        isLedger: false,
+        pathIn: undefined,
+      });
 
-      expect(result).toEqual({ signed: true });
-      expect(mockHdSign).toHaveBeenCalledWith(mockPsbt, undefined);
+      expect(result).toBeDefined();
+      expect(mockHdSign).toHaveBeenCalledWith(mockPsbtObj, ''); // pathIn defaults to empty string
     });
 
-    it('should reject invalid base64 PSBT', async () => {
+    it('should reject invalid PSBT format', async () => {
+      // Mock importPsbtFromJson to throw error for invalid format
+      jest.spyOn(sjs.utils, 'importPsbtFromJson').mockImplementation(() => {
+        throw new Error('Invalid PSBT format');
+      });
+
       await expect(
-        syscoinTransactions.signTransaction({ psbt: 'invalid-base64!' }, true)
-      ).rejects.toThrow('Bad Request: PSBT must be in Base64 format');
+        syscoinTransactions.signPSBT({
+          psbt: 'invalid-format!',
+          pathIn: undefined,
+        })
+      ).rejects.toThrow('Invalid PSBT format');
     });
   });
 
   describe('estimateSysTransactionFee', () => {
     it('should estimate transaction fee', async () => {
-      // Mock the required functions
-      jest.spyOn(sjs.utils, 'fetchBackendUTXOS').mockResolvedValue([
-        {
-          txid: 'abc123',
-          vout: 0,
-          value: '100000000',
-          satoshis: 100000000,
-        },
-      ]);
+      // The mockGetSigner().main.createTransaction is already mocked to return a proper PSBT object
 
-      jest.spyOn(sjs.utils, 'sanitizeBlockbookUTXOs').mockReturnValue([
-        {
-          txid: 'abc123',
-          vout: 0,
-          value: 100000000,
-        },
-      ] as any);
-
-      // Mock syscointx
-      const syscointx = require('syscointx-js');
-      syscointx.createTransaction = jest.fn(() => ({
-        inputs: [{}],
-        outputs: [{}, {}],
-      }));
-
-      const fee = await syscoinTransactions.estimateSysTransactionFee({
-        outputs: [{ address: 'tsys1test', value: 1000000 }],
-        changeAddress: 'tsys1change',
-        feeRateBN: new sjs.utils.BN(10),
-        xpub: 'vpub5YBbnk2FsQPCd4LsK7rESWaGVeWtq7nr3SgrdbeaQgctXBwpFQfLbKdwtDAkxLwhKubbpNwQqKPodfKTwVc4uN8jbsknuPTpJuW8aN1S3nC',
-        explorerUrl: 'https://blockbook-dev.elint.services/',
+      // Mock exportPsbtToJson for the return value conversion
+      jest.spyOn(sjs.utils, 'exportPsbtToJson').mockReturnValue({
+        psbt: 'mock-base64-psbt',
+        fee: 0.00001,
       });
 
-      expect(fee.toNumber()).toBeGreaterThan(0);
+      const fee = await syscoinTransactions.getEstimateSysTransactionFee({
+        txOptions: {},
+        amount: 0.01,
+        receivingAddress: 'tsys1test',
+        feeRate: 0.0000001, // 10 sat/byte in SYS/byte
+        token: null,
+      });
+
+      expect(fee.fee).toBeGreaterThan(0);
+      expect(fee.psbt).toBeDefined();
     });
   });
 });

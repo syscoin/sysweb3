@@ -1,7 +1,7 @@
 import { Buffer } from 'buffer';
+import * as sjs from 'syscoinjs-lib';
 
 global.Buffer = Buffer;
-import * as sjs from 'syscoinjs-lib';
 
 import {
   DATA,
@@ -56,7 +56,7 @@ jest.mock('syscoinjs-lib', () => {
 jest.mock('../src/transactions', () => ({
   SyscoinTransactions: jest.fn().mockImplementation(() => ({
     sendTransaction: jest.fn().mockResolvedValue({ txid: 'mock-txid-12345' }),
-    signTransaction: jest.fn().mockResolvedValue({ signed: true }),
+    signPSBT: jest.fn().mockResolvedValue({ signed: true }),
     getRecommendedFee: jest.fn().mockResolvedValue(0.0001),
   })),
   EthereumTransactions: jest.fn().mockImplementation(() => ({
@@ -294,10 +294,12 @@ describe('testing functions for the new-sys txs', () => {
       },
       'syscoin'
     );
-    const res = await keyringManager.syscoinTransaction.signTransaction(
-      DATA['sign'],
-      true
-    );
+    const res = await keyringManager.syscoinTransaction.signPSBT({
+      psbt: DATA['sign'],
+      isTrezor: true,
+      isLedger: false,
+      pathIn: undefined,
+    });
 
     expect(res).toBeDefined();
   }, 180000);
@@ -341,10 +343,12 @@ describe('testing functions for the new-sys txs', () => {
       psbt: response.psbt.toBase64(),
       assets: JSON.stringify([...response.assets]),
     };
-    const res = await keyringManager.syscoinTransaction.signTransaction(
-      data,
-      false
-    );
+    const res = await keyringManager.syscoinTransaction.signPSBT({
+      psbt: data.psbt,
+      isTrezor: false,
+      isLedger: false,
+      pathIn: undefined,
+    });
 
     expect(res).toBeDefined();
   }, 180000);

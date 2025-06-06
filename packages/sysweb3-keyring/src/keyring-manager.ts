@@ -49,17 +49,17 @@ import {
 } from '@pollum-io/sysweb3-network';
 
 export interface ISysAccount {
+  address: string;
+  balances: IKeyringBalances;
+  label?: string;
   xprv?: string;
   xpub: string;
-  balances: IKeyringBalances;
-  address: string;
-  label?: string;
 }
 
 export interface IkeyringManagerOpts {
-  wallet: IWalletState;
   activeChain: INetworkType;
   password?: string;
+  wallet: IWalletState;
 }
 
 export interface ISysAccountWithId extends ISysAccount {
@@ -154,9 +154,7 @@ export class KeyringManager implements IKeyringManager {
       : KeyringAccountType.HDAccount;
   };
 
-  public isUnlocked = () => {
-    return !!this.sessionPassword;
-  };
+  public isUnlocked = () => !!this.sessionPassword;
   public lockWallet = () => {
     this.sessionPassword = '';
     this.sessionSeed = '';
@@ -651,9 +649,9 @@ export class KeyringManager implements IKeyringManager {
     network: INetwork,
     chain: string
   ): Promise<{
+    activeChain?: INetworkType;
     sucess: boolean;
     wallet?: IWalletState;
-    activeChain?: INetworkType;
   }> => {
     // FIX #4: Check network type before making calls
     if (this.isSyscoinChain(network) && chain === INetworkType.Ethereum) {
@@ -859,12 +857,10 @@ export class KeyringManager implements IKeyringManager {
     }
   }
 
-  public getActiveUTXOAccountState = () => {
-    return {
-      ...this.wallet.accounts.HDAccount[this.wallet.activeAccountId],
-      xprv: undefined,
-    };
-  };
+  public getActiveUTXOAccountState = () => ({
+    ...this.wallet.accounts.HDAccount[this.wallet.activeAccountId],
+    xprv: undefined,
+  });
 
   public getNetwork = () => this.wallet.activeNetwork;
 
@@ -1449,10 +1445,10 @@ export class KeyringManager implements IKeyringManager {
     id,
     activeAccountId,
   }: {
+    activeAccountId: number;
+    id: number;
     url: string;
     xpub: string;
-    id: number;
-    activeAccountId: number;
   }): Promise<ISysAccount> => {
     if (this.hd === null) throw new Error('No HD Signer');
     const bipNum = 84; //TODO: we need to change this logic to use descriptors for now we only use bip84
@@ -1752,7 +1748,7 @@ export class KeyringManager implements IKeyringManager {
 
   private getSignerUTXO = async (
     network: INetwork
-  ): Promise<{ rpc: any; isTestnet: boolean }> => {
+  ): Promise<{ isTestnet: boolean; rpc: any }> => {
     try {
       const { rpc, chain } = await getSysRpc(network);
 
@@ -1890,7 +1886,7 @@ export class KeyringManager implements IKeyringManager {
 
   private isSyscoinChain = (network: any) =>
     Boolean(this.wallet.networks.syscoin[network.chainId]) &&
-    network.url.includes('blockbook');
+    (network.url.includes('blockbook') || network.url.includes('trezor'));
 
   private generateSalt = () => crypto.randomBytes(16).toString('hex');
 
@@ -2182,8 +2178,8 @@ export class KeyringManager implements IKeyringManager {
     const { accounts } = this.wallet;
     let importedAccountValue: {
       address: string;
-      publicKey: string;
       privateKey: string;
+      publicKey: string;
     };
 
     const balances = {
@@ -2227,8 +2223,11 @@ export class KeyringManager implements IKeyringManager {
       const hexPrivateKey =
         privKey.slice(0, 2) === '0x' ? privKey : `0x${privKey}`;
 
-      // Validate it's a valid hex string
-      if (!/^0x[0-9a-fA-F]{64}$/.test(hexPrivateKey)) {
+      // Validate it's a valid hex string (32 bytes = 64 hex chars)
+      if (
+        !/^0x[0-9a-fA-F]{64}$/.test(hexPrivateKey) &&
+        !/^[0-9a-fA-F]{64}$/.test(hexPrivateKey)
+      ) {
         throw new Error(
           'Invalid private key format. Expected 32-byte hex string or extended private key.'
         );

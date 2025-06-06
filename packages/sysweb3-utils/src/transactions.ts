@@ -1,75 +1,34 @@
 import * as syscoinjs from 'syscoinjs-lib';
 
-import { ITokenMap, ISyscoinToken } from '.';
 // import { web3Provider } from '@pollum-io/sysweb3-network';
 
 export const txUtils = () => {
-  const getRawTransaction = (explorerUrl: string, txid: string) => {
-    return syscoinjs.utils.fetchBackendRawTx(explorerUrl, txid);
-  };
-
-  const getPsbtFromJson = (psbt: JSON): string => {
-    //@ts-ignore
-    return syscoinjs.utils.importPsbtFromJson(psbt);
-  };
-
-  const getTokenMap = ({
-    guid,
-    changeAddress,
-    amount,
-    receivingAddress,
-  }: {
-    guid: number | string;
-    changeAddress: string;
-    amount: number;
-    receivingAddress: string;
-  }): ITokenMap => {
-    return new Map([
-      [
-        String(guid),
-        {
-          changeAddress,
-          outputs: [
-            {
-              value: amount,
-              address: receivingAddress,
-            },
-          ],
-        },
-      ],
-    ]);
-  };
-
-  const getFeeRate = (fee: number): bigint => {
-    return new syscoinjs.utils.BN(fee * 1e8);
-  };
+  const getRawTransaction = (explorerUrl: string, txid: string) =>
+    syscoinjs.utils.fetchBackendRawTx(explorerUrl, txid);
 
   return {
-    getPsbtFromJson,
     getRawTransaction,
-    getTokenMap,
-    getFeeRate,
     // getGasUsedInTransaction,
   };
 };
 
 export type ISyscoinVIn = {
-  txid: string;
-  vout: number;
-  sequence: number;
-  n: number;
   addresses: string[];
   isAddress: boolean;
+  n: number;
+  sequence: number;
+  txid: string;
   value: number;
+  vout: number;
 };
 
 export type ISyscoinVOut = {
-  value: number;
+  addresses: string[];
+  hex: string;
+  isAddress: boolean;
   n: number;
   spent: boolean;
-  hex: string;
-  addresses: string[];
-  isAddress: boolean;
+  value: number;
 };
 
 export type ISyscoinTokenTxInfo = {
@@ -80,16 +39,16 @@ export type ISyscoinTokenTxInfo = {
 
 export type ISyscoinTransaction = {
   [txid: string]: {
+    blockHash: string;
+    blockHeight: number;
     blockTime: number;
     confirmations: number;
     fees: number;
+    hex: string;
     tokenType: string;
     txid: string;
     value: number;
-    blockHash: string;
-    blockHeight: number;
     valueIn: number;
-    hex: string;
     version: number;
     vin: ISyscoinVIn[];
     vout: ISyscoinVOut[];
@@ -97,31 +56,6 @@ export type ISyscoinTransaction = {
 };
 
 export type ITxid = { txid: string };
-
-export type ITransactionInfo = {
-  amount: number;
-  fee: number;
-  fromAddress: string;
-  rbf: boolean;
-  toAddress: string;
-  token: ISyscoinToken | null;
-};
-
-export type ITokenSend = {
-  amount: number;
-  fee: number;
-  isToken: boolean;
-  rbf?: boolean;
-  receivingAddress: string;
-  sender: string;
-  token: { symbol: string; guid: string };
-};
-
-export type ITemporaryTransaction = {
-  sendAsset: ITokenSend | null;
-  signAndSendPSBT: any | null;
-  signPSBT: any | null;
-};
 
 export type IETHTxConfig = {
   gasLimit?: number;

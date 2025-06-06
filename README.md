@@ -47,7 +47,7 @@ The SysWeb3 Network package offers functions for network management. Example:
 import sysweb3 from '@pollum-io/sysweb3-network';
 
 console.log(sysweb3);
-// Outputs functions like validateCurrentRpcUrl, validateSysRpc, setActiveNetwork, etc.
+// Outputs functions like validateCurrentRpcUrl, validateSysRpc, setSignerNetwork, etc.
 ```
 
 ### SysWeb3 Utils

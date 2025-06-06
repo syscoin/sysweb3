@@ -276,23 +276,6 @@ if (this.wallet.activeAccountType === KeyringAccountType.Imported) {
 - Clear error messages guide developers to proper usage
 - Maintains proper separation between HD wallets and imported accounts
 
-## Fix #10: WIF Signing Support for Imported Accounts ✅
-
-**Issue**: Imported accounts (zprv) were completely unable to create transactions because the system was trying to use HD signer methods which are not available for single-key accounts. This made imported accounts unusable for sending transactions.
-
-**Solution**: Implemented proper WIF (Wallet Import Format) signing for imported accounts using syscoinjs-lib's `signWithWIF` method:
-
-1. Added `getWIFForImportedAccount` method to KeyringManager that:
-
-   - Extracts the private key from the imported zprv
-   - Converts it to WIF format for signing
-
-2. Updated SyscoinTransactions to support WIF signing:
-   - Added `getWIFForImportedAccount` parameter to constructor
-   - Updated `signTransaction` to use WIF signing for imported accounts
-   - Updated `confirmNativeTokenSend` to handle imported accounts properly
-   - Updated `getEstimateSysTransactionFee` to get xpub from account instead of HD signer
-
 **Key Changes**:
 
 ```typescript

@@ -7,19 +7,19 @@ interface IStateStorageClient {
 }
 
 interface IStateStorageDb {
+  deleteItem(key: string): void;
+  get(key: string): JSON;
+  set(key: string, value: any): void;
   setClient(client?: IStateStorageClient): void;
   setPrefix(prefix: string): void;
-  set(key: string, value: any): void;
-  get(key: string): JSON;
-  deleteItem(key: string): void;
 }
 
 export interface IKeyValueDb {
+  deleteItem(key: string): void;
+  get(key: string): any;
+  set(key: string, value: any): void;
   setClient(client?: IStateStorageClient): void;
   setPrefix(prefix: string): void;
-  set(key: string, value: any): void;
-  get(key: string): any;
-  deleteItem(key: string): void;
 }
 
 declare let window: any;
@@ -99,9 +99,7 @@ const MemoryStorageClient = (): IStateStorageClient => {
     memory[key] = value;
   };
 
-  const getItem = (key: string): any => {
-    return memory[key];
-  };
+  const getItem = (key: string): any => memory[key];
 
   const removeItem = (key: string) => {
     memory[key] = null;
@@ -120,9 +118,7 @@ const CrossPlatformDi = () => {
   //======================
   const stateStorageDb: IStateStorageDb = StateStorageDb(MemoryStorageClient());
 
-  const getStateStorageDb = (): IKeyValueDb => {
-    return stateStorageDb;
-  };
+  const getStateStorageDb = (): IKeyValueDb => stateStorageDb;
 
   return {
     getStateStorageDb,
@@ -131,9 +127,8 @@ const CrossPlatformDi = () => {
 
 const SysWeb3Di = () => {
   const crossPlatformDi = CrossPlatformDi();
-  const getStateStorageDb = (): IKeyValueDb => {
-    return crossPlatformDi.getStateStorageDb();
-  };
+  const getStateStorageDb = (): IKeyValueDb =>
+    crossPlatformDi.getStateStorageDb();
 
   return {
     getStateStorageDb,

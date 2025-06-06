@@ -36,8 +36,8 @@ interface MessageTypeProperty {
   type: string;
 }
 interface MessageTypes {
-  EIP712Domain: MessageTypeProperty[];
   [additionalProperties: string]: MessageTypeProperty[];
+  EIP712Domain: MessageTypeProperty[];
 }
 
 declare global {
@@ -119,15 +119,15 @@ export class TrezorKeyring {
     bip,
     coin,
   }: {
-    index: number;
-    slip44: number | string;
     bip: number;
     coin: string;
+    index: number;
+    slip44: number | string;
   }): Promise<
     | AccountInfo
     | {
-        error: string;
         code?: string;
+        error: string;
       }
   > {
     const keypath = `m/${bip}'/${slip44}'/0'/0/${index}`;
@@ -168,9 +168,9 @@ export class TrezorKeyring {
     index,
   }: {
     coin: string;
-    slip44: string;
     hdPath?: string;
     index?: string;
+    slip44: string;
   }): Promise<AccountInfo> {
     switch (coin) {
       case 'sys':
@@ -236,8 +236,8 @@ export class TrezorKeyring {
     message,
     signature,
   }: {
-    coin: string;
     address: string;
+    coin: string;
     message: string;
     signature: string;
   }) {
@@ -283,9 +283,9 @@ export class TrezorKeyring {
     index,
   }: {
     coin: string;
-    slip44: string;
-    index?: number;
     hdPath?: string;
+    index?: number;
+    slip44: string;
   }) {
     switch (coin) {
       case 'sys':
@@ -342,7 +342,6 @@ export class TrezorKeyring {
    */
 
   public async signUtxoTransaction(utxoTransaction: any, psbt: any) {
-    // console.log({ utxoTransaction, psbt });
     try {
       const { payload, success } = await TrezorConnect.signTransaction(
         utxoTransaction
@@ -351,7 +350,7 @@ export class TrezorKeyring {
       if (success) {
         const tx = Transaction.fromHex(payload.serializedTx);
         for (const i of this.range(psbt.data.inputs.length)) {
-          if (tx.ins[i].witness === (undefined || null)) {
+          if (tx.ins[i].witness == null) {
             throw new Error(
               'Please move your funds to a Segwit address: https://wiki.trezor.io/Account'
             );
@@ -398,7 +397,6 @@ export class TrezorKeyring {
     return addressN;
   }
   public isScriptHash(address: string, networkInfo: any) {
-    // console.log({ address, networkInfo });
     if (!this.isBech32(address)) {
       const decoded = fromBase58Check(address);
       if (decoded.version === networkInfo.pubKeyHash) {
@@ -494,7 +492,6 @@ export class TrezorKeyring {
 
     for (let i = 0; i < psbt.txOutputs.length; i++) {
       const output = psbt.txOutputs[i];
-      // console.log({ output });
       const outputItem: any = {};
       const chunks = decompile(output.script);
       outputItem.amount = output.value.toString();
@@ -539,8 +536,8 @@ export class TrezorKeyring {
     tx,
     index,
   }: {
-    tx: EthereumTransaction | EthereumTransactionEIP1559;
     index: string;
+    tx: EthereumTransaction | EthereumTransactionEIP1559;
   }) {
     try {
       const { success, payload } = await TrezorConnect.ethereumSignTransaction({
@@ -574,11 +571,11 @@ export class TrezorKeyring {
     slip44,
     address,
   }: {
+    address: string;
+    coin: string;
     index?: number;
     message?: string;
-    coin: string;
     slip44?: string;
-    address: string;
   }) {
     switch (coin) {
       case 'sys':
@@ -729,10 +726,10 @@ export class TrezorKeyring {
     data,
     index,
   }: {
-    version: Version;
     address: string;
     data: any;
     index: number;
+    version: Version;
   }) {
     const derivationPath = `m/44'/60'/0'/0/${index}`;
     const dataWithHashes = this._transformTypedData(data, version === 'V4');
@@ -796,8 +793,8 @@ export class TrezorKeyring {
   }: {
     coin: string;
     index: string | number;
-    slip44?: string;
     isChangeAddress?: boolean;
+    slip44?: string;
   }): Promise<string | undefined> {
     switch (coin) {
       case 'sys':
@@ -834,8 +831,8 @@ export class TrezorKeyring {
   }: {
     coin: string;
     indexArray: string[] | number[];
-    slip44?: string;
     isChangeAddress?: boolean;
+    slip44?: string;
   }): Promise<string[] | undefined> {
     switch (coin) {
       case 'sys':

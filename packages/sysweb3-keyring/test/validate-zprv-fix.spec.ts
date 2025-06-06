@@ -189,7 +189,7 @@ describe('validateZprv Improvements', () => {
         expect(result.message).toBe('The zprv is valid.');
         expect(result.node).toBeDefined();
         expect(result.network).toBeDefined();
-        expect(result.network!.bech32).toBe('ltc'); // Generic currency-based prefix
+        expect(result.network?.bech32).toBe('ltc'); // Generic currency-based prefix
       } else {
         // If the key is invalid, at least check the error is reasonable
         expect(result.message).toBeDefined();

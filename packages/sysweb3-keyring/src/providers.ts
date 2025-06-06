@@ -23,9 +23,9 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
   signal: AbortSignal;
   _pendingBatchAggregator: NodeJS.Timer | null;
   _pendingBatch: Array<{
-    request: { method: string; params: Array<any>; id: number; jsonrpc: '2.0' };
-    resolve: (result: any) => void;
     reject: (error: Error) => void;
+    request: { id: number; jsonrpc: '2.0'; method: string; params: Array<any> };
+    resolve: (result: any) => void;
   }> | null;
 
   constructor(
@@ -276,8 +276,8 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
         });
 
         try {
-          await this.throttledRequest(async () => {
-            return fetchJson(this.connection, JSON.stringify(requests)).then(
+          await this.throttledRequest(async () =>
+            fetchJson(this.connection, JSON.stringify(requests)).then(
               (result) => {
                 if (!result) {
                   let errorBody = {
@@ -338,8 +338,8 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
                   inflightRequest.reject(error);
                 });
               }
-            );
-          });
+            )
+          );
         } catch (error) {
           this.emit('debug', {
             action: 'response',

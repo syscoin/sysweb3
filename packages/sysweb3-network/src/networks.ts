@@ -96,14 +96,14 @@ export const getNetworkConfig = (slip44: number, coinName: string) => {
 };
 
 export type Bip32 = {
-  public: number;
   private: number;
+  public: number;
 };
 
 export type BitcoinNetwork = {
-  messagePrefix: string;
   bech32: string;
   bip32: Bip32;
+  messagePrefix: string;
   pubKeyHash: string;
   scriptHash: string;
   wif: number;
@@ -115,16 +115,16 @@ export type IPubTypes = {
 };
 
 export type INetwork = {
-  chainId: number;
-  url: string;
-  default?: boolean;
-  label: string;
-  key?: string;
   apiUrl?: string;
+  chainId: number;
   currency?: string;
+  default?: boolean;
   explorer?: string;
-  slip44?: number;
   isTestnet: boolean;
+  key?: string;
+  label: string;
+  slip44?: number;
+  url: string;
 };
 
 export enum INetworkType {

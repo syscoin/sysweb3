@@ -90,7 +90,7 @@ jest.mock('@pollum-io/sysweb3-core', () => ({
 let storedVaultData: any = null;
 
 jest.mock('../src/storage', () => ({
-  getDecryptedVault: jest.fn().mockImplementation(async (_password: string) => {
+  getDecryptedVault: jest.fn().mockImplementation(async () => {
     if (!storedVaultData) {
       // If no vault data stored yet, return the default encrypted PEACE_SEED_PHRASE
       return {
@@ -100,12 +100,10 @@ jest.mock('../src/storage', () => ({
     }
     return storedVaultData;
   }),
-  setEncryptedVault: jest
-    .fn()
-    .mockImplementation(async (vaultData: any, _password: string) => {
-      storedVaultData = vaultData;
-      return true;
-    }),
+  setEncryptedVault: jest.fn().mockImplementation(async (vaultData: any) => {
+    storedVaultData = vaultData;
+    return true;
+  }),
 }));
 
 // Mock network module
@@ -408,19 +406,21 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     console.log('account2 id:', account2?.id);
 
     // Then switch to it
-    await keyringManager.setActiveAccount(
-      account2!.id,
-      KeyringAccountType.HDAccount
-    );
+    if (account2) {
+      await keyringManager.setActiveAccount(
+        account2.id,
+        KeyringAccountType.HDAccount
+      );
 
-    const wallet = keyringManager.getActiveAccount();
-    console.log(
-      'active account before test:',
-      wallet.activeAccount.address.toLowerCase()
-    );
+      const wallet = keyringManager.getActiveAccount();
+      console.log(
+        'active account before test:',
+        wallet.activeAccount.address.toLowerCase()
+      );
 
-    expect(wallet.activeAccount.id).toBe(account2!.id);
-    expect(wallet.activeAccountType).toBe(KeyringAccountType.HDAccount);
+      expect(wallet.activeAccount.id).toBe(account2.id);
+      expect(wallet.activeAccountType).toBe(KeyringAccountType.HDAccount);
+    }
   });
 
   //* getAccountById

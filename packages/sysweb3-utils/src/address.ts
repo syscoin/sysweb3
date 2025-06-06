@@ -3,9 +3,8 @@ import { ethers } from 'ethers';
 
 import { isContractAddress } from '.';
 
-export const isValidEthereumAddress = (address: string) => {
-  return ethers.utils.isAddress(address);
-};
+export const isValidEthereumAddress = (address: string) =>
+  ethers.utils.isAddress(address);
 
 //TODO: this function needs to be refactorated to validate with descriptors in mind
 export const isValidSYSAddress = (

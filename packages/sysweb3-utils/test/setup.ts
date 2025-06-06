@@ -32,7 +32,7 @@ jest.mock('ethers', () => {
         get: () => ({ chainId: 80001, name: 'mumbai' }),
       });
 
-      this.getBalance = async (_address: string) => {
+      this.getBalance = async () => {
         return actual.BigNumber.from('1000000000000000000');
       };
 
@@ -125,65 +125,63 @@ jest.mock('ethers', () => {
       ...actual.providers,
       JsonRpcProvider: MockJsonRpcProvider,
     },
-    Contract: jest
-      .fn()
-      .mockImplementation((address: string, _abi: any, _provider: any) => {
-        const lowerAddress = address.toLowerCase();
+    Contract: jest.fn().mockImplementation((address: string) => {
+      const lowerAddress = address.toLowerCase();
 
-        // Determine contract type based on address
-        const erc721Addresses = [
-          '0x0c702f78b889f25e3347fb978345f7ecf4f3861c',
-          '0xd19018f7946d518d316bb10fdff118c28835cf7a',
-        ];
-        const erc1155Addresses = ['0xaa54a8e8bdea1aa7e2ed7e5f681c798a8ed7e5ab'];
-        const erc20Addresses = ['0xa6fa4fb5f76172d178d61b04b0ecd319c5d1c0aa'];
+      // Determine contract type based on address
+      const erc721Addresses = [
+        '0x0c702f78b889f25e3347fb978345f7ecf4f3861c',
+        '0xd19018f7946d518d316bb10fdff118c28835cf7a',
+      ];
+      const erc1155Addresses = ['0xaa54a8e8bdea1aa7e2ed7e5f681c798a8ed7e5ab'];
+      const erc20Addresses = ['0xa6fa4fb5f76172d178d61b04b0ecd319c5d1c0aa'];
 
-        const isERC721 = erc721Addresses.some(
-          (a) => a.toLowerCase() === lowerAddress
-        );
-        const isERC1155 = erc1155Addresses.some(
-          (a) => a.toLowerCase() === lowerAddress
-        );
-        const isERC20 = erc20Addresses.some(
-          (a) => a.toLowerCase() === lowerAddress
-        );
+      const isERC721 = erc721Addresses.some(
+        (a) => a.toLowerCase() === lowerAddress
+      );
+      const isERC1155 = erc1155Addresses.some(
+        (a) => a.toLowerCase() === lowerAddress
+      );
+      const isERC20 = erc20Addresses.some(
+        (a) => a.toLowerCase() === lowerAddress
+      );
 
-        return {
-          balanceOf: jest.fn().mockImplementation(async (_addr: string) => {
-            // For ERC20 type detection, return balance even when checking contract's own balance
-            if (isERC20) {
-              return actual.BigNumber.from('1000000');
+      return {
+        balanceOf: jest.fn().mockImplementation(async () => {
+          // For ERC20 type detection, return balance even when checking contract's own balance
+          if (isERC20) {
+            return actual.BigNumber.from('1000000');
+          }
+          // For unknown contracts that don't support any standard, throw error
+          if (!isERC721 && !isERC1155 && !isERC20) {
+            throw new Error('Contract does not support balanceOf');
+          }
+          // Return different balances for NFTs
+          if (lowerAddress === '0x0c702f78b889f25e3347fb978345f7ecf4f3861c') {
+            return actual.BigNumber.from('0');
+          }
+          return actual.BigNumber.from('1');
+        }),
+        supportsInterface: jest
+          .fn()
+          .mockImplementation(async (interfaceId: string) => {
+            // For unknown contracts, throw error to simulate they don't have supportsInterface
+            if (!isERC721 && !isERC1155) {
+              throw new Error('Contract does not support supportsInterface');
             }
-            // For unknown contracts that don't support any standard, throw error
-            if (!isERC721 && !isERC1155 && !isERC20) {
-              throw new Error('Contract does not support balanceOf');
-            }
-            // Return different balances for NFTs
-            if (lowerAddress === '0x0c702f78b889f25e3347fb978345f7ecf4f3861c') {
-              return actual.BigNumber.from('0');
-            }
-            return actual.BigNumber.from('1');
+            if (interfaceId === '0x80ac58cd' && isERC721) return true; // ERC721
+            if (interfaceId === '0xd9b67a26' && isERC1155) return true; // ERC1155
+            return false;
           }),
-          supportsInterface: jest
-            .fn()
-            .mockImplementation(async (interfaceId: string) => {
-              // For unknown contracts, throw error to simulate they don't have supportsInterface
-              if (!isERC721 && !isERC1155) {
-                throw new Error('Contract does not support supportsInterface');
-              }
-              if (interfaceId === '0x80ac58cd' && isERC721) return true; // ERC721
-              if (interfaceId === '0xd9b67a26' && isERC1155) return true; // ERC1155
-              return false;
-            }),
-          ownerOf: jest
-            .fn()
-            .mockResolvedValue('0x1234567890123456789012345678901234567890'),
-          tokenURI: jest.fn().mockResolvedValue('https://example.com/token/1'),
-          symbol: jest.fn().mockResolvedValue('TEST'),
-          name: jest.fn().mockResolvedValue('Test Token'),
-          decimals: jest.fn().mockResolvedValue(18),
-        };
-      }),
+        ownerOf: jest
+          .fn()
+          .mockResolvedValue('0x1234567890123456789012345678901234567890'),
+        tokenURI: jest.fn().mockResolvedValue('https://example.com/token/1'),
+        symbol: jest.fn().mockResolvedValue('TEST'),
+        name: jest.fn().mockResolvedValue('Test Token'),
+        decimals: jest.fn().mockResolvedValue(18),
+      };
+    }),
   };
 });
 

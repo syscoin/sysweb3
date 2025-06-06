@@ -4,20 +4,16 @@
 import Transport from '@ledgerhq/hw-transport';
 import HIDTransport from '@ledgerhq/hw-transport-webhid';
 import { listen } from '@ledgerhq/logs';
-import SysUtxoClient, { DefaultWalletPolicy, PsbtV2 } from './bitcoin_client';
+import SysUtxoClient, { DefaultWalletPolicy } from './bitcoin_client';
 import {
   BLOCKBOOK_API_URL,
   DESCRIPTOR,
   RECEIVING_ADDRESS_INDEX,
-  SYSCOIN_NETWORKS,
   WILL_NOT_DISPLAY,
 } from './consts';
 import { getXpubWithDescriptor } from './utils';
 import { fromBase58 } from '@trezor/utxo-lib/lib/bip32';
 import { IEvmMethods, IUTXOMethods, MessageTypes, UTXOPayload } from './types';
-import { Psbt } from 'bitcoinjs-lib';
-import { toSatoshi } from 'satoshi-bitcoin';
-import { ITxid } from '@pollum-io/sysweb3-utils';
 import LedgerEthClient, { ledgerService } from '@ledgerhq/hw-app-eth';
 import { TypedDataUtils, TypedMessage, Version } from 'eth-sig-util';
 
@@ -32,7 +28,6 @@ export class LedgerKeyring {
   constructor() {
     this.utxo = {
       getUtxos: this.getUtxos,
-      sendTransaction: this.sendUTXOTransaction,
       getUtxoAddress: this.getUtxoAddress,
       getXpub: this.getXpub,
       verifyUtxoAddress: this.verifyUtxoAddress,
@@ -67,8 +62,8 @@ export class LedgerKeyring {
   }: {
     coin: string;
     index: number;
-    slip44?: string;
     showInLedger?: boolean;
+    slip44?: string;
   }) => {
     try {
       const fingerprint = await this.getMasterFingerprint();
@@ -98,14 +93,13 @@ export class LedgerKeyring {
     }
   };
 
-  private verifyUtxoAddress = async (accountIndex: number) => {
-    return await this.getUtxoAddress({
+  private verifyUtxoAddress = async (accountIndex: number) =>
+    await this.getUtxoAddress({
       coin: 'sys',
       index: accountIndex,
       slip44: '57',
       showInLedger: true,
     });
-  };
 
   private getUtxos = async ({ accountIndex }: { accountIndex: number }) => {
     const coin = 'sys';
@@ -122,152 +116,14 @@ export class LedgerKeyring {
     return resp.utxos;
   };
 
-  private signPsbt = async ({
-    accountIndex,
-    amount,
-    receivingAddress,
-  }: {
-    accountIndex: number;
-    amount: number;
-    receivingAddress: string;
-  }) => {
-    const coin = 'sys';
-    const fingerprint = await this.getMasterFingerprint();
-    const xpub = await this.getXpub({ coin, index: accountIndex });
-    this.setHdPath(coin, accountIndex);
-    const path = this.hdPath;
-    const utxos = await this.getUtxos({ accountIndex: accountIndex });
-
-    const account = fromBase58(xpub);
-
-    const loadInputs = utxos.map(async (utxo: any) => {
-      const url = `${BLOCKBOOK_API_URL}/api/v2/tx/${utxo.txid}`;
-
-      const derivationTokens = utxo.path.replace(path, '').split('/');
-
-      const derivedAccount = derivationTokens.reduce((acc: any, token: any) => {
-        const der = parseInt(token);
-        if (isNaN(der)) {
-          return acc;
-        }
-        return acc.derive(der);
-      }, account);
-      const txResponse = await fetch(url);
-
-      const transaction = await txResponse.json();
-
-      const vout = transaction.vout[utxo.vout];
-      const input = {
-        hash: utxo.txid,
-        index: utxo.vout,
-        witnessUtxo: {
-          script: Buffer.from(vout.hex, 'hex'),
-          value: parseInt(vout.value, 10),
-        },
-        bip32Derivation: [
-          {
-            masterFingerprint: Buffer.from(fingerprint, 'hex'),
-            pubkey: derivedAccount.publicKey,
-            path: utxo.path,
-          },
-        ],
-      };
-      return input;
-    });
-
-    const inputs = await Promise.all(loadInputs);
-
-    const bitcoinPsbt = new Psbt({
-      network: SYSCOIN_NETWORKS.mainnet,
-    });
-
-    bitcoinPsbt.addInputs(inputs);
-
-    bitcoinPsbt.addOutput({
-      address: receivingAddress,
-      value: toSatoshi(amount),
-    });
-
-    const policy = `[${path}]${xpub}`.replace('m', fingerprint);
-    const walletPolicy = new DefaultWalletPolicy(DESCRIPTOR, policy);
-
-    const changeAddress = await this.ledgerUtxoClient.getWalletAddress(
-      walletPolicy,
-      null,
-      1,
-      0,
-      false
-    );
-
-    const fees = toSatoshi(0.00001);
-
-    const total = utxos.reduce((acc: any, utxo: any) => {
-      return acc + parseInt(utxo.value);
-    }, 0);
-
-    bitcoinPsbt.addOutput({
-      address: changeAddress,
-      value: total - toSatoshi(amount) - fees,
-    });
-
-    const psbt = new PsbtV2();
-
-    psbt.fromBitcoinJS(bitcoinPsbt);
-
-    const entries = await this.ledgerUtxoClient.signPsbt(
-      psbt,
-      walletPolicy,
-      null
-    );
-    entries.forEach((entry) => {
-      const [index, pubkeySign] = entry;
-      bitcoinPsbt.updateInput(index, {
-        partialSig: [pubkeySign],
-      });
-    });
-
-    bitcoinPsbt.finalizeAllInputs();
-
-    const transaction = bitcoinPsbt.extractTransaction();
-    return { id: transaction.getId(), hex: transaction.toHex() };
-  };
-
-  private sendUTXOTransaction = async ({
-    accountIndex,
-    amount,
-    receivingAddress,
-  }: {
-    accountIndex: number;
-    amount: number;
-    receivingAddress: string;
-  }): Promise<ITxid> => {
-    try {
-      const transaction = await this.signPsbt({
-        accountIndex,
-        amount,
-        receivingAddress,
-      });
-      const url = `${BLOCKBOOK_API_URL}/api/v2/sendtx/`;
-
-      const resp = await fetch(url, {
-        method: 'POST',
-        body: transaction.hex,
-      });
-      const data = await resp.json();
-      return { txid: data.result };
-    } catch (error) {
-      throw error;
-    }
-  };
-
   private getXpub = async ({
     index,
     coin,
     slip44,
     withDecriptor,
   }: {
-    index: number;
     coin: string;
+    index: number;
     slip44?: string;
     withDecriptor?: boolean;
   }) => {
@@ -304,8 +160,8 @@ export class LedgerKeyring {
     rawTx,
     accountIndex,
   }: {
-    rawTx: string;
     accountIndex: number;
+    rawTx: string;
   }) => {
     this.setHdPath('eth', accountIndex);
     const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
@@ -323,8 +179,8 @@ export class LedgerKeyring {
     message,
     accountIndex,
   }: {
-    message: string;
     accountIndex: number;
+    message: string;
   }) => {
     this.setHdPath('eth', accountIndex);
 
@@ -415,9 +271,9 @@ export class LedgerKeyring {
     data,
     accountIndex,
   }: {
-    version: Version;
-    data: any;
     accountIndex: number;
+    data: any;
+    version: Version;
   }) => {
     this.setHdPath('eth', accountIndex);
     const dataWithHashes = this.transformTypedData(data, version === 'V4');
@@ -460,6 +316,94 @@ export class LedgerKeyring {
           accountIndex ? accountIndex : 0
         }`;
         break;
+    }
+  };
+
+  // Convert PSBT to Ledger-compatible format by adding bip32Derivation
+  public convertToLedgerFormat = async (
+    psbt: any,
+    accountXpub: string,
+    accountId: number
+  ): Promise<any> => {
+    try {
+      // Create BIP32 node from account xpub
+      const accountNode = fromBase58(accountXpub);
+
+      // Get master fingerprint
+      const fingerprint = await this.getMasterFingerprint();
+
+      // Enhance each input with bip32Derivation
+      for (let i = 0; i < psbt.inputCount; i++) {
+        const dataInput = psbt.data.inputs[i];
+
+        // Skip if already has bip32Derivation
+        if (dataInput.bip32Derivation && dataInput.bip32Derivation.length > 0) {
+          continue;
+        }
+
+        // Ensure witnessUtxo is present if nonWitnessUtxo exists
+        if (!dataInput.witnessUtxo && dataInput.nonWitnessUtxo) {
+          const Transaction = require('syscoinjs-lib').Transaction;
+          const txBuffer = dataInput.nonWitnessUtxo;
+          const tx = Transaction.fromBuffer(txBuffer);
+          const vout = psbt.txInputs[i].index;
+
+          if (tx.outs[vout]) {
+            dataInput.witnessUtxo = {
+              script: tx.outs[vout].script,
+              value: tx.outs[vout].value,
+            };
+          }
+        }
+
+        // Extract path from unknownKeyVals
+        if (
+          dataInput.unknownKeyVals &&
+          dataInput.unknownKeyVals.length > 1 &&
+          dataInput.unknownKeyVals[1].key.equals(Buffer.from('path'))
+        ) {
+          const fullPath = dataInput.unknownKeyVals[1].value.toString();
+
+          // Derive using the same approach as signPsbt
+          const accountPath = `m/84'/57'/${accountId}'`;
+          const relativePath = fullPath
+            .replace(accountPath, '')
+            .replace(/^\//, '');
+          const derivationTokens = relativePath.split('/').filter((t) => t);
+
+          const derivedAccount = derivationTokens.reduce(
+            (acc: any, token: string) => {
+              const index = parseInt(token);
+              if (isNaN(index)) {
+                return acc;
+              }
+              return acc.derive(index);
+            },
+            accountNode
+          );
+
+          const pubkey = derivedAccount.publicKey;
+
+          if (pubkey && Buffer.isBuffer(pubkey)) {
+            // Add the bip32Derivation that Ledger needs
+            const bip32Derivation = {
+              masterFingerprint: Buffer.from(fingerprint, 'hex'),
+              path: fullPath,
+              pubkey: pubkey,
+            };
+
+            psbt.updateInput(i, {
+              bip32Derivation: [bip32Derivation],
+            });
+          }
+        }
+      }
+
+      return psbt;
+    } catch (error) {
+      console.error('Error converting PSBT to Ledger format:', error);
+      // Return original PSBT if conversion fails
+      return psbt;
     }
   };
 }

@@ -210,3 +210,9 @@ export const secPreviousWalletState: IWalletState = {
   networks: initialNetworksState,
   activeNetwork: POLYGON_MUMBAI_NETWORK,
 };
+
+export const mockVault = {
+  password: FAKE_PASSWORD,
+  encryptedMnemonic: 'encrypted_mnemonic_mock',
+  encryptedPrivateKeys: {},
+};

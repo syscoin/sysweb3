@@ -52,25 +52,25 @@ export const getSyscoinSigners = ({
 };
 
 export type SyscoinHdAccount = {
-  pubTypes: IPubTypes;
+  isTestnet: boolean;
+  network: BitcoinNetwork;
   networks: {
     mainnet: BitcoinNetwork;
     testnet: BitcoinNetwork;
   };
-  network: BitcoinNetwork;
-  isTestnet: boolean;
+  pubTypes: IPubTypes;
   zprv: string;
 };
 
 export interface Bip84FromMnemonic {
+  deriveAccount: () => string;
   getRootPrivateKey: () => string;
   getRootPublicKey: () => string;
-  deriveAccount: () => string;
 }
 
 export type ISyscoinSignerParams = {
-  mnemonic: string;
   isTestnet: boolean;
+  mnemonic: string;
   rpc: {
     formattedNetwork: INetwork;
     networkConfig?: {
@@ -82,36 +82,61 @@ export type ISyscoinSignerParams = {
 
 export type IMainSignerParams = {
   hd: SyscoinHDSigner;
-  url: string;
   network?: BitcoinNetwork;
+  url: string;
 };
 
 export type IHdSignerParams = {
-  mnemonic: string;
-  password?: string;
   isTestnet?: boolean;
+  mnemonic: string;
   networks?: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork };
-  slip44?: number;
+  password?: string;
   pubTypes?: IPubTypes;
+  slip44?: number;
 };
 
 export interface SyscoinHDSigner {
   Signer: {
+    SLIP44: number;
+    accountIndex: number;
+    accounts: any;
+    blockbookURL: string;
+    changeIndex: number;
     isTestnet: boolean;
+    network: BitcoinNetwork;
     networks: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork };
     password: string | null;
-    SLIP44: number;
-    network: BitcoinNetwork;
     pubTypes: IPubTypes;
-    accounts: any;
-    changeIndex: number;
     receivingIndex: number;
-    accountIndex: number;
     setIndexFlag: number;
-    blockbookURL: string;
   };
-  mnemonicOrZprv: string; // Updated to reflect the enhanced property name
-  importMethod: string; // Added new property for import method tracking
+  backup: () => void;
+  blockbookURL: string;
+  // Already async
+  createAccount: (bipNum?: number, zprv?: string) => number;
+  createAddress: (
+    addressIndex: number,
+    isChange: boolean,
+    bipNum?: number
+  ) => string;
+  createKeypair: (addressIndex: number, isChange: boolean) => BIP32Interface;
+  deriveAccount: (index: number, bipNum?: number) => string;
+  deriveKeypair: (keypath: string) => BIP32Interface;
+  derivePubKey: (keypath: string) => string;
+  // Updated signature
+  getAccountXpub: () => string;
+  getAddressFromKeypair: (keypair: BIP32Interface) => string;
+  getAddressFromPubKey: (pubkey: string) => string;
+  getHDPath: (
+    addressIndex: number,
+    isChange: boolean,
+    bipNum?: number
+  ) => string; // Already async
+  getNewReceivingAddress: (
+    skipIncrement?: boolean,
+    bipNum?: number
+  ) => Promise<string>;
+  // Added new property for import method tracking
   node: {
     seed: Buffer;
     isTestnet: boolean;
@@ -119,45 +144,26 @@ export interface SyscoinHDSigner {
     pubTypes: IPubTypes;
     network: BitcoinNetwork;
   };
-  blockbookURL: string;
-  signPSBT: (psbt: Psbt, pathIn?: string) => Promise<Psbt>; // Made async
-  sign: (psbt: Psbt, pathIn?: string) => Promise<Psbt>; // Made async
-  getMasterFingerprint: () => Buffer;
-  deriveAccount: (index: number, bipNum?: number) => string;
   setAccountIndex: (accountIndex: number) => void;
-  restore: (password: string, bipNum?: number) => boolean;
-  backup: () => void;
+  getRootNode: () => BIP32Interface;
+  // Updated to reflect the enhanced property name
+  importMethod: string;
+  signPSBT: (psbt: Psbt, pathIn?: string) => Promise<Psbt>;
   getNewChangeAddress: (
     skipIncrement?: boolean,
     bipNum?: number
-  ) => Promise<string>; // Already async
-  getNewReceivingAddress: (
-    skipIncrement?: boolean,
-    bipNum?: number
-  ) => Promise<string>; // Already async
-  createAccount: (bipNum?: number, zprv?: string) => number; // Updated signature
-  getAccountXpub: () => string;
+  ) => Promise<string>;
+  restore: (password: string, bipNum?: number) => boolean;
+  mnemonicOrZprv: string;
   setLatestIndexesFromXPubTokens: (tokens: any) => void;
-  createAddress: (
-    addressIndex: number,
-    isChange: boolean,
-    bipNum?: number
-  ) => string;
-  createKeypair: (addressIndex: number, isChange: boolean) => BIP32Interface;
-  getHDPath: (
-    addressIndex: number,
-    isChange: boolean,
-    bipNum?: number
-  ) => string;
-  getAddressFromKeypair: (keypair: BIP32Interface) => string;
-  getAddressFromPubKey: (pubkey: string) => string;
-  deriveKeypair: (keypath: string) => BIP32Interface;
-  derivePubKey: (keypath: string) => string;
-  getRootNode: () => BIP32Interface;
+  // Made async
+  sign: (psbt: Psbt, pathIn?: string) => Promise<Psbt>;
+  // Made async
+  getMasterFingerprint: () => Buffer;
 }
 
 export type SyscoinMainSigner = {
-  blockbookURL: string;
   Signer: SyscoinHDSigner;
+  blockbookURL: string;
   network: BitcoinNetwork;
 };

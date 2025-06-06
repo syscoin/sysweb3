@@ -4,12 +4,12 @@ import * as syscoinjs from 'syscoinjs-lib';
 import syscointx from 'syscointx-js';
 
 type EstimateFeeParams = {
-  outputs: { value: number; address: string }[];
   changeAddress: string;
+  explorerUrl: string;
   feeRateBN: any;
   network: string;
+  outputs: { address: string; value: number }[];
   xpub: string;
-  explorerUrl: string;
 };
 
 export const feeUtils = () => {
@@ -47,9 +47,8 @@ export const feeUtils = () => {
     return txFee;
   };
 
-  const getRecommendedFee = async (explorerUrl: string): Promise<number> => {
-    return (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1)) / 10 ** 8;
-  };
+  const getRecommendedFee = async (explorerUrl: string): Promise<number> =>
+    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1)) / 10 ** 8;
 
   const convertGasFee = (value: string) =>
     ethers.utils.formatEther(String(value));
