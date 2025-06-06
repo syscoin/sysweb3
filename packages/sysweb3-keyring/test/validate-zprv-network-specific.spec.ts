@@ -27,25 +27,25 @@ describe('validateZprv Network-Specific Validation', () => {
   const syscoinMainnet: INetwork = {
     chainId: 57,
     label: 'Syscoin Mainnet',
-    url: 'https://blockbook.syscoin.org/',
+    url: 'https://blockbook.syscoin.org',
     currency: 'sys',
     slip44: 57,
     isTestnet: false,
     default: true,
     apiUrl: '',
-    explorer: 'https://blockbook.syscoin.org/',
+    explorer: 'https://blockbook.syscoin.org',
   };
 
   const syscoinTestnet: INetwork = {
     chainId: 5700,
     label: 'Syscoin Testnet',
-    url: 'https://blockbook-dev.syscoin.org/',
+    url: 'https://explorer-blockbook-dev.syscoin.org',
     currency: 'tsys',
     slip44: 1,
     isTestnet: true,
     default: false,
     apiUrl: '',
-    explorer: 'https://blockbook-dev.syscoin.org/',
+    explorer: 'https://explorer-blockbook-dev.syscoin.org',
   };
 
   const bitcoinMainnet: INetwork = {

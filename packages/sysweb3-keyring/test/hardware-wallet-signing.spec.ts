@@ -25,7 +25,7 @@ jest.mock('syscoinjs-lib', () => {
       sanitizeBlockbookUTXOs: jest
         .fn()
         .mockImplementation((_signer, utxos) => utxos),
-      fetchEstimateFee: jest.fn().mockResolvedValue(1000),
+      fetchEstimateFee: jest.fn().mockResolvedValue(0.001024), // 0.001024 SYS/kB = 0.000001 SYS/byte
     },
   };
 });

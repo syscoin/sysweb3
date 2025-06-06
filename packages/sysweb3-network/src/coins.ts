@@ -1911,7 +1911,7 @@ export const coins = [
     bech32Prefix: 'sys',
     blockchainLink: {
       type: 'blockbook',
-      url: ['https://explorer-blockbook.syscoin.org/'],
+      url: ['https://explorer-blockbook.syscoin.org'],
     },
     blocktimeSeconds: 60,
     cashaddrPrefix: null,
@@ -1964,7 +1964,7 @@ export const coins = [
     bech32Prefix: 'tsys',
     blockchainLink: {
       type: 'blockbook',
-      url: ['https://explorer-blockbook-dev.syscoin.org/'],
+      url: ['https://explorer-blockbook-dev.syscoin.org'],
     },
     blocktimeSeconds: 60,
     cashaddrPrefix: null,

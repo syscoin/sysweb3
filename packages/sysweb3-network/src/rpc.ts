@@ -8,6 +8,32 @@ import { getNetworkConfig, toDecimalFromHex, INetwork } from './networks';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
 
+// Cache for blockbook validation to prevent repeated calls
+const blockbookValidationCache = new Map<
+  string,
+  {
+    result: { chain: string; coin: string; valid: boolean };
+    timestamp: number;
+  }
+>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Cache for eth_chainId calls
+const ethChainIdCache = new Map<
+  string,
+  {
+    chainId: number;
+    timestamp: number;
+  }
+>();
+
+// Function to clear RPC caches
+export const clearRpcCaches = () => {
+  blockbookValidationCache.clear();
+  ethChainIdCache.clear();
+  console.log('[RPC] Cleared all RPC caches');
+};
+
 export const validateChainId = (
   chainId: number | string
 ): { hexChainId: string; valid: boolean } => {
@@ -29,6 +55,14 @@ const getEthChainId = async (
   if (isInCooldown) {
     throw new Error('Cant make request, rpc cooldown is active');
   }
+
+  // Check cache first
+  const cached = ethChainIdCache.get(url);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log('[getEthChainId] Returning cached chainId for', url);
+    return { chainId: cached.chainId };
+  }
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -68,7 +102,15 @@ const getEthChainId = async (
     throw new Error(`Error getting chain ID: ${data.error.message}`);
   }
 
-  return { chainId: Number(data.result) };
+  const chainId = Number(data.result);
+
+  // Cache the result
+  ethChainIdCache.set(url, {
+    chainId,
+    timestamp: Date.now(),
+  });
+
+  return { chainId };
 };
 
 /** eth rpc */
@@ -174,6 +216,13 @@ export const validateSysRpc = async (
   valid: boolean;
 }> => {
   try {
+    // Check cache first
+    const cached = blockbookValidationCache.get(url);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log('[validateSysRpc] Returning cached result for', url);
+      return cached.result;
+    }
+
     const formatURL = `${url.endsWith('/') ? url.slice(0, -1) : url}/api/v2`;
     const response = await (await fetch(formatURL)).json();
     const {
@@ -183,11 +232,19 @@ export const validateSysRpc = async (
 
     const valid = Boolean(response && coin);
 
-    return {
+    const result = {
       valid,
       coin,
       chain,
     };
+
+    // Cache the result
+    blockbookValidationCache.set(url, {
+      result,
+      timestamp: Date.now(),
+    });
+
+    return result;
   } catch (error) {
     throw new Error(error);
   }

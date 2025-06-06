@@ -27,7 +27,7 @@ jest.mock('syscoinjs-lib', () => {
       }),
       fetchBackendUTXOS: jest.fn().mockResolvedValue([]),
       sanitizeBlockbookUTXOs: jest.fn().mockReturnValue([]),
-      fetchEstimateFee: jest.fn().mockResolvedValue(1000),
+      fetchEstimateFee: jest.fn().mockResolvedValue(0.001024), // 0.001024 SYS/kB = 0.000001 SYS/byte
       // Keep real HDSigner implementation
     },
     createTransaction: jest.fn(() => ({
@@ -57,7 +57,7 @@ jest.mock('../src/transactions', () => ({
   SyscoinTransactions: jest.fn().mockImplementation(() => ({
     sendTransaction: jest.fn().mockResolvedValue({ txid: 'mock-txid-12345' }),
     signPSBT: jest.fn().mockResolvedValue({ signed: true }),
-    getRecommendedFee: jest.fn().mockResolvedValue(0.0001),
+    getRecommendedFee: jest.fn().mockResolvedValue(0.000001), // 0.000001 SYS/byte
   })),
   EthereumTransactions: jest.fn().mockImplementation(() => ({
     setWeb3Provider: jest.fn(),

@@ -107,8 +107,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   };
 
   public getRecommendedFee = async (explorerUrl: string): Promise<number> =>
-    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) /
-    10 ** 8;
+    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) / 1024;
 
   public txUtilsFunctions = () => {
     const { getRawTransaction } = txUtils();
@@ -133,11 +132,11 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     txOptions = {},
     amount,
     receivingAddress,
-    feeRate,
+    feeRateBN,
     token = null,
   }: {
     amount: number;
-    feeRate: number;
+    feeRateBN: any; // BigNumber in satoshis/byte
     receivingAddress: string;
     token?: { guid: string; symbol?: string } | null;
     txOptions?: any;
@@ -148,7 +147,6 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     const { main } = this.getSigner();
     const xpub = accounts[activeAccountType][activeAccountId].xpub;
     const value = new syscoinjs.utils.BN(amount * 1e8);
-    const feeRateBN = new syscoinjs.utils.BN(feeRate * 1e8);
     const changeAddress = await this.getAddress(xpub, true);
 
     if (token && token.guid) {
@@ -204,7 +202,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   };
 
   // Calculate fee from PSBT
-  private calculateFeeFromPSBT = (psbt: any, feeRate: number): number => {
+  private calculateFeeFromPSBT = (psbt: any, feeRateBN: any): number => {
     try {
       // Method 1: Extract transaction and use coinselectsyscoin for size calculation
 
@@ -236,25 +234,34 @@ export class SyscoinTransactions implements ISyscoinTransactions {
 
       // Use coinselectsyscoin.utils.transactionBytes for Syscoin-compatible calculation
       const txBytes = coinSelectSyscoin.utils.transactionBytes(inputs, outputs);
+      const txBytesBN = new syscoinjs.utils.BN(txBytes);
 
-      // Calculate fee: bytes * feeRate (in SYS/byte)
-      const fee = txBytes * feeRate;
-      return fee;
+      // Calculate fee: bytes * feeRate (in satoshis/byte) = total fee in satoshis
+      const feeInSatoshis = feeRateBN.mul(txBytesBN);
+
+      // Convert satoshis to SYS - use toNumber() then divide to avoid BigNumber integer division
+      return feeInSatoshis.toNumber() / 1e8;
     } catch (error) {
       // Fallback: Use virtualSize as secondary method
       try {
         const tx = psbt.extractTransaction();
         const txBytes = tx.virtualSize();
-        const fee = txBytes * feeRate;
-        return fee;
+        const txBytesBN = new syscoinjs.utils.BN(txBytes);
+        const feeInSatoshis = feeRateBN.mul(txBytesBN);
+
+        // Convert satoshis to SYS - use toNumber() then divide to avoid BigNumber integer division
+        return feeInSatoshis.toNumber() / 1e8;
       } catch (fallbackError) {
         // Final fallback: Use base64 size estimation
         // Base64: 4 chars = 3 bytes, so base64Length * 3/4 = actual bytes
         const psbtBase64 = psbt.toBase64();
         const psbtBytes = Math.ceil((psbtBase64.length * 3) / 4);
+        const txBytesBN = new syscoinjs.utils.BN(psbtBytes);
 
-        const fee = psbtBytes * feeRate;
-        return fee;
+        const feeInSatoshis = feeRateBN.mul(txBytesBN);
+
+        // Convert satoshis to SYS - use toNumber() then divide to avoid BigNumber integer division
+        return feeInSatoshis.toNumber() / 1e8;
       }
     }
   };
@@ -375,20 +382,23 @@ export class SyscoinTransactions implements ISyscoinTransactions {
         actualFeeRate = await this.getRecommendedFee(main.blockbookURL);
       }
 
+      // Convert fee rate to satoshis/byte for consistent usage
+      const feeRateBN = new syscoinjs.utils.BN(actualFeeRate * 1e8);
+
       // Step 2: Create unsigned PSBT
       const unsignedPsbt = await this.createUnsignedPSBT({
         txOptions: finalTxOptions,
         amount,
         receivingAddress,
-        feeRate: actualFeeRate,
+        feeRateBN,
         token,
       });
 
-      // Step 3: Calculate fee from unsigned PSBT
-      const fee = this.calculateFeeFromPSBT(unsignedPsbt, actualFeeRate);
+      // Step 3: Calculate fee from unsigned PSBT using satoshis/byte
+      const feeInSys = this.calculateFeeFromPSBT(unsignedPsbt, feeRateBN);
 
       return {
-        fee,
+        fee: feeInSys,
         psbt: PsbtUtils.toPali(unsignedPsbt), // Return UNSIGNED PSBT as JSON
       };
     } catch (error) {

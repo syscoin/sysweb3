@@ -40,6 +40,9 @@ jest.mock('@pollum-io/sysweb3-network', () => ({
       isTestnet,
     });
   }),
+  clearRpcCaches: jest.fn(() => {
+    console.log('[RPC] Cleared all RPC caches');
+  }),
   INetworkType: {
     Syscoin: 'syscoin',
     Ethereum: 'ethereum',

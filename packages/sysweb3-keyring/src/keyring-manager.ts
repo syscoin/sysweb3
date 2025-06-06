@@ -46,6 +46,7 @@ import {
   INetwork,
   INetworkType,
   getNetworkConfig,
+  clearRpcCaches,
 } from '@pollum-io/sysweb3-network';
 
 export interface ISysAccount {
@@ -311,10 +312,10 @@ export class KeyringManager implements IKeyringManager {
             chainId: 57,
             currency: 'sys',
             default: true,
-            explorer: 'https://blockbook.syscoin.org/',
+            explorer: 'https://explorer-blockbook.syscoin.org',
             label: 'Syscoin Mainnet',
             slip44: 57,
-            url: 'https://blockbook.syscoin.org/',
+            url: 'https://explorer-blockbook.syscoin.org',
           };
 
           await this.setSignerNetwork(sysMainnetNetwork, INetworkType.Syscoin);
@@ -553,6 +554,9 @@ export class KeyringManager implements IKeyringManager {
       this.wallet.activeNetwork.chainId === data.chainId &&
       this.activeChain === chainType
     ) {
+      // Clear RPC caches when updating network configuration
+      clearRpcCaches();
+
       if (
         chainType === INetworkType.Syscoin &&
         this.syscoinSigner?.blockbookURL
@@ -653,6 +657,9 @@ export class KeyringManager implements IKeyringManager {
     sucess: boolean;
     wallet?: IWalletState;
   }> => {
+    // Clear RPC caches when switching networks to ensure fresh data
+    clearRpcCaches();
+
     // FIX #4: Check network type before making calls
     if (this.isSyscoinChain(network) && chain === INetworkType.Ethereum) {
       throw new Error('Cannot use Ethereum chain type with Syscoin network');

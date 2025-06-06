@@ -17,7 +17,7 @@ jest.mock('syscoinjs-lib', () => {
       }),
       fetchBackendUTXOS: jest.fn().mockResolvedValue([]),
       sanitizeBlockbookUTXOs: jest.fn().mockReturnValue([]),
-      fetchEstimateFee: jest.fn().mockResolvedValue(1000),
+      fetchEstimateFee: jest.fn().mockResolvedValue(0.001024), // 0.001024 SYS/kB = 0.000001 SYS/byte
     },
     SyscoinJSLib: jest.fn().mockImplementation((hd, url) => ({
       blockbookURL: url || 'https://blockbook.syscoin.org/',
@@ -81,6 +81,9 @@ jest.mock('@pollum-io/sysweb3-network', () => ({
       chain: isTestnet ? 'test' : 'main',
       isTestnet,
     });
+  }),
+  clearRpcCaches: jest.fn(() => {
+    console.log('[RPC] Cleared all RPC caches');
   }),
   INetworkType: {
     Syscoin: 'syscoin',

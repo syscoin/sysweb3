@@ -48,7 +48,7 @@ export const feeUtils = () => {
   };
 
   const getRecommendedFee = async (explorerUrl: string): Promise<number> =>
-    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1)) / 10 ** 8;
+    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1)) / 1024;
 
   const convertGasFee = (value: string) =>
     ethers.utils.formatEther(String(value));

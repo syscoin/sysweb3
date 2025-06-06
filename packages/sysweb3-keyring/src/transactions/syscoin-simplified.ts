@@ -167,8 +167,7 @@ export class SimplifiedSyscoinTransactions {
   };
 
   private getRecommendedFee = async (explorerUrl: string): Promise<number> =>
-    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) /
-    10 ** 8;
+    (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) / 1024;
 }
 
 /**

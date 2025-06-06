@@ -5,7 +5,7 @@ dotenv.config();
 export const CHAIN_ID_NUMBER = 1;
 export const CHAIN_ID_HEX = '0x01';
 export const RPC_URL = 'https://1rpc.io/eth';
-export const SYS_RPC_URL = 'https://blockbook.syscoin.org/';
+export const SYS_RPC_URL = 'https://explorer-blockbook.syscoin.org';
 
 export const CHAINS_EXPLORERS = [
   {

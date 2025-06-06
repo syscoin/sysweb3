@@ -12,7 +12,7 @@ export const POLYGON_MUMBAI_NETWORK = {
   label: 'Polygon Mumbai',
   url: 'https://rpc.ankr.com/polygon_mumbai',
   apiUrl: 'https://api-testnet.polygonscan.com/api',
-  explorer: 'https://mumbai.polygonscan.com/',
+  explorer: 'https://mumbai.polygonscan.com',
   isTestnet: true,
 };
 export const SYS_EVM_NETWORK = {
@@ -22,7 +22,7 @@ export const SYS_EVM_NETWORK = {
   label: 'Syscoin Mainnet',
   url: 'https://rpc.syscoin.org',
   apiUrl: 'https://explorer.syscoin.org/api',
-  explorer: 'https://explorer.syscoin.org/',
+  explorer: 'https://explorer.syscoin.org',
   isTestnet: false,
 };
 export const SYS_TANENBAUM_UTXO_NETWORK = {
@@ -39,18 +39,18 @@ export const SYS_TANENBAUM_UTXO_NETWORK = {
 export const BTC_TESTNET_TOKEN = {
   chainId: 57,
   label: 'Bitcoin Testnet',
-  url: 'https://blockbook.syscoin.org/',
+  url: 'https://explorer-blockbook.syscoin.org',
   default: true,
   currency: 'sys',
   apiUrl: '',
-  explorer: 'https://blockbook.syscoin.org/',
+  explorer: 'https://explorer-blockbook.syscoin.org',
   isTestnet: true,
 };
 
 export const SYS_MAINNET_UTXO_NETWORK = {
   chainId: 57,
   label: 'Syscoin Mainnet',
-  url: 'https://blockbook.syscoin.org/',
+  url: 'https://explorer-blockbook.syscoin.org',
   default: true,
   currency: 'sys',
   isTestnet: false,
@@ -185,7 +185,8 @@ export const previousWalletState: IWalletState = {
   activeNetwork: {
     chainId: 57,
     label: 'Syscoin Mainnet',
-    url: 'https://blockbook.syscoin.org/',
+    url: 'https://explorer-blockbook.syscoin.org',
+    explorer: 'https://explorer-blockbook.syscoin.org',
     default: true,
     currency: 'sys',
     isTestnet: false,

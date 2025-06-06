@@ -110,14 +110,14 @@ describe('SyscoinTransactions', () => {
 
   describe('getRecommendedFee', () => {
     it('should return a recommended fee', async () => {
-      // Mock the fetchEstimateFee function
-      jest.spyOn(sjs.utils, 'fetchEstimateFee').mockResolvedValue(10000);
+      // Mock the fetchEstimateFee function - returns SYS per kilobyte
+      jest.spyOn(sjs.utils, 'fetchEstimateFee').mockResolvedValue(0.00088641);
 
       const fee = await syscoinTransactions.getRecommendedFee(
         'https://blockbook-dev.elint.services/'
       );
 
-      expect(fee).toBe(0.0001); // 10000 / 10^8
+      expect(fee).toBeCloseTo(0.00088641 / 1024, 10); // 0.00088641 / 1024 (convert from SYS/kB to SYS/byte)
       expect(sjs.utils.fetchEstimateFee).toHaveBeenCalledWith(
         'https://blockbook-dev.elint.services/',
         1,

@@ -59,7 +59,7 @@ jest.mock('syscoinjs-lib', () => {
       }),
       fetchBackendUTXOS: jest.fn().mockResolvedValue([]),
       sanitizeBlockbookUTXOs: jest.fn().mockReturnValue([]),
-      fetchEstimateFee: jest.fn().mockResolvedValue(1000),
+      fetchEstimateFee: jest.fn().mockResolvedValue(0.001024), // 0.001024 SYS/kB = 0.000001 SYS/byte
       // Keep real HDSigner implementation
     },
     SyscoinJSLib: jest.fn().mockImplementation(() => ({
