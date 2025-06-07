@@ -106,6 +106,12 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     throw new Error('psbt not found');
   };
 
+  public decodeRawTransaction = (psbt: any) => {
+    const { main } = this.getSigner();
+    const psbtObj = PsbtUtils.fromPali(psbt);
+    return main.decodeRawTransaction(psbtObj);
+  };
+
   public getRecommendedFee = async (explorerUrl: string): Promise<number> =>
     (await syscoinjs.utils.fetchEstimateFee(explorerUrl, 1, undefined)) / 1024;
 

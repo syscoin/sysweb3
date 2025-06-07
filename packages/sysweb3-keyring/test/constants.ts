@@ -64,7 +64,6 @@ export const DATA: { [type: string]: any } = {
     amount: 1,
     fee: 0.00001,
     token: null,
-    isToken: false,
     rbf: true,
   },
   sign: {

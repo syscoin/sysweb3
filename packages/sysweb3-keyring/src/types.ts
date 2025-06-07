@@ -156,6 +156,7 @@ export interface ISyscoinTransactions {
     txOptions: any;
   }) => Promise<{ fee: number; psbt: string }>; // Returns UNSIGNED psbt
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
+  decodeRawTransaction: (psbt: any) => any;
   // Sign PSBT separately
   sendTransaction: (psbt: string) => Promise<ITxid>;
   signPSBT: ({
