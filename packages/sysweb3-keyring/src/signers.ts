@@ -145,11 +145,11 @@ export interface SyscoinHDSigner {
     isLedger,
     pathIn,
   }: {
-    psbt: string;
+    psbt: any;
     isTrezor?: boolean;
     isLedger?: boolean;
     pathIn?: string;
-  }) => Promise<string>;
+  }) => Promise<any>;
   getNewChangeAddress: (
     skipIncrement?: boolean,
     bipNum?: number

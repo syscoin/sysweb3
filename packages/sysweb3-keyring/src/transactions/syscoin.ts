@@ -130,7 +130,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     pathIn,
   }: {
     pathIn?: string;
-    psbt: string;
+    psbt: any;
     signer: any;
   }): Promise<any> => await signer.sign(psbt, pathIn);
 
@@ -473,11 +473,11 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     isLedger = false,
     pathIn,
   }: {
-    psbt: string;
+    psbt: any;
     isTrezor?: boolean;
     isLedger?: boolean;
     pathIn?: string;
-  }): Promise<string> => {
+  }): Promise<any> => {
     const psbtObj = PsbtUtils.fromPali(psbt);
     const signedPsbt = await this.signPSBTWithMethod(
       psbtObj,
@@ -488,7 +488,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     return PsbtUtils.toPali(signedPsbt);
   };
 
-  public sendTransaction = async (psbt: string): Promise<ITxid> => {
+  public sendTransaction = async (psbt: any): Promise<ITxid> => {
     if (!psbt) {
       throw new Error('Signed PSBT is required for broadcasting.');
     }

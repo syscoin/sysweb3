@@ -154,11 +154,11 @@ export interface ISyscoinTransactions {
     receivingAddress: string;
     token?: { guid: string; symbol?: string } | null;
     txOptions: any;
-  }) => Promise<{ fee: number; psbt: string }>; // Returns UNSIGNED psbt
+  }) => Promise<{ fee: number; psbt: any }>; // Returns UNSIGNED psbt
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
   decodeRawTransaction: (psbt: any) => any;
   // Sign PSBT separately
-  sendTransaction: (psbt: string) => Promise<ITxid>;
+  sendTransaction: (psbt: any) => Promise<ITxid>;
   signPSBT: ({
     psbt,
     isTrezor,
@@ -168,8 +168,8 @@ export interface ISyscoinTransactions {
     isLedger?: boolean;
     isTrezor?: boolean;
     pathIn?: string;
-    psbt: string;
-  }) => Promise<string>;
+    psbt: any;
+  }) => Promise<any>;
 }
 
 export interface IKeyringManager {
