@@ -27,7 +27,7 @@ jest.mock('../src/trezor', () => ({
 }));
 
 // Create a persistent mock that survives beforeEach
-const hdSignMock = jest.fn().mockImplementation(async (psbtObj, _pathIn) => {
+const hdSignMock = jest.fn().mockImplementation(async (psbtObj) => {
   return psbtObj; // Return the same PSBT object (mocked as signed)
 });
 
@@ -59,7 +59,7 @@ describe('SyscoinTransactions', () => {
         createTransaction: jest
           .fn()
           .mockImplementation(
-            async (_txOptions, _changeAddress, outputs, feeRateBN, _xpub) => {
+            async (_txOptions, _changeAddress, outputs, feeRateBN) => {
               // Create a minimal mock that represents what syscoinjs would return
               // This should have a real PSBT structure or use actual syscoinjs-lib
               const mockUtxos = [
