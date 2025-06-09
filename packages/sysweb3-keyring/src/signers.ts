@@ -86,15 +86,6 @@ export type IMainSignerParams = {
   url: string;
 };
 
-export type IHdSignerParams = {
-  isTestnet?: boolean;
-  mnemonic: string;
-  networks?: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork };
-  password?: string;
-  pubTypes?: IPubTypes;
-  slip44?: number;
-};
-
 export interface SyscoinHDSigner {
   Signer: {
     SLIP44: number;
@@ -148,7 +139,17 @@ export interface SyscoinHDSigner {
   getRootNode: () => BIP32Interface;
   // Updated to reflect the enhanced property name
   importMethod: string;
-  signPSBT: (psbt: Psbt, pathIn?: string) => Promise<Psbt>;
+  signPSBT: ({
+    psbt,
+    isTrezor,
+    isLedger,
+    pathIn,
+  }: {
+    psbt: string;
+    isTrezor?: boolean;
+    isLedger?: boolean;
+    pathIn?: string;
+  }) => Promise<string>;
   getNewChangeAddress: (
     skipIncrement?: boolean,
     bipNum?: number

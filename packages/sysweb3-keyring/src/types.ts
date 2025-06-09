@@ -205,7 +205,7 @@ export interface IKeyringManager {
     network: INetwork,
     chain: string
   ) => Promise<{
-    sucess: boolean;
+    success: boolean;
     wallet?: IWalletState;
     activeChain?: INetworkType;
   }>;
@@ -236,7 +236,7 @@ export interface IKeyringManager {
   verifyIfIsTestnet: () => boolean | undefined;
   importTrezorAccount(
     coin: string,
-    slip44: string,
+    slip44: number,
     index: string
   ): Promise<IKeyringAccountState>;
   utf8Error: boolean;

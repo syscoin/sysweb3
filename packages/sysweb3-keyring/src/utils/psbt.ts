@@ -10,7 +10,7 @@ export class PsbtUtils {
    * @returns syscoinjs PSBT object
    */
   static fromPali(psbtFromPali: any): any {
-    return syscoinjs.utils.importPsbtFromJson(psbtFromPali);
+    return syscoinjs.utils.importPsbtFromJson(psbtFromPali).psbt;
   }
 
   /**

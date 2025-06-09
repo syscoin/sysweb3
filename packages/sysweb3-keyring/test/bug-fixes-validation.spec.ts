@@ -388,7 +388,7 @@ describe('Bug Fixes Validation', () => {
         syscoinNetwork,
         'syscoin'
       );
-      expect(result1.sucess).toBe(true);
+      expect(result1.success).toBe(true);
 
       // Ethereum network with ethereum chain type
       const ethereumNetwork = initialWalletState.networks.ethereum[1];
@@ -396,7 +396,7 @@ describe('Bug Fixes Validation', () => {
         ethereumNetwork,
         'ethereum'
       );
-      expect(result2.sucess).toBe(true);
+      expect(result2.success).toBe(true);
     });
   });
 });

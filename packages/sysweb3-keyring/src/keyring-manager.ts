@@ -38,6 +38,7 @@ import {
   IEthereumTransactions,
   IKeyringManager,
 } from './types';
+import { getAddressDerivationPath, isEvmCoin } from './utils/derivation-paths';
 import * as sysweb3 from '@pollum-io/sysweb3-core';
 import {
   BitcoinNetwork,
@@ -67,7 +68,7 @@ export interface ISysAccountWithId extends ISysAccount {
   id: number;
 }
 
-const ethHdPath: Readonly<string> = "m/44'/60'/0'";
+// Dynamic ETH HD path generation - will be computed as needed
 
 export class KeyringManager implements IKeyringManager {
   public trezorSigner: TrezorKeyring;
@@ -654,7 +655,7 @@ export class KeyringManager implements IKeyringManager {
     chain: string
   ): Promise<{
     activeChain?: INetworkType;
-    sucess: boolean;
+    success: boolean;
     wallet?: IWalletState;
   }> => {
     // Clear RPC caches when switching networks to ensure fresh data
@@ -714,7 +715,7 @@ export class KeyringManager implements IKeyringManager {
       this.activeChain = networkChain;
 
       return {
-        sucess: true,
+        success: true,
         wallet: this.wallet,
         activeChain: this.activeChain,
       };
@@ -738,7 +739,7 @@ export class KeyringManager implements IKeyringManager {
         this.syscoinSigner = prevSyscoinSignerState;
       }
 
-      return { sucess: false };
+      return { success: false };
     }
   };
 
@@ -822,7 +823,7 @@ export class KeyringManager implements IKeyringManager {
 
   public async importTrezorAccount(
     coin: string,
-    slip44: string,
+    slip44: number,
     index: string
   ) {
     const importedAccount = await this._createTrezorAccount(
@@ -838,7 +839,7 @@ export class KeyringManager implements IKeyringManager {
 
   public async importLedgerAccount(
     coin: string,
-    slip44: string,
+    slip44: number,
     index: string,
     isAlreadyConnected: boolean
   ) {
@@ -1270,7 +1271,7 @@ export class KeyringManager implements IKeyringManager {
 
   private async _createTrezorAccount(
     coin: string,
-    slip44: string,
+    slip44: number,
     index: string,
     label?: string
   ) {
@@ -1290,7 +1291,7 @@ export class KeyringManager implements IKeyringManager {
     }
     let ethPubKey = '';
 
-    const isEVM = coin === 'eth';
+    const isEVM = isEvmCoin(coin, slip44);
 
     const address = isEVM ? xpub : await this.getAddress(xpub, false);
 
@@ -1349,7 +1350,7 @@ export class KeyringManager implements IKeyringManager {
 
   private async _createLedgerAccount(
     coin: string,
-    slip44: string,
+    slip44: number,
     index: string,
     label?: string
   ) {
@@ -1357,8 +1358,7 @@ export class KeyringManager implements IKeyringManager {
     let xpub;
     let address = '';
     let balance;
-
-    if (coin === 'eth') {
+    if (isEvmCoin(coin, slip44)) {
       const { address: ethAddress, publicKey } =
         await this.ledgerSigner.evm.getEvmAddressAndPubKey({
           accountIndex: +index,
@@ -1423,16 +1423,19 @@ export class KeyringManager implements IKeyringManager {
         ? 0
         : Object.values(accounts[KeyringAccountType.Ledger]).length;
 
-    const currentBalances =
-      coin === 'eth'
-        ? { syscoin: 0, ethereum: balance }
-        : { syscoin: +balance / 1e8, ethereum: 0 };
+    const isEVM = isEvmCoin(coin, slip44);
+    const currentBalances = isEVM
+      ? { syscoin: 0, ethereum: balance }
+      : { syscoin: +balance / 1e8, ethereum: 0 };
 
     const ledgerAccount = {
       ...this.initialLedgerAccountState,
       balances: currentBalances,
       address,
-      originNetwork: { ...activeNetwork, isBitcoinBased: coin !== 'eth' },
+      originNetwork: {
+        ...activeNetwork,
+        isBitcoinBased: !isEVM,
+      },
       label: label ? label : `Ledger ${id + 1}`,
       id,
       xprv: '',
@@ -1596,9 +1599,16 @@ export class KeyringManager implements IKeyringManager {
         'hex'
       );
       const privateRoot = hdkey.fromMasterSeed(seed);
-      const derivedCurrentAccount = privateRoot.derivePath(
-        `${ethHdPath}/0/${length}`
+
+      // Use dynamic path generation for ETH addresses
+      const ethDerivationPath = getAddressDerivationPath(
+        'eth',
+        '60',
+        0,
+        false,
+        length
       );
+      const derivedCurrentAccount = privateRoot.derivePath(ethDerivationPath);
       const newWallet = derivedCurrentAccount.getWallet();
       const address = newWallet.getAddressString();
       const xprv = newWallet.getPrivateKeyString();
@@ -1719,9 +1729,15 @@ export class KeyringManager implements IKeyringManager {
         );
         const privateRoot = hdkey.fromMasterSeed(seed);
 
-        const derivedCurrentAccount = privateRoot.derivePath(
-          `${ethHdPath}/0/${String(id)}`
+        // Use dynamic path generation for ETH addresses
+        const ethDerivationPath = getAddressDerivationPath(
+          'eth',
+          '60',
+          0,
+          false,
+          id
         );
+        const derivedCurrentAccount = privateRoot.derivePath(ethDerivationPath);
 
         const derievedWallet = derivedCurrentAccount.getWallet();
         const address = derievedWallet.getAddressString();

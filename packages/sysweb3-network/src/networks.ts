@@ -117,13 +117,13 @@ export type IPubTypes = {
 export type INetwork = {
   apiUrl?: string;
   chainId: number;
-  currency?: string;
+  currency: string;
   default?: boolean;
   explorer?: string;
   isTestnet: boolean;
   key?: string;
   label: string;
-  slip44?: number;
+  slip44: number;
   url: string;
 };
 

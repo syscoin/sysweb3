@@ -2,6 +2,21 @@ import { bech32 } from 'bech32';
 import { ethers } from 'ethers';
 
 import { isContractAddress } from '.';
+import { coins } from '@pollum-io/sysweb3-network';
+
+// Dynamic import for network-aware validation - keep it simple with try/catch
+let coinsCache: any[] | null = null;
+const getCoins = () => {
+  if (!coinsCache) {
+    try {
+      coinsCache = coins;
+    } catch {
+      // Fallback if module not available
+      coinsCache = [];
+    }
+  }
+  return coinsCache;
+};
 
 export const isValidEthereumAddress = (address: string) =>
   ethers.utils.isAddress(address);
@@ -18,14 +33,30 @@ export const isValidSYSAddress = (
   if (address && typeof address === 'string') {
     try {
       const decodedAddr = bech32.decode(address);
+      const prefix = decodedAddr.prefix?.toLowerCase();
 
-      if (
-        (purpose === 57 && decodedAddr.prefix === 'sys') ||
-        (purpose === 5700 && decodedAddr.prefix === 'tsys')
-      ) {
-        const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+      // Get coins to check the actual bech32 prefix for the chainId
+      const coins = getCoins();
 
-        return encode === address.toLowerCase();
+      // Find the coin by chainId (purpose)
+      const coin = coins?.find((c: any) => c.slip44 === purpose);
+
+      if (coin && coin.bech32Prefix) {
+        const expectedPrefix = coin.bech32Prefix.toLowerCase();
+
+        if (prefix === expectedPrefix) {
+          const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+          return encode === address.toLowerCase();
+        }
+      } else {
+        // Fallback for legacy Syscoin networks if not found in coins
+        if (
+          (purpose === 57 && prefix === 'sys') ||
+          (purpose === 5700 && prefix === 'tsys')
+        ) {
+          const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+          return encode === address.toLowerCase();
+        }
       }
     } catch (error) {
       return false;

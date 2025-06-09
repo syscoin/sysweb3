@@ -328,6 +328,10 @@ describe('Network Synchronization Improvements', () => {
         slip44: -1,
         url: 'invalid-url',
         label: 'Invalid Network',
+        currency: 'invalid',
+        default: false,
+        apiUrl: '',
+        explorer: '',
       };
 
       keyringManager.wallet.networks[INetworkType.Syscoin][-1] = invalidNetwork;

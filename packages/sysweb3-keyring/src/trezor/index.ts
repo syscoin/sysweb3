@@ -14,6 +14,12 @@ import { TypedDataUtils, TypedMessage, Version } from 'eth-sig-util';
 import Web3 from 'web3';
 
 import { SyscoinHDSigner } from '../signers';
+import {
+  getAccountDerivationPath,
+  getAddressDerivationPath,
+  getPublicKeyDerivationPath,
+  isEvmCoin,
+} from '../utils/derivation-paths';
 
 const { p2wsh } = payments;
 const { decompile } = script;
@@ -122,7 +128,7 @@ export class TrezorKeyring {
     bip: number;
     coin: string;
     index: number;
-    slip44: number | string;
+    slip44: number;
   }): Promise<
     | AccountInfo
     | {
@@ -170,24 +176,16 @@ export class TrezorKeyring {
     coin: string;
     hdPath?: string;
     index?: string;
-    slip44: string;
+    slip44: number;
   }): Promise<AccountInfo> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/${index}'`;
-        break;
-      case 'btc':
-        this.hdPath = `m/84'/0'/${index}'`;
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0/${index ? index : 0}`;
-        break;
-    }
+    // Use dynamic path generation instead of hardcoded switch
+    this.hdPath = getAccountDerivationPath(
+      coin,
+      slip44,
+      parseInt(index || '0')
+    );
 
-    if (hdPath) this.hdPath === hdPath;
+    if (hdPath) this.hdPath = hdPath;
 
     const response = await TrezorConnect.getAccountInfo({
       coin,
@@ -285,22 +283,10 @@ export class TrezorKeyring {
     coin: string;
     hdPath?: string;
     index?: number;
-    slip44: string;
+    slip44: number;
   }) {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'`;
-        break;
-    }
+    // Use dynamic path generation instead of hardcoded switch
+    this.hdPath = getPublicKeyDerivationPath(coin, slip44, index || 0);
 
     if (hdPath) this.hdPath = hdPath;
 
@@ -535,13 +521,26 @@ export class TrezorKeyring {
   public async signEthTransaction({
     tx,
     index,
+    coin,
+    slip44,
   }: {
     index: string;
     tx: EthereumTransaction | EthereumTransactionEIP1559;
+    coin: string;
+    slip44: number;
   }) {
     try {
+      // Use dynamic path generation based on actual network parameters
+      const derivationPath = getAddressDerivationPath(
+        coin,
+        slip44,
+        0,
+        false,
+        Number(index)
+      );
+
       const { success, payload } = await TrezorConnect.ethereumSignTransaction({
-        path: `m/44'/60'/0'/0/${index}`,
+        path: derivationPath,
         transaction: tx,
       });
 
@@ -575,24 +574,18 @@ export class TrezorKeyring {
     coin: string;
     index?: number;
     message?: string;
-    slip44?: string;
+    slip44: number; // Required, not optional
   }) {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/0/${index ? index : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = `m/84'/0'/0'/0/${index ? index : 0}`;
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0/${index ? index : 0}`;
-        break;
-    }
+    // Use dynamic path generation instead of hardcoded switch
+    this.hdPath = getAddressDerivationPath(
+      coin,
+      slip44, // Now guaranteed to be a number
+      0,
+      false,
+      index || 0
+    );
 
-    if (coin === 'eth' && `${index ? index : 0}` && message) {
+    if (isEvmCoin(coin, slip44) && `${index ? index : 0}` && message) {
       return this._signEthPersonalMessage(Number(index), message, address);
     }
     return this._signUtxoPersonalMessage({ coin, hdPath: this.hdPath });
@@ -629,31 +622,45 @@ export class TrezorKeyring {
   ) {
     return new Promise((resolve, reject) => {
       setTimeout(async () => {
-        TrezorConnect.ethereumSignMessage({
-          path: `m/44'/60'/0'/0/${index}`,
-          message: Web3.utils.stripHexPrefix(message),
-          hex: true,
-        })
-          .then((response: any) => {
-            if (response.success) {
-              if (
-                address &&
-                response.payload.address.toLowerCase() !== address.toLowerCase()
-              ) {
-                reject(new Error('signature doesnt match the right address'));
-              }
-              const signature = `0x${response.payload.signature}`;
-              resolve({ signature, success: true });
-            } else {
-              reject(
-                // @ts-ignore
-                new Error(response.payload.error || 'Unknown error')
-              );
-            }
+        try {
+          // Use dynamic path generation for ETH (EVM) - this is always ETH for personal message signing
+          const derivationPath = getAddressDerivationPath(
+            'eth',
+            60,
+            0,
+            false,
+            index
+          );
+
+          TrezorConnect.ethereumSignMessage({
+            path: derivationPath,
+            message: Web3.utils.stripHexPrefix(message),
+            hex: true,
           })
-          .catch((e: any) => {
-            reject(new Error(e.toString() || 'Unknown error'));
-          });
+            .then((response: any) => {
+              if (response.success) {
+                if (
+                  address &&
+                  response.payload.address.toLowerCase() !==
+                    address.toLowerCase()
+                ) {
+                  reject(new Error('signature doesnt match the right address'));
+                }
+                const signature = `0x${response.payload.signature}`;
+                resolve({ signature, success: true });
+              } else {
+                reject(
+                  // @ts-ignore
+                  new Error(response.payload.error || 'Unknown error')
+                );
+              }
+            })
+            .catch((e: any) => {
+              reject(new Error(e.toString() || 'Unknown error'));
+            });
+        } catch (error) {
+          reject(error);
+        }
         // This is necessary to avoid popup collision
         // between the unlock & sign trezor popups
       }, DELAY_BETWEEN_POPUPS);
@@ -731,7 +738,8 @@ export class TrezorKeyring {
     index: number;
     version: Version;
   }) {
-    const derivationPath = `m/44'/60'/0'/0/${index}`;
+    // Use dynamic path generation for ETH (EVM) - typed data is only used for EVM
+    const derivationPath = getAddressDerivationPath('eth', 60, 0, false, index);
     const dataWithHashes = this._transformTypedData(data, version === 'V4');
 
     // set default values for signTypedData
@@ -794,25 +802,20 @@ export class TrezorKeyring {
     coin: string;
     index: string | number;
     isChangeAddress?: boolean;
-    slip44?: string;
+    slip44: number; // Required, not optional
   }): Promise<string | undefined> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/${isChangeAddress ? 1 : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0`;
-        break;
-    }
+    // Use dynamic path generation instead of hardcoded switch
+    const fullPath = getAddressDerivationPath(
+      coin,
+      slip44,
+      0,
+      isChangeAddress,
+      Number(index)
+    );
+
     try {
       const { payload, success } = await TrezorConnect.getAddress({
-        path: `${this.hdPath}/${index}`,
+        path: fullPath,
         coin,
       });
       if (success) {
@@ -832,26 +835,18 @@ export class TrezorKeyring {
     coin: string;
     indexArray: string[] | number[];
     isChangeAddress?: boolean;
-    slip44?: string;
+    slip44: number; // Required, not optional
   }): Promise<string[] | undefined> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/${isChangeAddress ? 1 : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0`;
-        break;
-    }
     try {
       const { payload, success } = await TrezorConnect.getAddress({
         bundle: indexArray.map((index) => ({
-          path: `${this.hdPath}/${index}`,
+          path: getAddressDerivationPath(
+            coin,
+            slip44,
+            0,
+            isChangeAddress,
+            Number(index)
+          ),
           coin,
         })),
       });

@@ -14,6 +14,7 @@ export const POLYGON_MUMBAI_NETWORK = {
   apiUrl: 'https://api-testnet.polygonscan.com/api',
   explorer: 'https://mumbai.polygonscan.com',
   isTestnet: true,
+  slip44: 60,
 };
 export const SYS_EVM_NETWORK = {
   chainId: 57,
@@ -24,6 +25,7 @@ export const SYS_EVM_NETWORK = {
   apiUrl: 'https://explorer.syscoin.org/api',
   explorer: 'https://explorer.syscoin.org',
   isTestnet: false,
+  slip44: 60,
 };
 export const SYS_TANENBAUM_UTXO_NETWORK = {
   chainId: 5700,
@@ -34,6 +36,7 @@ export const SYS_TANENBAUM_UTXO_NETWORK = {
   apiUrl: '',
   explorer: '',
   isTestnet: true,
+  slip44: 60,
 };
 
 export const BTC_TESTNET_TOKEN = {
@@ -45,6 +48,7 @@ export const BTC_TESTNET_TOKEN = {
   apiUrl: '',
   explorer: 'https://explorer-blockbook.syscoin.org',
   isTestnet: true,
+  slip44: 57,
 };
 
 export const SYS_MAINNET_UTXO_NETWORK = {
@@ -54,6 +58,7 @@ export const SYS_MAINNET_UTXO_NETWORK = {
   default: true,
   currency: 'sys',
   isTestnet: false,
+  slip44: 57,
 };
 
 export const SYS_TESTNET_UTXO_ADDRESS =
@@ -189,6 +194,7 @@ export const previousWalletState: IWalletState = {
     default: true,
     currency: 'sys',
     isTestnet: false,
+    slip44: 57,
   },
 };
 

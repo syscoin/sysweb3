@@ -198,6 +198,7 @@ export const getEthRpc = async (
     explorer: String(explorer),
     currency: details ? details.nativeCurrency.symbol : data.symbol,
     chainId: chainIdNumber,
+    slip44: 60, // All EVM networks use ETH slip44 for address compatibility
     isTestnet,
   };
 

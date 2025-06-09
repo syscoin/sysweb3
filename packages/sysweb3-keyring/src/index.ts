@@ -6,3 +6,4 @@ export * from './signers';
 export * from './initial-state';
 export * from './keyring-manager';
 export * from './providers';
+export * from './utils/derivation-paths';

@@ -16,6 +16,12 @@ import { fromBase58 } from '@trezor/utxo-lib/lib/bip32';
 import { IEvmMethods, IUTXOMethods, MessageTypes, UTXOPayload } from './types';
 import LedgerEthClient, { ledgerService } from '@ledgerhq/hw-app-eth';
 import { TypedDataUtils, TypedMessage, Version } from 'eth-sig-util';
+import {
+  getAccountDerivationPath,
+  getAddressDerivationPath,
+  isEvmCoin,
+} from '../utils/derivation-paths';
+import { Transaction } from 'syscoinjs-lib';
 
 export class LedgerKeyring {
   public ledgerUtxoClient: SysUtxoClient;
@@ -63,7 +69,7 @@ export class LedgerKeyring {
     coin: string;
     index: number;
     showInLedger?: boolean;
-    slip44?: string;
+    slip44: number;
   }) => {
     try {
       const fingerprint = await this.getMasterFingerprint();
@@ -93,17 +99,29 @@ export class LedgerKeyring {
     }
   };
 
-  private verifyUtxoAddress = async (accountIndex: number) =>
+  private verifyUtxoAddress = async (
+    accountIndex: number,
+    currency: string,
+    slip44: number
+  ) =>
     await this.getUtxoAddress({
-      coin: 'sys',
+      coin: currency,
       index: accountIndex,
-      slip44: '57',
+      slip44: slip44,
       showInLedger: true,
     });
 
-  private getUtxos = async ({ accountIndex }: { accountIndex: number }) => {
-    const coin = 'sys';
-    this.setHdPath(coin, accountIndex);
+  private getUtxos = async ({
+    accountIndex,
+    currency,
+    slip44,
+  }: {
+    accountIndex: number;
+    currency: string;
+    slip44: number;
+  }) => {
+    const coin = currency;
+    this.setHdPath(coin, accountIndex, slip44);
     const fingerprint = await this.getMasterFingerprint();
     const xpub = await this.ledgerUtxoClient.getExtendedPubkey(this.hdPath);
     const xpubWithDescriptor = getXpubWithDescriptor(
@@ -124,7 +142,7 @@ export class LedgerKeyring {
   }: {
     coin: string;
     index: number;
-    slip44?: string;
+    slip44: number;
     withDecriptor?: boolean;
   }) => {
     try {
@@ -163,7 +181,7 @@ export class LedgerKeyring {
     accountIndex: number;
     rawTx: string;
   }) => {
-    this.setHdPath('eth', accountIndex);
+    this.setHdPath('eth', accountIndex, 60);
     const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
 
     const signature = await this.ledgerEVMClient.signTransaction(
@@ -182,7 +200,7 @@ export class LedgerKeyring {
     accountIndex: number;
     message: string;
   }) => {
-    this.setHdPath('eth', accountIndex);
+    this.setHdPath('eth', accountIndex, 60);
 
     const signature = await this.ledgerEVMClient.signPersonalMessage(
       this.hdPath,
@@ -255,7 +273,7 @@ export class LedgerKeyring {
   }: {
     accountIndex: number;
   }) => {
-    this.setHdPath('eth', accountIndex);
+    this.setHdPath('eth', accountIndex, 60);
     try {
       const { address, publicKey } = await this.ledgerEVMClient.getAddress(
         this.hdPath
@@ -275,7 +293,7 @@ export class LedgerKeyring {
     data: any;
     version: Version;
   }) => {
-    this.setHdPath('eth', accountIndex);
+    this.setHdPath('eth', accountIndex, 60);
     const dataWithHashes = this.transformTypedData(data, version === 'V4');
 
     const { domain_separator_hash, message_hash } = dataWithHashes;
@@ -300,22 +318,20 @@ export class LedgerKeyring {
     }
   };
 
-  private setHdPath = (coin: string, accountIndex: number, slip44?: string) => {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/${accountIndex}'`;
-        break;
-      case 'btc':
-        this.hdPath = `m/84'/0'/${accountIndex}'`;
-        break;
-      case 'eth':
-        this.hdPath = `44'/60'/0'/0/${accountIndex ? accountIndex : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44 ? slip44 : 60}'/0'/0/${
-          accountIndex ? accountIndex : 0
-        }`;
-        break;
+  private setHdPath = (coin: string, accountIndex: number, slip44: number) => {
+    // Use dynamic coin type detection instead of hardcoded checks
+    if (isEvmCoin(coin, slip44)) {
+      // For EVM, use address-level derivation path
+      this.hdPath = getAddressDerivationPath(
+        coin,
+        slip44,
+        0,
+        false,
+        accountIndex || 0
+      );
+    } else {
+      // For UTXO, use account-level derivation path
+      this.hdPath = getAccountDerivationPath(coin, slip44, accountIndex);
     }
   };
 
@@ -323,7 +339,9 @@ export class LedgerKeyring {
   public convertToLedgerFormat = async (
     psbt: any,
     accountXpub: string,
-    accountId: number
+    accountId: number,
+    currency: string,
+    slip44: number
   ): Promise<any> => {
     try {
       // Create BIP32 node from account xpub
@@ -343,7 +361,6 @@ export class LedgerKeyring {
 
         // Ensure witnessUtxo is present if nonWitnessUtxo exists
         if (!dataInput.witnessUtxo && dataInput.nonWitnessUtxo) {
-          const Transaction = require('syscoinjs-lib').Transaction;
           const txBuffer = dataInput.nonWitnessUtxo;
           const tx = Transaction.fromBuffer(txBuffer);
           const vout = psbt.txInputs[i].index;
@@ -363,9 +380,11 @@ export class LedgerKeyring {
           dataInput.unknownKeyVals[1].key.equals(Buffer.from('path'))
         ) {
           const fullPath = dataInput.unknownKeyVals[1].value.toString();
-
-          // Derive using the same approach as signPsbt
-          const accountPath = `m/84'/57'/${accountId}'`;
+          const accountPath = getAccountDerivationPath(
+            currency,
+            slip44,
+            accountId
+          );
           const relativePath = fullPath
             .replace(accountPath, '')
             .replace(/^\//, '');

@@ -258,6 +258,7 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
           apiUrl: '',
           explorer: 'https://etherscan.io/',
           isTestnet: false,
+          slip44: 60,
         },
       },
       activeChain: 'ethereum' as any,

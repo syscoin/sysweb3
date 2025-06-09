@@ -111,12 +111,16 @@ export interface IUTXOMethods {
   }: {
     coin: string;
     index: number;
-    slip44?: string | undefined;
+    slip44: number;
   }) => Promise<string>;
   getUtxos: ({
     accountIndex,
+    currency,
+    slip44,
   }: {
     accountIndex: number;
+    currency: string;
+    slip44: number;
   }) => Promise<BlockbookUTXO[]>;
   getXpub: ({
     index,
@@ -126,10 +130,14 @@ export interface IUTXOMethods {
   }: {
     coin: string;
     index: number;
-    slip44?: string | undefined;
+    slip44: number;
     withDecriptor?: boolean | undefined;
   }) => Promise<string>;
-  verifyUtxoAddress: (accountIndex: number) => Promise<string>;
+  verifyUtxoAddress: (
+    accountIndex: number,
+    currency: string,
+    slip44: number
+  ) => Promise<string>;
 }
 
 interface MessageTypeProperty {

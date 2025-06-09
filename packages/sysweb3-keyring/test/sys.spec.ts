@@ -138,6 +138,7 @@ describe('testing functions for the new-sys txs', () => {
               default: true,
               currency: 'sys',
               isTestnet: false,
+              slip44: 57,
             },
             5700: {
               chainId: 5700,
@@ -146,6 +147,7 @@ describe('testing functions for the new-sys txs', () => {
               default: true,
               currency: 'tsys',
               isTestnet: true,
+              slip44: 60,
             },
           },
           ethereum: {},
@@ -158,6 +160,7 @@ describe('testing functions for the new-sys txs', () => {
           currency: 'tsys',
           apiUrl: '',
           explorer: '',
+          slip44: 1,
           isTestnet: true,
         },
       },

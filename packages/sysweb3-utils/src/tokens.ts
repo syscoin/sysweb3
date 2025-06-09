@@ -921,12 +921,6 @@ export type IErc20Token = {
   symbol: string;
 };
 
-export enum IKeyringTokenType {
-  ERC20 = 'ERC20',
-  ETH = 'ETH',
-  SYS = 'SYS',
-}
-
 export type ISyscoinToken = {
   balance: number;
   decimals: number;

@@ -199,7 +199,8 @@ export class EthereumTransactions implements IEthereumTransactions {
 
   ethSign = async (params: string[]) => {
     const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
-    const { accounts, activeAccountId, activeAccountType } = this.getState();
+    const { accounts, activeAccountId, activeAccountType, activeNetwork } =
+      this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
 
     let msg = '';
@@ -239,10 +240,11 @@ export class EthereumTransactions implements IEthereumTransactions {
     const signWithTrezor = async () => {
       try {
         const response: any = await this.trezorSigner.signMessage({
-          coin: 'eth',
+          coin: activeNetwork.currency,
           address: activeAccount.address,
           index: activeAccountId,
           message: msg,
+          slip44: activeNetwork.slip44,
         });
         return response.signature as string;
       } catch (error) {
@@ -262,7 +264,8 @@ export class EthereumTransactions implements IEthereumTransactions {
 
   signPersonalMessage = async (params: string[]) => {
     const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
-    const { accounts, activeAccountId, activeAccountType } = this.getState();
+    const { accounts, activeAccountId, activeAccountType, activeNetwork } =
+      this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
     let msg = '';
 
@@ -301,10 +304,11 @@ export class EthereumTransactions implements IEthereumTransactions {
     const signPersonalMessageWithTrezor = async () => {
       try {
         const response: any = await this.trezorSigner.signMessage({
-          coin: 'eth',
+          coin: activeNetwork.currency,
           address: activeAccount.address,
           index: activeAccountId,
           message: msg,
+          slip44: activeNetwork.slip44,
         });
         return response.signature as string;
       } catch (error) {
@@ -738,6 +742,8 @@ export class EthereumTransactions implements IEthereumTransactions {
       const signature = await this.trezorSigner.signEthTransaction({
         index: `${activeAccountId}`,
         tx: txFormattedForTrezor as EthereumTransactionEIP1559,
+        coin: activeNetwork.currency,
+        slip44: activeNetwork.slip44,
       });
       if (signature.success) {
         try {
@@ -1156,6 +1162,8 @@ export class EthereumTransactions implements IEthereumTransactions {
         const signature = await this.trezorSigner.signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
+          coin: activeNetwork.currency,
+          slip44: activeNetwork.slip44,
         });
 
         if (signature.success) {
@@ -1402,6 +1410,8 @@ export class EthereumTransactions implements IEthereumTransactions {
         const signature = await this.trezorSigner.signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
+          coin: activeNetwork.currency,
+          slip44: activeNetwork.slip44,
         });
 
         if (signature.success) {
@@ -1635,6 +1645,8 @@ export class EthereumTransactions implements IEthereumTransactions {
         const signature = await this.trezorSigner.signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
+          coin: activeNetwork.currency,
+          slip44: activeNetwork.slip44,
         });
 
         if (signature.success) {

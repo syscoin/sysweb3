@@ -71,6 +71,7 @@ export const initialNetworksState = {
       explorer: 'https://etherscan.io',
       apiUrl: 'https://api.etherscan.io/api',
       isTestnet: false,
+      slip44: 60,
     },
     137: {
       chainId: 137,
@@ -81,6 +82,7 @@ export const initialNetworksState = {
       apiUrl: 'https://api.polygonscan.com/api',
       explorer: 'https://polygonscan.com',
       isTestnet: false,
+      slip44: 60,
     },
     80001: {
       chainId: 80001,
@@ -91,6 +93,7 @@ export const initialNetworksState = {
       apiUrl: 'https://api-testnet.polygonscan.com/api',
       explorer: 'https://mumbai.polygonscan.com',
       isTestnet: true,
+      slip44: 60,
     },
     57: {
       chainId: 57,
@@ -101,6 +104,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.syscoin.org/api',
       explorer: 'https://explorer.syscoin.org',
       isTestnet: false,
+      slip44: 60,
     },
     570: {
       chainId: 570,
@@ -111,6 +115,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.rollux.com/api',
       explorer: 'https://explorer.rollux.com',
       isTestnet: false,
+      slip44: 60,
     },
     5700: {
       chainId: 5700,
@@ -121,6 +126,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.tanenbaum.io/api',
       explorer: 'https://explorer.tanenbaum.io',
       isTestnet: true,
+      slip44: 60,
     },
   },
 };
@@ -151,5 +157,6 @@ export const initialWalletState: IWalletState = {
     default: true,
     currency: 'sys',
     isTestnet: false,
+    slip44: 57,
   },
 };
