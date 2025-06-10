@@ -1383,7 +1383,7 @@ export class KeyringManager implements IKeyringManager {
         });
 
         const options = 'tokens=used&details=tokens';
-        const { balance: sysBalance } =
+        const { balance: sysBalance, unconfirmedBalance = 0 } =
           await syscoinjs.utils.fetchBackendAccount(
             this.wallet.activeNetwork.url,
             xpub,
@@ -1391,7 +1391,8 @@ export class KeyringManager implements IKeyringManager {
             true,
             undefined
           );
-        balance = sysBalance;
+        // Include unconfirmed balance for accurate spendable amount
+        balance = Math.max(0, sysBalance + unconfirmedBalance);
       } catch (e) {
         throw new Error(e);
       }
@@ -1469,17 +1470,21 @@ export class KeyringManager implements IKeyringManager {
     try {
       // only fetch backend account for the active account
       if (id === activeAccountId) {
-        const { balance: _balance, tokens } =
-          await syscoinjs.utils.fetchBackendAccount(
-            url,
-            xpub,
-            options,
-            true,
-            undefined
-          );
+        const {
+          balance: _balance,
+          unconfirmedBalance = 0,
+          tokens,
+        } = await syscoinjs.utils.fetchBackendAccount(
+          url,
+          xpub,
+          options,
+          true,
+          undefined
+        );
         const indexes = this.setLatestIndexesFromXPubTokens(tokens);
         receivingIndex = indexes.receivingIndex;
-        balance = _balance;
+        // Include unconfirmed balance for accurate spendable amount
+        balance = Math.max(0, _balance + unconfirmedBalance);
       }
       stealthAddr = this.hd.Signer.accounts[id].getAddress(
         receivingIndex,
@@ -1981,7 +1986,14 @@ export class KeyringManager implements IKeyringManager {
           undefined
         );
 
-        if (response !== null) balance = response.balance / 1e8;
+        if (response !== null) {
+          // Include unconfirmed balance for accurate spendable amount
+          const totalBalance = Math.max(
+            0,
+            response.balance + (response.unconfirmedBalance || 0)
+          );
+          balance = totalBalance / 1e8;
+        }
       }
     }
 
@@ -2218,14 +2230,17 @@ export class KeyringManager implements IKeyringManager {
       const { node, network } = zprvValidation;
 
       // Use the target network's URL for balance fetching
-      const { balance: _balance, tokens } =
-        await syscoinjs.utils.fetchBackendAccount(
-          networkToUse.url,
-          node.neutered().toBase58(),
-          'tokens=used&details=tokens',
-          true,
-          undefined
-        );
+      const {
+        balance: _balance,
+        unconfirmedBalance = 0,
+        tokens,
+      } = await syscoinjs.utils.fetchBackendAccount(
+        networkToUse.url,
+        node.neutered().toBase58(),
+        'tokens=used&details=tokens',
+        true,
+        undefined
+      );
       const { receivingIndex } = this.setLatestIndexesFromXPubTokens(tokens);
 
       const nodeChild = node.derivePath(`0/${receivingIndex}`);
@@ -2240,7 +2255,9 @@ export class KeyringManager implements IKeyringManager {
         privateKey: privKey,
       };
 
-      balances.syscoin = _balance / 1e8;
+      // Include unconfirmed balance for accurate spendable amount
+      const totalBalance = Math.max(0, _balance + unconfirmedBalance);
+      balances.syscoin = totalBalance / 1e8;
     } else {
       // It's an Ethereum private key
       const hexPrivateKey =
