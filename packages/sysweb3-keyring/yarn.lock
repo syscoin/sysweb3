@@ -1882,11 +1882,11 @@
     form-data "^4.0.0"
 
 "@types/node@*", "@types/node@>=13.7.0":
-  version "22.15.30"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-22.15.30.tgz#3a20431783e28dd0b0326f84ab386a2ec81d921d"
-  integrity sha512-6Q7lr06bEHdlfplU6YRbgG1SFBdlsfNC4/lX+SkhiTs0cpJkOElmWls8PxDFv4yY/xKb8Y6SO0OmSX4wgqTZbA==
+  version "24.0.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-24.0.0.tgz#14a278ce74dd33993f2c4e5dd614760728c0fba8"
+  integrity sha512-yZQa2zm87aRVcqDyH5+4Hv9KYgSdgwX1rFnGvpbzMaC7YAljmhBET93TPiTd3ObwTL+gSpIzPKg5BqVxdCvxKg==
   dependencies:
-    undici-types "~6.21.0"
+    undici-types "~7.8.0"
 
 "@types/node@10.12.18":
   version "10.12.18"
@@ -2623,10 +2623,10 @@ clone-response@^1.0.2:
   dependencies:
     mimic-response "^1.0.0"
 
-coinselectsyscoin@^1.0.77, coinselectsyscoin@^1.1.3:
-  version "1.1.3"
-  resolved "https://registry.yarnpkg.com/coinselectsyscoin/-/coinselectsyscoin-1.1.3.tgz#62fd553e41de9144d4fd4a645f02cdf0940ac1b8"
-  integrity sha512-yqJ/BttfzJzeH+IckTpQp+KHhr1GPGf9Uwp7Q6D0XJCWOWrazQyVqMW0f9vLHuc/mokaB6F0NmP/iv2mNR9Lew==
+coinselectsyscoin@^1.0.77, coinselectsyscoin@^1.1.5:
+  version "1.1.5"
+  resolved "https://registry.yarnpkg.com/coinselectsyscoin/-/coinselectsyscoin-1.1.5.tgz#a32a92a75445ac2253778600de60cc95eb1fe3fa"
+  integrity sha512-RZNncgWDCTr0amkXBmr6j/ObMjxxwVDFyCtKuBrnHQM2IAop6Lv/8f38oDfe4soQPlESWzTqXf7AdaKioK+rNg==
   dependencies:
     bn.js "^5.1.3"
 
@@ -3107,7 +3107,21 @@ eth-lib@^0.1.26:
     ws "^3.0.0"
     xhr-request-promise "^0.1.2"
 
-eth-object@^1.0.3, "eth-object@https://github.com/syscoin/eth-object.git":
+eth-object@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/eth-object/-/eth-object-1.0.3.tgz#5e7a58615793e570c6b1c009eb282876b4d059b6"
+  integrity sha512-VOWso/tO0Pz66wNlzUveYN0FgaqHQGVr+n60GL6QWQSUW3kwTyyaMxrHNnaDCeq/61YvMUxygGr9FJsnmWKqEg==
+  dependencies:
+    eth-util-lite "^1.0.1"
+
+"eth-object@git+https://github.com/syscoin/eth-object.git":
+  version "1.0.3"
+  uid b5ff300f57c136138b31d6e570c816a147e0f1c9
+  resolved "git+https://github.com/syscoin/eth-object.git#b5ff300f57c136138b31d6e570c816a147e0f1c9"
+  dependencies:
+    eth-util-lite "^1.0.1"
+
+"eth-object@https://github.com/syscoin/eth-object.git":
   version "1.0.3"
   resolved "https://github.com/syscoin/eth-object.git#b5ff300f57c136138b31d6e570c816a147e0f1c9"
   dependencies:
@@ -5055,9 +5069,9 @@ socks-proxy-agent@8.0.5:
     socks "^2.8.3"
 
 socks@^2.8.3:
-  version "2.8.4"
-  resolved "https://registry.yarnpkg.com/socks/-/socks-2.8.4.tgz#07109755cdd4da03269bda4725baa061ab56d5cc"
-  integrity sha512-D3YaD0aRxR3mEcqnidIs7ReYJFVzWdd6fXJYUM8ixcQcJRGTka/b3saV0KflYhyVJXKhb947GndU35SxYNResQ==
+  version "2.8.5"
+  resolved "https://registry.yarnpkg.com/socks/-/socks-2.8.5.tgz#bfe18f5ead1efc93f5ec90c79fa8bdccbcee2e64"
+  integrity sha512-iF+tNDQla22geJdTyJB1wM/qrX9DMRwWrciEPwWLPRWAUEM8sQiyxgckLxWT1f7+9VabJS0jTGGr4QgBuvi6Ww==
   dependencies:
     ip-address "^9.0.5"
     smart-buffer "^4.2.0"
@@ -5107,7 +5121,16 @@ strict-uri-encode@^1.0.0:
   resolved "https://registry.yarnpkg.com/strict-uri-encode/-/strict-uri-encode-1.1.0.tgz#279b225df1d582b1f54e65addd4352e18faa0713"
   integrity sha512-R3f198pcvnB+5IpnBlRkphuE9n46WyVl8I39W/ZUTZLz4nqSP/oLYUrcnJrw462Ds8he4YKMov2efsTIw1BDGQ==
 
-"string-width-cjs@npm:string-width@^4.2.0", string-width@^4.1.0:
+"string-width-cjs@npm:string-width@^4.2.0":
+  version "4.2.3"
+  resolved "https://registry.yarnpkg.com/string-width/-/string-width-4.2.3.tgz#269c7117d27b05ad2e536830a8ec895ef9c6d010"
+  integrity sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==
+  dependencies:
+    emoji-regex "^8.0.0"
+    is-fullwidth-code-point "^3.0.0"
+    strip-ansi "^6.0.1"
+
+string-width@^4.1.0:
   version "4.2.3"
   resolved "https://registry.yarnpkg.com/string-width/-/string-width-4.2.3.tgz#269c7117d27b05ad2e536830a8ec895ef9c6d010"
   integrity sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g==
@@ -5139,7 +5162,14 @@ string_decoder@~1.1.1:
   dependencies:
     safe-buffer "~5.1.0"
 
-"strip-ansi-cjs@npm:strip-ansi@^6.0.1", strip-ansi@6.0.1, strip-ansi@^6.0.0, strip-ansi@^6.0.1:
+"strip-ansi-cjs@npm:strip-ansi@^6.0.1":
+  version "6.0.1"
+  resolved "https://registry.yarnpkg.com/strip-ansi/-/strip-ansi-6.0.1.tgz#9e26c63d30f53443e9489495b2105d37b67a85d9"
+  integrity sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==
+  dependencies:
+    ansi-regex "^5.0.1"
+
+strip-ansi@6.0.1, strip-ansi@^6.0.0, strip-ansi@^6.0.1:
   version "6.0.1"
   resolved "https://registry.yarnpkg.com/strip-ansi/-/strip-ansi-6.0.1.tgz#9e26c63d30f53443e9489495b2105d37b67a85d9"
   integrity sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==
@@ -5177,10 +5207,10 @@ swarm-js@^0.1.40:
     tar "^4.0.2"
     xhr-request "^1.0.1"
 
-syscoinjs-lib@^1.0.218, syscoinjs-lib@^1.0.234:
-  version "1.0.234"
-  resolved "https://registry.yarnpkg.com/syscoinjs-lib/-/syscoinjs-lib-1.0.234.tgz#9c10f790727f0e10459f2c45d48de9057a12cb86"
-  integrity sha512-QLpGdhNaeyXFuyba2HFd8jCx0ZtI4kf6Tks3byoILyVAx/Ri0jK5lHRfnQL62qyPQKYaJv0kMKLFacEwEIIAGA==
+syscoinjs-lib@^1.0.218, syscoinjs-lib@^1.0.236:
+  version "1.0.236"
+  resolved "https://registry.yarnpkg.com/syscoinjs-lib/-/syscoinjs-lib-1.0.236.tgz#7e5e80bedc38c99ac06883083efc8eb85aa3e6ee"
+  integrity sha512-ifhqsSVeLoL7T61A8xzde1TzOba/ohuuQrs87ZblWTPBx1ShD0SIj9kBI/t5sM7D8RqG3WSnSKPPu+mejbmnHw==
   dependencies:
     "@trezor/utxo-lib" "^1.0.7"
     axios "^0.21.1"
@@ -5192,20 +5222,20 @@ syscoinjs-lib@^1.0.218, syscoinjs-lib@^1.0.234:
     eth-object "https://github.com/syscoin/eth-object.git"
     eth-proof "^2.1.6"
     node-localstorage "^2.1.6"
-    syscointx-js "^1.0.112"
+    syscointx-js "^1.0.116"
     trezor-connect "^8.1.29"
     varuint-bitcoin "^1.1.2"
     web3 "^1.4.0"
 
-syscointx-js@^1.0.106, syscointx-js@^1.0.112:
-  version "1.0.113"
-  resolved "https://registry.yarnpkg.com/syscointx-js/-/syscointx-js-1.0.113.tgz#cb792cb22b25562314521ae732cbb55c66992246"
-  integrity sha512-nwT+W3PnHMGQaru+6gVj7mx4yowBDuFf6rj6bRsJalsWXz3ZzrPVnKL/SKBWzJCyauoaABvbAu8W8kwnbgJ+ng==
+syscointx-js@^1.0.106, syscointx-js@^1.0.116:
+  version "1.0.116"
+  resolved "https://registry.yarnpkg.com/syscointx-js/-/syscointx-js-1.0.116.tgz#0c599674cefd6e371b6aa30ebf8f4520a171900f"
+  integrity sha512-7WYs0AirWaj+aM3AhISUJGKrqeMWFil7HaYRwjijNuu1YyWyyguin4WN9wprHD/hHrkVtJAqmcWLxRa9vvN8Vg==
   dependencies:
     bitcoin-ops "^1.4.1"
     bitcoinjs-lib "^5.2.0"
     bn.js "^5.1.3"
-    coinselectsyscoin "^1.1.3"
+    coinselectsyscoin "^1.1.5"
     secp256k1 "^3.8.0"
     typeforce "^1.18.0"
     varuint-bitcoin "^1.1.2"
@@ -5368,6 +5398,11 @@ undici-types@~6.21.0:
   version "6.21.0"
   resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-6.21.0.tgz#691d00af3909be93a7faa13be61b3a5b50ef12cb"
   integrity sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==
+
+undici-types@~7.8.0:
+  version "7.8.0"
+  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.8.0.tgz#de00b85b710c54122e44fbfd911f8d70174cd294"
+  integrity sha512-9UJ2xGDvQ43tYyVMpuHlsgApydB8ZKfVYTsLDhXkFL/6gfkp+U8xTGdh8pMJv1SpZna0zxG1DwsKZsreLbXBxw==
 
 universalify@^0.1.0:
   version "0.1.2"
