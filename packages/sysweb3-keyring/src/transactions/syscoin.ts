@@ -1,4 +1,3 @@
-import coinSelectSyscoin from 'coinselectsyscoin';
 import * as syscoinjs from 'syscoinjs-lib';
 // import { BIP_84, ONE_HUNDRED_MILLION, SYSCOIN_BASIC_FEE } from 'utils';
 
@@ -92,19 +91,33 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   }: EstimateFeeParams) => {
     const { main } = this.getSigner();
 
-    // Use syscoinjs-lib directly for transaction creation
-    const result = await main.createTransaction(
-      txOptions,
-      changeAddress,
-      outputs,
-      feeRateBN,
-      xpub // sysFromXpubOrAddress
-    );
+    try {
+      // Use syscoinjs-lib directly for transaction creation
+      const result = await main.createTransaction(
+        txOptions,
+        changeAddress,
+        outputs,
+        feeRateBN,
+        xpub // sysFromXpubOrAddress
+      );
 
-    if (result && result.psbt) {
-      return result.psbt;
+      if (result && result.psbt) {
+        return { psbt: result.psbt, fee: result.fee };
+      }
+      throw new Error('psbt not found');
+    } catch (error) {
+      // Propagate structured error from syscoinjs-lib
+      if (error.error && error.code) {
+        throw error;
+      }
+      // Wrap non-structured errors
+      throw {
+        error: true,
+        code: 'TRANSACTION_CREATION_FAILED',
+        message: error.message || 'Failed to create transaction',
+        details: error,
+      };
     }
-    throw new Error('psbt not found');
   };
 
   public decodeRawTransaction = (psbt: any) => {
@@ -137,6 +150,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   // Create unsigned PSBT for any transaction type
   private createUnsignedPSBT = async ({
     txOptions = {},
+    isMax = false,
     amount,
     receivingAddress,
     feeRateBN,
@@ -147,7 +161,8 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     receivingAddress: string;
     token?: { guid: string; symbol?: string } | null;
     txOptions?: any;
-  }): Promise<any> => {
+    isMax?: boolean | false;
+  }): Promise<{ psbt: any; fee: number }> => {
     // Ensure RBF is enabled by default if not explicitly set
     const finalTxOptions = { rbf: true, ...txOptions };
     const { activeAccountId, accounts, activeAccountType } = this.getState();
@@ -156,163 +171,75 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     const value = new syscoinjs.utils.BN(amount * 1e8);
     const changeAddress = await this.getAddress(xpub, true);
 
-    if (token && token.guid) {
-      // Token transaction: use assetAllocationSend
-      const asset = await getAsset(main.blockbookURL, token.guid);
-
-      if (!asset) {
-        throw new Error('Token not found');
-      }
-
-      // Create a Map for the asset allocation
-      const assetMap = new Map();
-      assetMap.set(token.guid, {
-        changeAddress,
-        outputs: [
-          {
-            value: value as any,
-            address: receivingAddress,
-          },
-        ],
-      });
-
-      // Pass xpub to get back just the PSBT without signing and sending
-      const result = await main.assetAllocationSend(
-        finalTxOptions,
-        assetMap,
-        changeAddress,
-        feeRateBN,
-        xpub // Pass xpub to get PSBT back
-      );
-
-      // Return PSBT in Pali format
-      return result.psbt;
-    } else {
-      // Native transaction: use getTransactionPSBT to create unsigned PSBT
-      const outputs = [
-        {
-          address: receivingAddress,
-          value,
-        },
-      ];
-
-      const psbt = await this.getTransactionPSBT({
-        txOptions: finalTxOptions,
-        outputs,
-        changeAddress,
-        feeRateBN,
-        xpub,
-      });
-
-      return psbt;
-    }
-  };
-
-  // Calculate transaction size in bytes from PSBT
-  private calculateTransactionSize = (psbt: any): number => {
     try {
-      // Method 1: Extract transaction and use coinselectsyscoin for size calculation
+      if (token && token.guid) {
+        // Token transaction: use assetAllocationSend
+        const asset = await getAsset(main.blockbookURL, token.guid);
 
-      // Validate PSBT structure
-      if (
-        !psbt.txInputs ||
-        !psbt.data ||
-        !psbt.data.inputs ||
-        !psbt.txOutputs
-      ) {
-        throw new Error('Invalid PSBT structure - missing expected properties');
+        if (!asset) {
+          throw {
+            error: true,
+            code: 'INVALID_ASSET_ALLOCATION',
+            message: 'Token not found',
+            details: { guid: token.guid },
+          };
+        }
+
+        // Create a Map for the asset allocation
+        const assetMap = new Map();
+        assetMap.set(token.guid, {
+          changeAddress,
+          outputs: [
+            {
+              value: value as any,
+              address: receivingAddress,
+            },
+          ],
+        });
+
+        // Pass xpub to get back just the PSBT without signing and sending
+        const result = await main.assetAllocationSend(
+          finalTxOptions,
+          assetMap,
+          changeAddress,
+          feeRateBN,
+          xpub // Pass xpub to get PSBT back
+        );
+
+        // Return PSBT and fee
+        return { psbt: result.psbt, fee: result.fee };
+      } else {
+        // Native transaction: use getTransactionPSBT to create unsigned PSBT
+        const outputs = [
+          {
+            address: receivingAddress,
+            value,
+            subtractFeeFrom: isMax ? true : undefined,
+          },
+        ];
+
+        const result = await this.getTransactionPSBT({
+          txOptions: finalTxOptions,
+          outputs,
+          changeAddress,
+          feeRateBN,
+          xpub,
+        });
+
+        return result;
       }
-
-      // Create inputs/outputs format that coinselectsyscoin expects with bounds checking
-      const inputs = psbt.txInputs.map((input: any, index: number) => {
-        // Ensure data.inputs[index] exists before accessing
-        const dataInput = psbt.data.inputs[index] || {};
-        return {
-          ...dataInput,
-          ...input,
-        };
-      });
-      const outputs = psbt.txOutputs;
-
-      // Validate that we have matching input counts
-      if (inputs.length !== psbt.txInputs.length) {
-        throw new Error('Mismatch between txInputs and data.inputs length');
-      }
-
-      // Use coinselectsyscoin.utils.transactionBytes for Syscoin-compatible calculation
-      // This should account for signature space even on unsigned transactions
-      const txBytes = coinSelectSyscoin.utils.transactionBytes(inputs, outputs);
-      return txBytes;
     } catch (error) {
-      console.log('DEBUG: Error calculating size from PSBT:', error);
-      // Fallback: Use virtualSize as secondary method
-      try {
-        const tx = psbt.extractTransaction(true, true);
-        const baseTxBytes = tx.virtualSize();
-
-        // Add estimated signature overhead for unsigned transaction
-        const inputCount = psbt.txInputs ? psbt.txInputs.length : 1;
-
-        // Detect transaction type from inputs to estimate signature overhead
-        let isSegwit = false;
-        try {
-          // Check if any input has witness data or is P2WPKH/P2WSH
-          if (psbt.data?.inputs) {
-            isSegwit = psbt.data.inputs.some(
-              (input: any) =>
-                input.witnessUtxo || input.witnessScript || input.tapInternalKey
-            );
-          }
-        } catch (e) {
-          // Default to checking address format if available
-          const { activeNetwork } = this.getState();
-          isSegwit = activeNetwork?.currency === 'sys'; // Syscoin uses Segwit by default
-        }
-
-        // Different overhead based on transaction type
-        const signatureOverhead = isSegwit
-          ? inputCount * 68 // P2WPKH: ~68 vbytes (with witness discount)
-          : inputCount * 113; // P2PKH: ~113 bytes (no discount)
-
-        const estimatedTxBytes = baseTxBytes + signatureOverhead;
-        return estimatedTxBytes;
-      } catch (fallbackError) {
-        console.log(
-          'DEBUG: Fallback Error calculating size from PSBT:',
-          fallbackError
-        );
-        console.log('DEBUG: PSBT object type:', typeof psbt);
-        console.log('DEBUG: PSBT object constructor:', psbt?.constructor?.name);
-        console.log(
-          'DEBUG: PSBT available methods:',
-          Object.getOwnPropertyNames(psbt || {})
-        );
-        console.log('DEBUG: PSBT has toBase64:', typeof psbt?.toBase64);
-
-        // Final fallback: Use base64 size estimation
-        try {
-          // Check if toBase64 method exists
-          if (typeof psbt?.toBase64 === 'function') {
-            const psbtBase64 = psbt.toBase64();
-            const psbtBytes = Math.ceil((psbtBase64.length * 3) / 4);
-            console.log(
-              'DEBUG: Using toBase64() method, estimated bytes:',
-              psbtBytes
-            );
-            return psbtBytes;
-          } else {
-            throw new Error('toBase64 method not available on PSBT object');
-          }
-        } catch (base64Error) {
-          console.error('DEBUG: toBase64 Error:', base64Error);
-          // Ultra-conservative fallback: Use fixed size estimation
-          const conservativeBytes = 250;
-          console.log(
-            'DEBUG: Using ultra-conservative size estimation with 250 bytes'
-          );
-          return conservativeBytes;
-        }
+      // Re-throw structured errors from syscoinjs-lib
+      if (error.error && error.code) {
+        throw error;
       }
+      // Wrap other errors in structured format
+      throw {
+        error: true,
+        code: 'TRANSACTION_CREATION_FAILED',
+        message: error.message || 'Failed to create unsigned PSBT',
+        details: error,
+      };
     }
   };
 
@@ -409,6 +336,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
   // Create unsigned PSBT and estimate fee - NO SIGNING
   public getEstimateSysTransactionFee = async ({
     txOptions = {},
+    isMax = false,
     amount,
     receivingAddress,
     feeRate,
@@ -420,51 +348,86 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     // Optional fee rate in SYS/byte
     token?: { guid: string; symbol?: string } | null;
     txOptions?: any;
+    isMax?: boolean | false;
   }) => {
-    // Ensure RBF is enabled by default if not explicitly set
-    const finalTxOptions = { rbf: true, ...txOptions };
-    const { main } = this.getSigner();
-    // Step 1: Determine fee rate
-    let actualFeeRate;
-    if (feeRate !== undefined) {
-      actualFeeRate = feeRate;
-    } else {
-      actualFeeRate = await this.getRecommendedFee(main.blockbookURL);
+    try {
+      // Ensure RBF is enabled by default if not explicitly set
+      const finalTxOptions = { rbf: true, ...txOptions };
+      const { main } = this.getSigner();
+      // Step 1: Determine fee rate
+      let actualFeeRate;
+      if (feeRate !== undefined) {
+        actualFeeRate = feeRate;
+      } else {
+        actualFeeRate = await this.getRecommendedFee(main.blockbookURL);
+      }
+
+      // Convert fee rate to satoshis/byte for consistent usage
+      const feeRateBN = new syscoinjs.utils.BN(actualFeeRate * 1e8);
+
+      // Step 2: Create unsigned PSBT
+      const result = await this.createUnsignedPSBT({
+        txOptions: finalTxOptions,
+        isMax,
+        amount,
+        receivingAddress,
+        feeRateBN,
+        token,
+      });
+
+      return {
+        fee: result.fee,
+        psbt: PsbtUtils.toPali(result.psbt), // Return UNSIGNED PSBT as JSON
+      };
+    } catch (error) {
+      // Pass through structured errors from syscoinjs-lib
+      if (error.error && error.code) {
+        // Convert fee from satoshis to SYS if available
+        if (error.fee !== undefined) {
+          error.fee = error.fee / 1e8;
+        }
+        if (error.remainingFee !== undefined) {
+          error.remainingFee = error.remainingFee / 1e8;
+        }
+        if (error.shortfall !== undefined) {
+          error.shortfall = error.shortfall / 1e8;
+        }
+        throw error;
+      }
+      // Wrap other errors
+      throw {
+        error: true,
+        code: 'TRANSACTION_CREATION_FAILED',
+        message: error.message || 'Failed to estimate transaction fee',
+        details: error,
+      };
     }
-
-    // Convert fee rate to satoshis/byte for consistent usage
-    const feeRateBN = new syscoinjs.utils.BN(actualFeeRate * 1e8);
-
-    // Step 2: Create unsigned PSBT
-    const unsignedPsbt = await this.createUnsignedPSBT({
-      txOptions: finalTxOptions,
-      amount,
-      receivingAddress,
-      feeRateBN,
-      token,
-    });
-
-    // Step 3: Calculate transaction size and convert to fee
-    const txSizeBytes = this.calculateTransactionSize(unsignedPsbt);
-    const feeInSatoshis = feeRateBN.mul(new syscoinjs.utils.BN(txSizeBytes));
-    const feeInSys = feeInSatoshis.toNumber() / 1e8;
-
-    return {
-      fee: feeInSys,
-      psbt: PsbtUtils.toPali(unsignedPsbt), // Return UNSIGNED PSBT as JSON
-    };
   };
 
   // Removed createAndSignSysTransaction - functionality merged into getEstimateSysTransactionFee
 
   private sendSignedTransaction = async (psbt): Promise<ITxid> => {
-    const { main } = this.getSigner();
-    // Send the transaction
-    const result = await main.send(psbt);
+    try {
+      const { main } = this.getSigner();
+      // Send the transaction
+      const result = await main.send(psbt);
 
-    // Extract the transaction ID
-    const txid = result.extractTransaction().getId();
-    return { txid };
+      // Extract the transaction ID
+      const txid = result.extractTransaction().getId();
+      return { txid };
+    } catch (error) {
+      // Pass through structured errors
+      if (error.error && error.code) {
+        throw error;
+      }
+      // Wrap other errors
+      throw {
+        error: true,
+        code: 'TRANSACTION_SEND_FAILED',
+        message: error.message || 'Failed to send transaction',
+        details: error,
+      };
+    }
   };
 
   public signPSBT = async ({

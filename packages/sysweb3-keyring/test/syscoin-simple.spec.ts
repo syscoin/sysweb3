@@ -114,9 +114,10 @@ describe('SyscoinTransactions', () => {
                   });
                 }
 
-                return { psbt };
+                return { psbt, fee: fee / 1e8 }; // Convert fee to SYS units
               } catch (error) {
                 // Fallback to mock structure if real PSBT creation fails
+                const fallbackFee = (feeRateBN.toNumber() * 250) / 1e8; // Convert to SYS units
                 return {
                   psbt: {
                     toBase64: () => 'mock-base64-psbt',
@@ -131,6 +132,7 @@ describe('SyscoinTransactions', () => {
                       virtualSize: () => 250,
                     }),
                   },
+                  fee: fallbackFee,
                 };
               }
             }

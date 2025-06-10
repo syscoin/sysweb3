@@ -141,6 +141,44 @@ export interface IEthereumTransactions {
   getTxGasLimit: (tx: SimpleTransactionRequest) => Promise<ethers.BigNumber>;
 }
 
+/**
+ * Error structure for Syscoin transaction operations.
+ * This interface documents the error format that consumers (like Pali) should expect
+ * when catching errors from ISyscoinTransactions methods.
+ *
+ * @example
+ * try {
+ *   const result = await syscoinTransaction.getEstimateSysTransactionFee({...});
+ * } catch (error: unknown) {
+ *   const sysError = error as ISyscoinTransactionError;
+ *   if (sysError.code === 'INSUFFICIENT_FUNDS') {
+ *     console.log(`Short by ${sysError.shortfall} SYS`);
+ *   }
+ * }
+ */
+export interface ISyscoinTransactionError {
+  error: boolean;
+  code:
+    | 'INSUFFICIENT_FUNDS'
+    | 'INVALID_FEE_RATE'
+    | 'INVALID_AMOUNT'
+    | 'INVALID_MEMO'
+    | 'INVALID_BLOB'
+    | 'INVALID_OUTPUT_COUNT'
+    | 'INVALID_ASSET_ALLOCATION'
+    | 'INVALID_PARENT_NODES'
+    | 'INVALID_TX_VALUE'
+    | 'INVALID_RECEIPT_VALUE'
+    | 'SUBTRACT_FEE_FAILED'
+    | 'TRANSACTION_CREATION_FAILED'
+    | 'TRANSACTION_SEND_FAILED';
+  message: string;
+  fee?: number; // in SYS (not satoshis)
+  remainingFee?: number; // in SYS (not satoshis)
+  shortfall?: number; // in SYS (not satoshis)
+  details?: any;
+}
+
 export interface ISyscoinTransactions {
   getEstimateSysTransactionFee: ({
     txOptions,
@@ -148,13 +186,15 @@ export interface ISyscoinTransactions {
     receivingAddress,
     feeRate,
     token,
+    isMax,
   }: {
     amount: number;
     feeRate?: number;
     receivingAddress: string;
     token?: { guid: string; symbol?: string } | null;
-    txOptions: any;
-  }) => Promise<{ fee: number; psbt: any }>; // Returns UNSIGNED psbt
+    txOptions?: any;
+    isMax?: boolean | false;
+  }) => Promise<{ fee: number; psbt: any }>; // Returns UNSIGNED psbt - may throw ISyscoinTransactionError
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
   decodeRawTransaction: (psbt: any) => any;
   // Sign PSBT separately
