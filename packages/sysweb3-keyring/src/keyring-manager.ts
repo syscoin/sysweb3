@@ -1392,7 +1392,7 @@ export class KeyringManager implements IKeyringManager {
             undefined
           );
         // Include unconfirmed balance for accurate spendable amount
-        balance = Math.max(0, sysBalance + unconfirmedBalance);
+        balance = Math.max(0, Number(sysBalance) + Number(unconfirmedBalance));
       } catch (e) {
         throw new Error(e);
       }
@@ -1484,7 +1484,7 @@ export class KeyringManager implements IKeyringManager {
         const indexes = this.setLatestIndexesFromXPubTokens(tokens);
         receivingIndex = indexes.receivingIndex;
         // Include unconfirmed balance for accurate spendable amount
-        balance = Math.max(0, _balance + unconfirmedBalance);
+        balance = Math.max(0, Number(_balance) + Number(unconfirmedBalance));
       }
       stealthAddr = this.hd.Signer.accounts[id].getAddress(
         receivingIndex,
@@ -1990,7 +1990,7 @@ export class KeyringManager implements IKeyringManager {
           // Include unconfirmed balance for accurate spendable amount
           const totalBalance = Math.max(
             0,
-            response.balance + (response.unconfirmedBalance || 0)
+            Number(response.balance) + Number(response.unconfirmedBalance || 0)
           );
           balance = totalBalance / 1e8;
         }
@@ -2256,7 +2256,10 @@ export class KeyringManager implements IKeyringManager {
       };
 
       // Include unconfirmed balance for accurate spendable amount
-      const totalBalance = Math.max(0, _balance + unconfirmedBalance);
+      const totalBalance = Math.max(
+        0,
+        Number(_balance) + Number(unconfirmedBalance)
+      );
       balances.syscoin = totalBalance / 1e8;
     } else {
       // It's an Ethereum private key
