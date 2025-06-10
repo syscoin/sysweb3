@@ -113,18 +113,47 @@ export class EthereumTransactions implements IEthereumTransactions {
     this.getNetwork = getNetwork;
     this.getDecryptedPrivateKey = getDecryptedPrivateKey;
     this.abortController = new AbortController();
-    this.web3Provider = new CustomJsonRpcProvider(
-      this.abortController.signal,
-      this.getNetwork().url
-    );
-    this.contentScriptWeb3Provider = new CustomJsonRpcProvider(
-      this.abortController.signal,
-      this.getNetwork().url
-    );
+
+    // Check if current network is a UTXO network to avoid creating web3 providers for blockbook URLs
+    const currentNetwork = this.getNetwork();
+    const isUtxoNetwork = this.isUtxoNetwork(currentNetwork);
+
+    if (isUtxoNetwork) {
+      // For UTXO networks, don't create web3 providers at all since they won't be used
+      console.log(
+        '[EthereumTransactions] Skipping web3Provider creation for UTXO network:',
+        currentNetwork.url
+      );
+      // Don't set this.web3Provider or this.contentScriptWeb3Provider for UTXO networks
+    } else {
+      // For EVM networks, create normal providers
+      this.web3Provider = new CustomJsonRpcProvider(
+        this.abortController.signal,
+        currentNetwork.url
+      );
+      this.contentScriptWeb3Provider = new CustomJsonRpcProvider(
+        this.abortController.signal,
+        currentNetwork.url
+      );
+    }
+
     this.getSigner = getSigner;
     this.getState = getState;
     this.trezorSigner = new TrezorKeyring(this.getSigner);
     this.ledgerSigner = ledgerSigner;
+  }
+
+  // Helper method to detect UTXO networks
+  private isUtxoNetwork(network: INetwork): boolean {
+    // Generic UTXO network detection patterns:
+    // 1. URL contains blockbook or trezor (most reliable)
+    // 2. Network kind is explicitly set to 'utxo'
+    const hasBlockbookUrl = !!(
+      network.url?.includes('blockbook') || network.url?.includes('trezor')
+    );
+    const hasUtxoKind = (network as any).kind === 'utxo';
+
+    return hasBlockbookUrl || hasUtxoKind;
   }
 
   signTypedData = async (
@@ -1800,20 +1829,35 @@ export class EthereumTransactions implements IEthereumTransactions {
   public setWeb3Provider(network: INetwork) {
     this.abortController.abort();
     this.abortController = new AbortController();
-    const isL2Network = L2_NETWORK_CHAIN_IDS.includes(network.chainId);
 
-    const CurrentProvider = isL2Network
-      ? CustomL2JsonRpcProvider
-      : CustomJsonRpcProvider;
+    // Check if network is a UTXO network to avoid creating web3 providers for blockbook URLs
+    const isUtxoNetwork = this.isUtxoNetwork(network);
 
-    this.web3Provider = new CurrentProvider(
-      this.abortController.signal,
-      network.url
-    );
-    this.contentScriptWeb3Provider = new CurrentProvider(
-      this.abortController.signal,
-      network.url
-    );
+    if (isUtxoNetwork) {
+      // For UTXO networks, don't create web3 providers at all since they won't be used
+      console.log(
+        '[EthereumTransactions] setWeb3Provider: Skipping web3Provider creation for UTXO network:',
+        network.url
+      );
+      // Don't update this.web3Provider or this.contentScriptWeb3Provider for UTXO networks
+      // They should remain undefined/unset for UTXO networks
+    } else {
+      // For EVM networks, create normal providers
+      const isL2Network = L2_NETWORK_CHAIN_IDS.includes(network.chainId);
+
+      const CurrentProvider = isL2Network
+        ? CustomL2JsonRpcProvider
+        : CustomJsonRpcProvider;
+
+      this.web3Provider = new CurrentProvider(
+        this.abortController.signal,
+        network.url
+      );
+      this.contentScriptWeb3Provider = new CurrentProvider(
+        this.abortController.signal,
+        network.url
+      );
+    }
   }
 
   public importAccount = (mnemonicOrPrivKey: string) => {
