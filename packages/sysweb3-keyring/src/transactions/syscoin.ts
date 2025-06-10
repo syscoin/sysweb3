@@ -102,7 +102,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       );
 
       if (result && result.psbt) {
-        return { psbt: result.psbt, fee: result.fee };
+        return { psbt: result.psbt, fee: result.fee / 1e8 };
       }
       throw new Error('psbt not found');
     } catch (error) {
@@ -207,7 +207,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
         );
 
         // Return PSBT and fee
-        return { psbt: result.psbt, fee: result.fee };
+        return { psbt: result.psbt, fee: result.fee / 1e8 };
       } else {
         // Native transaction: use getTransactionPSBT to create unsigned PSBT
         const outputs = [
@@ -376,7 +376,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       });
 
       return {
-        fee: result.fee,
+        fee: result.fee, // Fee is already converted to SYS in createUnsignedPSBT
         psbt: PsbtUtils.toPali(result.psbt), // Return UNSIGNED PSBT as JSON
       };
     } catch (error) {
