@@ -384,13 +384,31 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       if (error.error && error.code) {
         // Convert fee from satoshis to SYS if available
         if (error.fee !== undefined) {
-          error.fee = error.fee / 1e8;
+          // If fee is a BN object, convert to number first
+          if (typeof error.fee === 'object' && error.fee.toNumber) {
+            error.fee = error.fee.toNumber() / 1e8;
+          } else {
+            error.fee = error.fee / 1e8;
+          }
         }
         if (error.remainingFee !== undefined) {
-          error.remainingFee = error.remainingFee / 1e8;
+          // If remainingFee is a BN object, convert to number first
+          if (
+            typeof error.remainingFee === 'object' &&
+            error.remainingFee.toNumber
+          ) {
+            error.remainingFee = error.remainingFee.toNumber() / 1e8;
+          } else {
+            error.remainingFee = error.remainingFee / 1e8;
+          }
         }
         if (error.shortfall !== undefined) {
-          error.shortfall = error.shortfall / 1e8;
+          // If shortfall is a BN object, convert to number first
+          if (typeof error.shortfall === 'object' && error.shortfall.toNumber) {
+            error.shortfall = error.shortfall.toNumber() / 1e8;
+          } else {
+            error.shortfall = error.shortfall / 1e8;
+          }
         }
         throw error;
       }

@@ -176,7 +176,15 @@ export interface ISyscoinTransactionError {
   fee?: number; // in SYS (not satoshis)
   remainingFee?: number; // in SYS (not satoshis)
   shortfall?: number; // in SYS (not satoshis)
-  details?: any;
+  details?: {
+    inputTotal?: any; // BN object in satoshis
+    outputTotal?: any; // BN object in satoshis
+    requiredFee?: any; // BN object in satoshis
+    message?: string; // Additional context about the error
+    markedOutputs?: number; // For SUBTRACT_FEE_FAILED
+    removedOutputs?: number; // For SUBTRACT_FEE_FAILED
+    guid?: string; // For INVALID_ASSET_ALLOCATION
+  };
 }
 
 export interface ISyscoinTransactions {
