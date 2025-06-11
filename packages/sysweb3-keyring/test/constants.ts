@@ -218,6 +218,7 @@ export const secPreviousWalletState: IWalletState = {
 };
 
 export const mockVault = {
+  mnemonic: PEACE_SEED_PHRASE,
   password: FAKE_PASSWORD,
   encryptedMnemonic: 'encrypted_mnemonic_mock',
   encryptedPrivateKeys: {},

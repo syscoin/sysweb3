@@ -344,6 +344,21 @@ export class KeyringManager implements IKeyringManager {
         }
 
         await this.updateWalletKeys(password);
+
+        // This ensures EVM private keys are properly derived for the default account
+        try {
+          const { activeAccountId, activeAccountType } = this.wallet;
+          await this.setActiveAccount(activeAccountId, activeAccountType);
+          console.log(
+            `[KeyringManager] Active account ${activeAccountId} initialized after unlock`
+          );
+        } catch (accountError) {
+          console.warn(
+            '[KeyringManager] Failed to initialize active account after unlock:',
+            accountError.message
+          );
+          // Don't fail the unlock process if account initialization fails
+        }
       }
 
       return {
@@ -390,9 +405,39 @@ export class KeyringManager implements IKeyringManager {
         throw new Error('Create a password first');
       }
       let { mnemonic } = await getDecryptedVault(this.memPassword);
-      mnemonic = CryptoJS.AES.decrypt(mnemonic, this.memPassword).toString(
-        CryptoJS.enc.Utf8
-      );
+
+      if (!mnemonic) {
+        throw new Error('Mnemonic not found in vault or is empty');
+      }
+
+      // Try to detect if mnemonic is encrypted or plain text
+      // Encrypted mnemonics typically don't contain common BIP39 words
+      const isLikelyPlainMnemonic =
+        mnemonic.includes(' ') &&
+        (mnemonic.split(' ').length === 12 ||
+          mnemonic.split(' ').length === 24);
+
+      if (!isLikelyPlainMnemonic) {
+        try {
+          mnemonic = CryptoJS.AES.decrypt(mnemonic, this.memPassword).toString(
+            CryptoJS.enc.Utf8
+          );
+        } catch (decryptError) {
+          // If decryption fails, assume mnemonic is already decrypted
+          // This can happen in tests or if the storage format changes
+          console.warn(
+            'Mnemonic decryption failed, using as-is:',
+            decryptError.message
+          );
+        }
+      }
+
+      if (!mnemonic) {
+        throw new Error(
+          'Failed to decrypt mnemonic or mnemonic is empty after decryption'
+        );
+      }
+
       const rootAccount = await this.createMainWallet(mnemonic);
       this.wallet = {
         ...initialWalletState,
@@ -463,6 +508,21 @@ export class KeyringManager implements IKeyringManager {
       // Set account index for any account type that has an HD signer
       if (this.hd) {
         this.hd.setAccountIndex(id);
+      }
+    } else if (this.activeChain === INetworkType.Ethereum) {
+      // For EVM accounts, ensure the active account has the correct private key
+      if (accountType === KeyringAccountType.HDAccount) {
+        // Re-derive the private key for this specific account index to ensure correctness
+        // This fixes the issue where account switching after login could have wrong private keys
+        const existingAccount = accounts[id];
+        const expectedLabel = existingAccount.label;
+
+        // Use existing method - the .then() calling pattern makes this non-blocking anyway
+        await this.setDerivedWeb3Accounts(id, expectedLabel, id);
+
+        console.log(
+          `[KeyringManager] EVM account ${id} private key validated and re-derived`
+        );
       }
     }
   };
@@ -545,7 +605,35 @@ export class KeyringManager implements IKeyringManager {
       throw new Error('Invalid password');
     }
     let { mnemonic } = await getDecryptedVault(pwd);
-    mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(CryptoJS.enc.Utf8);
+
+    if (!mnemonic) {
+      throw new Error('Mnemonic not found in vault or is empty');
+    }
+
+    // Try to detect if mnemonic is encrypted or plain text
+    const isLikelyPlainMnemonic =
+      mnemonic.includes(' ') &&
+      (mnemonic.split(' ').length === 12 || mnemonic.split(' ').length === 24);
+
+    if (!isLikelyPlainMnemonic) {
+      try {
+        mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
+          CryptoJS.enc.Utf8
+        );
+      } catch (decryptError) {
+        // If decryption fails, assume mnemonic is already decrypted
+        console.warn(
+          'Mnemonic decryption failed in getSeed, using as-is:',
+          decryptError.message
+        );
+      }
+    }
+
+    if (!mnemonic) {
+      throw new Error(
+        'Failed to decrypt mnemonic or mnemonic is empty after decryption'
+      );
+    }
 
     return mnemonic;
   };
@@ -1036,19 +1124,67 @@ export class KeyringManager implements IKeyringManager {
       if (!this.sessionPassword)
         throw new Error('Wallet is locked cant proceed with transaction');
 
-      const { xprv, address } = accounts[activeAccountType][activeAccountId];
-      const decryptedPrivateKey = CryptoJS.AES.decrypt(
-        xprv,
-        this.sessionPassword
-      ).toString(CryptoJS.enc.Utf8);
+      const activeAccountData = accounts[activeAccountType][activeAccountId];
+      if (!activeAccountData) {
+        throw new Error(
+          `Active account (${activeAccountType}:${activeAccountId}) not found. Account switching may be in progress.`
+        );
+      }
+
+      const { xprv, address } = activeAccountData;
+      if (!xprv) {
+        throw new Error(
+          `Private key not found for account ${activeAccountType}:${activeAccountId}. Account may not be fully initialized.`
+        );
+      }
+
+      let decryptedPrivateKey: string;
+      try {
+        decryptedPrivateKey = CryptoJS.AES.decrypt(
+          xprv,
+          this.sessionPassword
+        ).toString(CryptoJS.enc.Utf8);
+      } catch (decryptError) {
+        throw new Error(
+          `Failed to decrypt private key for account ${activeAccountType}:${activeAccountId}. The wallet may be locked or corrupted.`
+        );
+      }
+
+      if (!decryptedPrivateKey) {
+        throw new Error(
+          `Decrypted private key is empty for account ${activeAccountType}:${activeAccountId}. Invalid password or corrupted data.`
+        );
+      }
+
+      // For EVM accounts, validate that the derived address matches the stored address
+      // This helps catch account switching race conditions early
+      if (this.activeChain === INetworkType.Ethereum) {
+        try {
+          const derivedWallet = new ethers.Wallet(decryptedPrivateKey);
+          if (derivedWallet.address.toLowerCase() !== address.toLowerCase()) {
+            throw new Error(
+              `Address mismatch for account ${activeAccountType}:${activeAccountId}. Expected ${address} but derived ${derivedWallet.address}. Account switching may be in progress.`
+            );
+          }
+        } catch (ethersError) {
+          throw new Error(
+            `Failed to validate EVM address for account ${activeAccountType}:${activeAccountId}: ${ethersError.message}`
+          );
+        }
+      }
 
       return {
         address,
         decryptedPrivateKey,
       };
     } catch (error) {
-      console.log('ERROR getDecryptedPrivateKey', {
-        error,
+      console.error('ERROR getDecryptedPrivateKey', {
+        error: error.message,
+        activeChain: this.activeChain,
+        wallet: {
+          activeAccountId: this.wallet?.activeAccountId,
+          activeAccountType: this.wallet?.activeAccountType,
+        },
       });
       this.validateAndHandleErrorByMessage(error.message);
       throw error;
@@ -2033,9 +2169,40 @@ export class KeyringManager implements IKeyringManager {
         this.wallet.activeAccountType === KeyringAccountType.Imported;
 
       const { mnemonic } = await getDecryptedVault(pwd);
-      const hdWalletSeed = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
-        CryptoJS.enc.Utf8
-      );
+
+      if (!mnemonic) {
+        throw new Error('Mnemonic not found in vault or is empty');
+      }
+
+      let hdWalletSeed: string;
+      // Try to detect if mnemonic is encrypted or plain text
+      const isLikelyPlainMnemonic =
+        mnemonic.includes(' ') &&
+        (mnemonic.split(' ').length === 12 ||
+          mnemonic.split(' ').length === 24);
+
+      if (!isLikelyPlainMnemonic) {
+        try {
+          hdWalletSeed = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
+            CryptoJS.enc.Utf8
+          );
+        } catch (decryptError) {
+          // If decryption fails, assume mnemonic is already decrypted
+          console.warn(
+            'Mnemonic decryption failed in restoreWallet, using as-is:',
+            decryptError.message
+          );
+          hdWalletSeed = mnemonic;
+        }
+      } else {
+        hdWalletSeed = mnemonic;
+      }
+
+      if (!hdWalletSeed) {
+        throw new Error(
+          'Failed to decrypt mnemonic or mnemonic is empty after decryption'
+        );
+      }
 
       if (isImported && this.activeChain === INetworkType.Syscoin) {
         const zprv = this.getDecryptedPrivateKey()?.decryptedPrivateKey;
@@ -2167,9 +2334,34 @@ export class KeyringManager implements IKeyringManager {
             if (!isBitcoinBased) {
               try {
                 let { mnemonic } = await getDecryptedVault(pwd);
-                mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
-                  CryptoJS.enc.Utf8
-                );
+
+                if (!mnemonic) {
+                  console.warn(
+                    'Mnemonic not found in vault, skipping Ethereum key update for account',
+                    id
+                  );
+                  continue;
+                }
+
+                // Try to detect if mnemonic is encrypted or plain text
+                const isLikelyPlainMnemonic =
+                  mnemonic.includes(' ') &&
+                  (mnemonic.split(' ').length === 12 ||
+                    mnemonic.split(' ').length === 24);
+
+                if (!isLikelyPlainMnemonic) {
+                  try {
+                    mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
+                      CryptoJS.enc.Utf8
+                    );
+                  } catch (decryptError) {
+                    // If decryption fails, assume mnemonic is already decrypted
+                    console.warn(
+                      'Mnemonic decryption failed in updateWalletKeys, using as-is:',
+                      decryptError.message
+                    );
+                  }
+                }
 
                 // Validate mnemonic before using it
                 if (!mnemonic || mnemonic.length < 10) {

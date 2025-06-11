@@ -165,6 +165,13 @@ export class EthereumTransactions implements IEthereumTransactions {
     const { activeAccountType, accounts, activeAccountId } = this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
 
+    // Validate that the derived address matches the active account to prevent race conditions
+    if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
+      throw {
+        message: `Account state mismatch detected. Expected ${activeAccount.address} but got ${address}. Please try again after account switching completes.`,
+      };
+    }
+
     const signTypedData = () => {
       if (addr.toLowerCase() !== address.toLowerCase())
         throw {
@@ -232,6 +239,13 @@ export class EthereumTransactions implements IEthereumTransactions {
       this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
 
+    // Validate that the derived address matches the active account to prevent race conditions
+    if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
+      throw {
+        message: `Account state mismatch detected. Expected ${activeAccount.address} but got ${address}. Please try again after account switching completes.`,
+      };
+    }
+
     let msg = '';
     //Comparisions do not need to care for checksum address
     if (params[0].toLowerCase() === address.toLowerCase()) {
@@ -296,6 +310,14 @@ export class EthereumTransactions implements IEthereumTransactions {
     const { accounts, activeAccountId, activeAccountType, activeNetwork } =
       this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
+
+    // Validate that the derived address matches the active account to prevent race conditions
+    if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
+      throw {
+        message: `Account state mismatch detected. Expected ${activeAccount.address} but got ${address}. Please try again after account switching completes.`,
+      };
+    }
+
     let msg = '';
 
     if (params[0].toLowerCase() === address.toLowerCase()) {
@@ -330,6 +352,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         throw error;
       }
     };
+
     const signPersonalMessageWithTrezor = async () => {
       try {
         const response: any = await this.trezorSigner.signMessage({
@@ -633,10 +656,18 @@ export class EthereumTransactions implements IEthereumTransactions {
     params: SimpleTransactionRequest,
     isLegacy?: boolean
   ) => {
-    const { decryptedPrivateKey } = this.getDecryptedPrivateKey();
+    const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
     const { activeAccountType, activeAccountId, accounts, activeNetwork } =
       this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
+
+    // Validate that we have the correct private key for the active account to prevent race conditions
+    // This is critical for transaction security during account switches
+    if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
+      throw new Error(
+        `Account state mismatch detected during transaction. Expected ${activeAccount.address} but got ${address}. Please wait for account switching to complete and try again.`
+      );
+    }
 
     const sendEVMLedgerTransaction = async () => {
       const transactionNonce = await this.getRecommendedNonce(
