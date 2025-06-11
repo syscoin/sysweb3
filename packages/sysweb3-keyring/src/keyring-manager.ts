@@ -2378,6 +2378,14 @@ export class KeyringManager implements IKeyringManager {
         throw new Error(zprvValidation.message);
       }
 
+      // Check if it failed parsing as an extended key
+      if (
+        zprvValidation.message &&
+        zprvValidation.message.includes('Failed to parse extended private key')
+      ) {
+        throw new Error(zprvValidation.message);
+      }
+
       // If it's not an extended key, treat it as an Ethereum private key
       const hexPrivateKey =
         privKey.slice(0, 2) === '0x' ? privKey : `0x${privKey}`;

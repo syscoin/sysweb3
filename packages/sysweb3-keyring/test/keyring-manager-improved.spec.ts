@@ -168,10 +168,10 @@ describe('Keyring Manager - Real Implementation Tests', () => {
     const testnet = initialWalletState.networks.syscoin[5700];
     await keyringManager.setSignerNetwork(testnet, 'syscoin');
 
-    // Import a UTXO account with a valid testnet tprv
-    // Using the same tprv from our validate-zprv-fix tests
-    const tprv =
-      'tprv8ZgxMBicQKsPeDgjzdC36fs6bMjGApWDNLR9erAXMs5skhMv36j9MV5ecvfavji5khqjWaWSFhN3YcCUUdiKH6isR4Pwy3U5y5egddBr16m';
+    // Import a UTXO account with a valid mainnet zprv (BIP84)
+    // We'll use a mainnet key and let the address format adjust for testnet
+    const zprv =
+      'zprvAdG4iTXWBoARxkkzNpNh8r6Qag3irQB8PzEMkAFeTRXxHpbF9z4QgEvBRmfvqWvGp42t42nvgGpNgYSJA9iefm1yYNZKEm7z6qUWCroSQnE';
     const syscoinTestnet = {
       chainId: 5700,
       currency: 'Syscoin Testnet',
@@ -181,7 +181,7 @@ describe('Keyring Manager - Real Implementation Tests', () => {
       label: 'Syscoin Testnet',
     };
     const importedAccount = await keyringManager.importAccount(
-      tprv,
+      zprv,
       'Imported UTXO',
       syscoinTestnet
     );
