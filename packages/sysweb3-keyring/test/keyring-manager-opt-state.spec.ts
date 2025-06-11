@@ -67,9 +67,10 @@ describe('testing functions for the new-sys txs', () => {
   });
 
   it('should initialize a new keyring with ethereum as the active chain', async () => {
+    // Start with default Syscoin
     const keyringManager = new KeyringManager({
-      wallet: secPreviousWalletState,
-      activeChain: INetworkType.Ethereum,
+      wallet: previousWalletState,
+      activeChain: INetworkType.Syscoin,
     });
 
     // Properly set up the wallet
@@ -77,7 +78,7 @@ describe('testing functions for the new-sys txs', () => {
     await keyringManager.setWalletPassword(FAKE_PASSWORD);
     await keyringManager.createKeyringVault();
 
-    // Set the network to Ethereum after creating the vault
+    // Now switch to Ethereum network
     await keyringManager.setSignerNetwork(
       secPreviousWalletState.activeNetwork,
       INetworkType.Ethereum
@@ -91,7 +92,7 @@ describe('testing functions for the new-sys txs', () => {
     expect(right.canLogin).toBe(true);
 
     // After switching to Ethereum, the xpub should be an Ethereum public key
-    const xpub = await keyringManager.getAccountXpub();
+    const xpub = keyringManager.getAccountXpub();
     expect(xpub).toBeDefined();
     expect(xpub.substring(0, 2)).toEqual('0x');
   });

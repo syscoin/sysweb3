@@ -38,11 +38,21 @@ export const getPubType = (
 
 export const getNetworkConfig = (slip44: number, coinName: string) => {
   try {
-    const coin = coins.find(
-      (supported: any) => supported.coinName === coinName
+    // First try to find by both slip44 and coinName for precision
+    let coin = coins.find(
+      (supported: any) =>
+        supported.slip44 === slip44 &&
+        (supported.coinName?.toLowerCase() === coinName?.toLowerCase() ||
+          supported.name?.toLowerCase() === coinName?.toLowerCase() ||
+          supported.coinShortcut?.toLowerCase() === coinName?.toLowerCase())
     );
 
-    if (!(coin && coin.slip44 === slip44)) {
+    // If not found by coinName, fall back to slip44 only (for backward compatibility)
+    if (!coin) {
+      coin = coins.find((supported: any) => supported.slip44 === slip44);
+    }
+
+    if (!coin) {
       throw `${coinName} not supported, add its network config on coins.ts at Pali repo`;
     }
     const {

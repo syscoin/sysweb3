@@ -106,8 +106,8 @@ describe('validateZprv Network-Specific Validation', () => {
 
       if (result.isValid) {
         expect(result.network?.slip44).toBe(0); // Bitcoin mainnet
-        expect(result.network?.bech32).toBe('btc');
-        expect(result.network?.messagePrefix).toContain('Btc');
+        expect(result.network?.bech32).toBe('bc');
+        expect(result.network?.messagePrefix).toContain('Bitcoin');
       }
     });
 
