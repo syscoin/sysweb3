@@ -214,6 +214,15 @@ jest.mock('../src/transactions', () => ({
           privateKey: privateKey,
           publicKey: '0x' + '0'.repeat(128),
         };
+      } else if (
+        privateKey ===
+        '0x4646464646464646464646464646464646464646464646464646464646464646'
+      ) {
+        return {
+          address: '0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F',
+          privateKey: privateKey,
+          publicKey: '0x' + '0'.repeat(128),
+        };
       }
       return {
         address: '0x0000000000000000000000000000000000000000',
@@ -331,11 +340,164 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     );
   });
 
-  // * importAccount UTXO (zprv)
-  it.skip('should import a UTXO account by zprv and handle network switches', async () => {
-    // Skipping this test due to extended private key network version compatibility issues
-    // The validateZprv function requires proper network-specific extended keys (xprv/tprv)
-    // which are complex to generate in tests
+  // * importAccount UTXO (zprv) and Web3
+  it('should import a UTXO account by zprv and handle network switches', async () => {
+    // NOTE: Imported zprv/vprv accounts are network-specific.
+    // A mainnet zprv cannot be used on testnet, and vice versa.
+    // This test verifies that imported accounts maintain their addresses
+    // and can switch between different networks of the same type (e.g., Bitcoin mainnet to Syscoin mainnet)
+
+    // Create a fresh wallet to avoid conflicts with other tests
+    keyringManager = new KeyringManager();
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    // Store the initial HD account info
+    const { activeAccount: initialHDAccount } =
+      keyringManager.getActiveAccount();
+    expect(initialHDAccount.id).toBe(0);
+    expect(initialHDAccount.isImported).toBe(false);
+
+    // Start with Syscoin mainnet
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+
+    // Use a valid mainnet zprv (BIP84) that's NOT from our current wallet
+    // This is from BIP84 test vectors - a known valid zprv
+    const mainnetZprv =
+      'zprvAdG4iTXWBoARxkkzNpNh8r6Qag3irQB8PzEMkAFeTRXxHpbF9z4QgEvBRmfvqWvGp42t42nvgGpNgYSJA9iefm1yYNZKEm7z6qUWCroSQnE';
+
+    // Import the UTXO account
+    const importedUTXOAccount = await keyringManager.importAccount(mainnetZprv);
+
+    // Verify the import was successful
+    expect(importedUTXOAccount).toBeDefined();
+    expect(importedUTXOAccount.address).toBeDefined();
+    expect(importedUTXOAccount.isImported).toBe(true);
+    const utxoAccountId = importedUTXOAccount.id;
+
+    console.log('Imported account address:', importedUTXOAccount.address);
+    console.log('Imported account ID:', importedUTXOAccount.id);
+
+    // The imported account should have a mainnet address
+    expect(importedUTXOAccount.address.startsWith('sys1')).toBe(true);
+    const importedMainnetAddress = importedUTXOAccount.address;
+
+    // Set this imported account as active
+    await keyringManager.setActiveAccount(
+      utxoAccountId,
+      KeyringAccountType.Imported
+    );
+
+    // Verify it's the active account
+    const { activeAccount, activeAccountType } =
+      keyringManager.getActiveAccount();
+    expect(activeAccount.id).toBe(utxoAccountId);
+    expect(activeAccountType).toBe(KeyringAccountType.Imported);
+    expect(activeAccount.address).toBe(importedMainnetAddress);
+
+    // Now switch to Syscoin testnet
+    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
+    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+
+    // Verify the network switch
+    const currentNetwork = keyringManager.getNetwork();
+    expect(currentNetwork.chainId).toBe(5700);
+    expect(currentNetwork.isTestnet).toBe(true);
+
+    // Check that the address format updated for testnet
+    const { activeAccount: testnetAccount } = keyringManager.getActiveAccount();
+    console.log('Testnet account address:', testnetAccount.address);
+    console.log('Account ID:', testnetAccount.id);
+    console.log('Is imported:', testnetAccount.isImported);
+    // The address should start with 'tsys1' for testnet
+    expect(testnetAccount.address.startsWith('tsys1')).toBe(true);
+    expect(testnetAccount.id).toBe(utxoAccountId); // Same account ID
+    expect(testnetAccount.isImported).toBe(true);
+
+    // Switch back to mainnet
+    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+
+    // Verify address is back to mainnet format
+    const { activeAccount: mainnetAccountAgain } =
+      keyringManager.getActiveAccount();
+    expect(mainnetAccountAgain.address).toBe(importedMainnetAddress);
+    expect(mainnetAccountAgain.address.startsWith('sys1')).toBe(true);
+
+    // Now switch to Ethereum network
+    const ethNetwork = initialWalletState.networks.ethereum[1];
+    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+
+    // When switching to Ethereum from UTXO with imported account,
+    // the system tries to maintain the active account but regenerates accounts for the new chain
+    const ethWallet = keyringManager.getActiveAccount();
+    // Since imported UTXO accounts don't exist on Ethereum, it should still show the imported account
+    // but the actual account data will be empty/invalid for Ethereum
+    expect(ethWallet.activeAccountType).toBe(KeyringAccountType.Imported);
+    expect(ethWallet.activeAccount.id).toBe(utxoAccountId);
+
+    // Import an Ethereum account - use a different key to avoid conflicts
+    const ethPrivateKey =
+      '0x4646464646464646464646464646464646464646464646464646464646464646';
+    const expectedEthAddress = '0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F';
+
+    const importedEthAccount = await keyringManager.importAccount(
+      ethPrivateKey
+    );
+
+    // Verify Ethereum account import
+    expect(importedEthAccount).toBeDefined();
+    expect(importedEthAccount.address.toLowerCase()).toBe(
+      expectedEthAddress.toLowerCase()
+    );
+    expect(importedEthAccount.isImported).toBe(true);
+    const ethAccountId = importedEthAccount.id;
+
+    // Set Ethereum imported account as active
+    await keyringManager.setActiveAccount(
+      ethAccountId,
+      KeyringAccountType.Imported
+    );
+
+    // Verify it's active
+    const { activeAccount: activeEthAccount } =
+      keyringManager.getActiveAccount();
+    expect(activeEthAccount.id).toBe(ethAccountId);
+    expect(activeEthAccount.address.toLowerCase()).toBe(
+      expectedEthAddress.toLowerCase()
+    );
+
+    // Switch back to Syscoin network
+    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+
+    // The system maintains the active account type even when switching chains
+    // Since the ETH imported account isn't valid for UTXO, it stays on imported but the account will be empty
+    const backToSyscoin = keyringManager.getActiveAccount();
+    expect(backToSyscoin.activeAccountType).toBe(KeyringAccountType.Imported);
+    expect(backToSyscoin.activeAccount.id).toBe(ethAccountId);
+
+    // Switch back to Syscoin mainnet and set our UTXO imported account as active
+    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+    await keyringManager.setActiveAccount(
+      utxoAccountId,
+      KeyringAccountType.Imported
+    );
+    const { activeAccount: finalUTXOAccount } =
+      keyringManager.getActiveAccount();
+    expect(finalUTXOAccount.address).toBe(importedMainnetAddress);
+
+    // Switch back to Ethereum and verify ETH imported account is still there
+    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+    await keyringManager.setActiveAccount(
+      ethAccountId,
+      KeyringAccountType.Imported
+    );
+    const { activeAccount: finalEthAccount } =
+      keyringManager.getActiveAccount();
+    expect(finalEthAccount.address.toLowerCase()).toBe(
+      expectedEthAddress.toLowerCase()
+    );
   });
 
   // * addNewAccount

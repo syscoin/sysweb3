@@ -792,7 +792,7 @@ export class KeyringManager implements IKeyringManager {
         // This ensures addresses are in the correct format for the new chain
         if (chain === INetworkType.Syscoin) {
           const { rpc, isTestnet } = await this.getSignerUTXO(network);
-          await this.updateUTXOAccounts(rpc, isTestnet);
+          await this.updateUTXOAccounts(rpc, isTestnet, network);
           if (!this.hd) throw new Error('Error initialising HD');
           this.hd.setAccountIndex(this.wallet.activeAccountId);
         } else if (chain === INetworkType.Ethereum) {
@@ -804,13 +804,16 @@ export class KeyringManager implements IKeyringManager {
         if (chain === INetworkType.Syscoin) {
           const { rpc, isTestnet } = await this.getSignerUTXO(network);
 
+          // Update activeNetwork early so address updates use the correct network
+          this.wallet.activeNetwork = network;
+
           // Check if HD signer needs update
           if (this.shouldUpdateHDSigner(rpc, isTestnet)) {
             // Recreate HD signer with new network parameters
-            await this.updateUTXOAccounts(rpc, isTestnet);
+            await this.updateUTXOAccounts(rpc, isTestnet, network);
           } else {
             // HD signer is fine, just update address formats
-            this.updateUTXOAddressFormats();
+            this.updateUTXOAddressFormats(network);
           }
 
           if (!this.hd) throw new Error('Error initialising HD');
@@ -833,7 +836,6 @@ export class KeyringManager implements IKeyringManager {
         activeNetwork: network,
       };
 
-      this.wallet.activeNetwork = network;
       this.activeChain = networkChain;
 
       return {
@@ -1073,22 +1075,110 @@ export class KeyringManager implements IKeyringManager {
     }
 
     try {
+      // Check if it looks like an extended key based on known prefixes
+      const knownExtendedKeyPrefixes = [
+        'xprv',
+        'xpub',
+        'yprv',
+        'ypub',
+        'zprv',
+        'zpub',
+        'tprv',
+        'tpub',
+        'uprv',
+        'upub',
+        'vprv',
+        'vpub',
+      ];
+      const prefix = zprv.substring(0, 4);
+      const looksLikeExtendedKey = knownExtendedKeyPrefixes.includes(prefix);
+
+      // Only check prefix validity if it looks like an extended key
+      if (looksLikeExtendedKey) {
+        const validBip84Prefixes = ['zprv', 'vprv']; // zprv for mainnet, vprv for testnet
+        if (!validBip84Prefixes.includes(prefix)) {
+          throw new Error(
+            `Invalid key prefix '${prefix}'. Only BIP84 keys (zprv/vprv) are supported for UTXO imports. BIP44 keys (xprv/tprv) are not supported.`
+          );
+        }
+      } else {
+        // Not an extended key format
+        throw new Error('Not an extended private key');
+      }
+
       const bip32 = BIP32Factory(ecc);
       const decoded = bs58check.decode(zprv);
 
       if (decoded.length !== 78) {
         throw new Error('Invalid length for a BIP-32 key');
       }
-      const { networks } = getNetworkConfig(
+
+      const { networks, types } = getNetworkConfig(
         targetNetwork.slip44,
         targetNetwork.currency || 'Bitcoin'
       );
 
       const isTestnet =
         targetNetwork.isTestnet || targetNetwork.chainId === 5700;
-      const network = isTestnet ? networks.testnet : networks.mainnet;
 
-      const node = bip32.fromBase58(zprv, network);
+      // Note: We allow cross-network usage of keys (mainnet key on testnet and vice versa)
+      // The key derivation is the same, only the address encoding changes
+      // This allows imported accounts to work across networks
+
+      // Get the BIP84 network configuration
+      let network = isTestnet ? networks.testnet : networks.mainnet;
+
+      if (types && types.zPubType) {
+        const bip84Versions = isTestnet
+          ? types.zPubType.testnet
+          : types.zPubType.mainnet;
+        const privKey = isTestnet ? 'vprv' : 'zprv';
+        const pubKey = isTestnet ? 'vpub' : 'zpub';
+
+        // Create network config with BIP84 version bytes
+        network = {
+          ...network,
+          bip32: {
+            public: parseInt(bip84Versions[pubKey], 16),
+            private: parseInt(bip84Versions[privKey], 16),
+          },
+        };
+      }
+
+      // Try to parse with the target network first
+      let node;
+      try {
+        node = bip32.fromBase58(zprv, network);
+      } catch (e) {
+        // If parsing fails with target network, try with the opposite network
+        // This handles cross-network usage (mainnet key on testnet and vice versa)
+        const alternateNetwork = isTestnet
+          ? networks.mainnet
+          : networks.testnet;
+
+        // Set up alternate network with BIP84 version bytes
+        if (types && types.zPubType) {
+          const altBip84Versions = isTestnet
+            ? types.zPubType.mainnet
+            : types.zPubType.testnet;
+          const altPrivKey = isTestnet ? 'zprv' : 'vprv';
+          const altPubKey = isTestnet ? 'zpub' : 'vpub';
+
+          alternateNetwork.bip32 = {
+            public: parseInt(altBip84Versions[altPubKey], 16),
+            private: parseInt(altBip84Versions[altPrivKey], 16),
+          };
+        }
+
+        try {
+          node = bip32.fromBase58(zprv, alternateNetwork);
+          // If we successfully parsed with alternate network, use target network for address generation
+          // This allows the key to work across networks while generating addresses for the target network
+        } catch (e2) {
+          throw new Error(`Failed to parse extended private key: ${e.message}`);
+        }
+      }
+
       if (!node.privateKey) {
         throw new Error('Private key not found in extended private key');
       }
@@ -1099,11 +1189,10 @@ export class KeyringManager implements IKeyringManager {
       return {
         isValid: true,
         node,
-        network,
+        network, // Always return the target network for address generation
         message: 'The zprv is valid.',
       };
     } catch (error) {
-      console.log('validateZprv error:', error.message, 'for zprv:', zprv);
       return { isValid: false, message: error.message };
     }
   }
@@ -1837,7 +1926,8 @@ export class KeyringManager implements IKeyringManager {
         types: { xPubType: IPubTypes; zPubType: IPubTypes };
       };
     },
-    isTestnet: boolean
+    isTestnet: boolean,
+    targetNetwork?: INetwork
   ) => {
     try {
       if (!this.sessionPassword) {
@@ -1875,6 +1965,25 @@ export class KeyringManager implements IKeyringManager {
 
       // Update addresses
       this.updateUTXOAddressFormats();
+
+      // For imported accounts, we need to manually derive the address with the target network
+      if (
+        this.wallet.activeAccountType === KeyringAccountType.Imported &&
+        this.hd &&
+        targetNetwork
+      ) {
+        const activeAccountId = this.wallet.activeAccountId;
+        const account =
+          this.wallet.accounts[KeyringAccountType.Imported][activeAccountId];
+
+        if (account) {
+          this.updateImportedUTXOAccountAddress(
+            activeAccountId,
+            account,
+            targetNetwork
+          );
+        }
+      }
 
       // Note: Don't set account index here - it will be set correctly by setActiveAccount
     } catch (error) {
@@ -2261,7 +2370,15 @@ export class KeyringManager implements IKeyringManager {
 
       balances.syscoin = 0;
     } else {
-      // It's an Ethereum private key
+      // Check if the validation failed due to invalid key prefix (only for known extended key formats)
+      if (
+        zprvValidation.message &&
+        zprvValidation.message.includes('Invalid key prefix')
+      ) {
+        throw new Error(zprvValidation.message);
+      }
+
+      // If it's not an extended key, treat it as an Ethereum private key
       const hexPrivateKey =
         privKey.slice(0, 2) === '0x' ? privKey : `0x${privKey}`;
 
@@ -2320,6 +2437,55 @@ export class KeyringManager implements IKeyringManager {
   }
 
   // ===================================== ACCOUNT CACHE MANAGEMENT ===================================== //
+
+  /**
+   * Updates a single imported UTXO account's address for the target network
+   */
+  private updateImportedUTXOAccountAddress(
+    accountId: number,
+    account: IKeyringAccountState,
+    targetNetwork: INetwork
+  ): boolean {
+    if (!account.xprv) return false;
+
+    try {
+      // Decrypt the private key
+      const decryptedXprv = CryptoJS.AES.decrypt(
+        account.xprv,
+        this.sessionPassword
+      ).toString(CryptoJS.enc.Utf8);
+
+      // Validate with target network to get proper network config
+      const validation = this.validateZprv(decryptedXprv, targetNetwork);
+      if (!validation.isValid || !validation.node || !validation.network) {
+        console.error(
+          `Failed to validate imported account ${accountId}: ${validation.message}`
+        );
+        return false;
+      }
+
+      // Generate address with target network parameters
+      const { address } = bjs.payments.p2wpkh({
+        pubkey: validation.node.derivePath('0/0').publicKey,
+        network: validation.network,
+      });
+
+      if (address) {
+        // Update the wallet state with new address
+        this.wallet.accounts[KeyringAccountType.Imported][accountId] = {
+          ...account,
+          address,
+        };
+        return true;
+      }
+    } catch (error) {
+      console.error(
+        `Error updating imported account ${accountId} address:`,
+        error
+      );
+    }
+    return false;
+  }
 
   /**
    * Syncs accounts from wallet state to the appropriate cache based on chain type
@@ -2417,11 +2583,29 @@ export class KeyringManager implements IKeyringManager {
    * Updates UTXO account addresses without re-derivation
    * This is called when switching between UTXO networks
    */
-  private updateUTXOAddressFormats() {
+  private updateUTXOAddressFormats(targetNetwork?: INetwork) {
     if (!this.hd || !this.syscoinSigner) return;
 
     const accounts = this.wallet.accounts[this.wallet.activeAccountType];
     const bipNum = 84;
+
+    // Handle imported accounts differently - they don't support HD derivation
+    if (this.wallet.activeAccountType === KeyringAccountType.Imported) {
+      // For imported accounts, regenerate addresses with current network format
+      const networkToUse = targetNetwork || this.wallet.activeNetwork;
+
+      for (const [id, account] of Object.entries(accounts)) {
+        if (!account.xprv) continue;
+        this.updateImportedUTXOAccountAddress(
+          Number(id),
+          account,
+          networkToUse
+        );
+      }
+      return;
+    }
+
+    // Original HD account handling for non-imported accounts
 
     // First ensure HD signer has all the accounts
     for (const [id] of Object.entries(accounts)) {
