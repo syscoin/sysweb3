@@ -2027,12 +2027,7 @@ export class KeyringManager implements IKeyringManager {
       this.hd.setAccountIndex(0);
 
       // Recreate all existing accounts in the new HD signer
-      const walletAccountsArray = isHDAccount
-        ? Object.values(accounts)
-        : Object.values(accounts).filter(
-            ({ address }) => !ethers.utils.isAddress(address)
-          );
-
+      const walletAccountsArray = Object.values(accounts);
       // Create an array of promises.
       const accountPromises = walletAccountsArray.map(async ({ id }) => {
         await this.addUTXOAccount(Number(id), this.wallet.activeAccountId);
