@@ -1,4 +1,3 @@
-//@ts-nocheck @ts-ignore
 import ecc from '@bitcoinerlab/secp256k1';
 import { BIP32Factory } from 'bip32';
 import { generateMnemonic, validateMnemonic, mnemonicToSeed } from 'bip39';
@@ -162,20 +161,30 @@ export class KeyringManager implements IKeyringManager {
     this.sessionSeed = '';
   };
 
-  public addNewAccount = async (label?: string) => {
+  public addNewAccount = async (
+    label?: string
+  ): Promise<IKeyringAccountState> => {
     const network = this.wallet.activeNetwork;
     const mnemonic = this.sessionSeed;
     const isSyscoinChain = this.isSyscoinChain(network);
 
     if (isSyscoinChain) {
-      return this.addNewAccountToSyscoinChain(network, label);
+      const result = await this.addNewAccountToSyscoinChain(network, label);
+      if (!result) {
+        throw new Error('Failed to create Syscoin account');
+      }
+      return result;
     }
 
     if (!mnemonic) {
       throw new Error('Seed phrase is required to create a new account.');
     }
 
-    return this.addNewAccountToEth(label);
+    const result = await this.addNewAccountToEth(label);
+    if (!result) {
+      throw new Error('Failed to create Ethereum account');
+    }
+    return result;
   };
 
   public setWalletPassword = async (pwd: string, prvPwd?: string) => {
@@ -317,6 +326,7 @@ export class KeyringManager implements IKeyringManager {
             label: 'Syscoin Mainnet',
             slip44: 57,
             url: 'https://explorer-blockbook.syscoin.org',
+            isTestnet: false,
           };
 
           await this.setSignerNetwork(sysMainnetNetwork, INetworkType.Syscoin);
@@ -409,11 +419,12 @@ export class KeyringManager implements IKeyringManager {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
+      throw error;
     }
   };
 
   public setActiveAccount = async (
-    accountId: number,
+    id: number,
     accountType: KeyringAccountType
   ) => {
     if (!this.hd && this.activeChain === INetworkType.Syscoin)
@@ -424,10 +435,10 @@ export class KeyringManager implements IKeyringManager {
     // Don't set account index here - it will be set after updateUTXOAccounts
 
     const accounts = this.wallet.accounts[accountType];
-    if (!accounts[accountId].xpub) throw new Error('Account not set');
+    if (!accounts[id].xpub) throw new Error('Account not set');
     this.wallet = {
       ...this.wallet,
-      activeAccountId: accounts[accountId].id,
+      activeAccountId: id,
       activeAccountType: accountType,
     };
 
@@ -436,7 +447,7 @@ export class KeyringManager implements IKeyringManager {
 
       this.sessionMnemonic = isHDAccount
         ? this.sessionMainMnemonic
-        : accounts[accountId].xprv;
+        : accounts[id].xprv;
 
       const { rpc, isTestnet } = await this.getSignerUTXO(
         this.wallet.activeNetwork
@@ -451,7 +462,7 @@ export class KeyringManager implements IKeyringManager {
 
       // Set account index for any account type that has an HD signer
       if (this.hd) {
-        this.hd.setAccountIndex(accountId);
+        this.hd.setAccountIndex(id);
       }
     }
   };
@@ -504,6 +515,7 @@ export class KeyringManager implements IKeyringManager {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
+      throw error;
     }
   };
 
@@ -968,7 +980,7 @@ export class KeyringManager implements IKeyringManager {
     this.wallet.accounts[accountType][accountId].label = label;
   };
 
-  public validateZprv(zprv: string, targetNetwork: INetwork) {
+  public validateZprv(zprv: string, targetNetwork?: INetwork) {
     if (!targetNetwork) {
       throw new Error('Target network is required for validation');
     }
@@ -1039,6 +1051,7 @@ export class KeyringManager implements IKeyringManager {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
+      throw error;
     }
   };
 
@@ -1557,8 +1570,8 @@ export class KeyringManager implements IKeyringManager {
       const latestUpdate: ISysAccount = await this.getFormattedBackendAccount({
         url: network.url,
         xpub,
-        id,
-        id,
+        id: id,
+        activeAccountId: id,
       });
 
       const account = this.getInitialAccountData({
@@ -1608,7 +1621,7 @@ export class KeyringManager implements IKeyringManager {
       // Use dynamic path generation for ETH addresses
       const ethDerivationPath = getAddressDerivationPath(
         'eth',
-        '60',
+        60,
         0,
         false,
         length
@@ -1737,7 +1750,7 @@ export class KeyringManager implements IKeyringManager {
         // Use dynamic path generation for ETH addresses
         const ethDerivationPath = getAddressDerivationPath(
           'eth',
-          '60',
+          60,
           0,
           false,
           id
@@ -2229,6 +2242,10 @@ export class KeyringManager implements IKeyringManager {
     if (zprvValidation.isValid) {
       const { node, network } = zprvValidation;
 
+      if (!node || !network) {
+        throw new Error('Failed to validate extended private key');
+      }
+
       // Use the target network's URL for balance fetching
       const {
         balance: _balance,
@@ -2244,10 +2261,18 @@ export class KeyringManager implements IKeyringManager {
       const { receivingIndex } = this.setLatestIndexesFromXPubTokens(tokens);
 
       const nodeChild = node.derivePath(`0/${receivingIndex}`);
+      if (!nodeChild) {
+        throw new Error('Failed to derive child node');
+      }
+
       const { address } = bjs.payments.p2wpkh({
-        pubkey: Buffer.from(nodeChild.publicKey),
+        pubkey: nodeChild.publicKey,
         network,
       });
+
+      if (!address) {
+        throw new Error('Failed to generate address');
+      }
 
       importedAccountValue = {
         address,

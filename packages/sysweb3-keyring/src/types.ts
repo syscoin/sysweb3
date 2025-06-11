@@ -275,7 +275,7 @@ export interface IKeyringManager {
   setWalletPassword: (password: string) => void;
   syscoinTransaction: ISyscoinTransactions;
   isSeedValid: (seed: string) => boolean;
-  getSeed: (password: string) => string;
+  getSeed: (password: string) => Promise<string>;
   updateAccountLabel: (
     label: string,
     accountId: number,
