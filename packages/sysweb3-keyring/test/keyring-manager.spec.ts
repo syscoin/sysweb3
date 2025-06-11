@@ -937,3 +937,101 @@ describe('Account derivation with another seed in keyring', () => {
     );
   });
 });
+
+describe('EVM to UTXO Network Switching Bug Reproduction', () => {
+  let keyringManager: KeyringManager;
+
+  beforeEach(() => {
+    keyringManager = new KeyringManager();
+    // Reset vault data to prevent state contamination between tests
+    storedVaultData = null;
+    // Clear mock storage
+    globalMockStorage.clear();
+  });
+
+  jest.setTimeout(500000);
+
+  it('should reproduce the EVM address filter bug by forcing HD accounts to hit filter logic', async () => {
+    // Setup: Start with EVM network and create HD account
+    const ethereumMainnet = initialWalletState.networks.ethereum[1];
+    keyringManager = new KeyringManager({
+      wallet: {
+        ...initialWalletState,
+        activeNetwork: ethereumMainnet,
+      },
+      activeChain: 'ethereum' as any,
+    });
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    // Create additional HD account on EVM network (this will have an EVM address like 0x...)
+    const newAccount = await keyringManager.addNewAccount('Test Account');
+
+    // Verify new account has EVM address and proper structure
+    expect(newAccount.address.startsWith('0x')).toBe(true);
+    expect(newAccount.id).toBeDefined();
+    expect(newAccount.xpub).toBeDefined(); // HD accounts have proper xpub
+    console.log('🔍 SETUP: HD account address (EVM):', newAccount.address);
+    console.log('🔍 SETUP: Account has xpub:', !!newAccount.xpub);
+
+    // Switch to the new account to make it active
+    await keyringManager.setActiveAccount(
+      newAccount.id,
+      KeyringAccountType.HDAccount
+    );
+
+    // Verify active account is the new one with EVM address
+    const { activeAccount } = keyringManager.getActiveAccount();
+    expect(activeAccount.address).toBe(newAccount.address);
+    expect(activeAccount.address.startsWith('0x')).toBe(true);
+
+    console.log(
+      '🔍 BEFORE: Active account address (EVM):',
+      activeAccount.address
+    );
+
+    // FORCE BUG: Temporarily change activeAccountType to Imported to force filter execution
+    const originalActiveAccountType = keyringManager.wallet.activeAccountType;
+    keyringManager.wallet.activeAccountType = KeyringAccountType.Imported;
+    console.log(
+      '🔍 BUG SETUP: Forced activeAccountType to Imported to trigger filter bug'
+    );
+
+    // Now switch to UTXO network (Syscoin testnet)
+    // BUG: With filter in place and forced imported type, accounts with EVM addresses get filtered out
+    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
+    const result = await keyringManager.setSignerNetwork(
+      syscoinTestnet,
+      'syscoin'
+    );
+
+    // Restore original account type
+    keyringManager.wallet.activeAccountType = originalActiveAccountType;
+
+    expect(result.success).toBe(true);
+
+    // FIXED: With simplified approach, account should now have proper UTXO address
+    const { activeAccount: updatedActiveAccount } =
+      keyringManager.getActiveAccount();
+
+    // This demonstrates the fix - the address should have changed to UTXO format
+    console.log(
+      '✅ FIXED: Account address after UTXO switch:',
+      updatedActiveAccount.address
+    );
+    console.log(
+      '✅ FIXED: Address is now UTXO format:',
+      !updatedActiveAccount.address.startsWith('0x')
+    );
+
+    // The fix ensures the address gets regenerated for UTXO networks
+    expect(updatedActiveAccount.address).not.toBe(newAccount.address); // Different address than before
+    expect(updatedActiveAccount.address.startsWith('0x')).toBe(false); // Now UTXO format
+    expect(updatedActiveAccount.xpub).toBeDefined(); // Should have UTXO xpub
+
+    console.log(
+      '🎉 SUCCESS: Simplified approach successfully regenerates accounts for network switches!'
+    );
+  });
+});
