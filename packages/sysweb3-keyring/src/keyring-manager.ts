@@ -19,7 +19,6 @@ import {
   initialWalletState,
 } from './initial-state';
 import { LedgerKeyring } from './ledger';
-import { CustomJsonRpcProvider } from './providers';
 import {
   getSyscoinSigners,
   SyscoinHDSigner,
@@ -1843,17 +1842,6 @@ export class KeyringManager implements IKeyringManager {
       // FIX #4: Don't make ETH calls for UTXO networks
       if (this.isSyscoinChain(network)) {
         throw new Error('Cannot use EVM signer for UTXO network');
-      }
-
-      const web3Provider = new CustomJsonRpcProvider(
-        abortController.signal,
-        network.url
-      );
-      const { chainId } = await web3Provider.getNetwork();
-      if (network.chainId !== chainId) {
-        throw new Error(
-          `SetSignerEVM: Wrong network information expected ${network.chainId} received ${chainId}`
-        );
       }
       this.ethereumTransaction.setWeb3Provider(network);
       abortController.abort();

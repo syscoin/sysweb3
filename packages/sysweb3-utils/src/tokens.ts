@@ -744,7 +744,7 @@ export const getAsset = async (
       contract: string;
       decimals: number;
       maxSupply: string;
-      pubData: any;
+      metaData?: string; // Syscoin 5 - general metadata field
       symbol: string;
       totalSupply: string;
       updateCapabilityFlags: number;
@@ -752,12 +752,46 @@ export const getAsset = async (
   | undefined
 > => {
   try {
+    // Validate inputs before API call
+    if (!explorerUrl || !assetGuid) {
+      throw new Error('Explorer URL and Asset GUID are required');
+    }
+
+    // Validate asset GUID format (should be numeric)
+    if (!/^\d+$/.test(assetGuid)) {
+      throw new Error('Invalid Asset GUID format');
+    }
+
     const asset = await sys.utils.fetchBackendAsset(explorerUrl, assetGuid);
 
-    if (!asset) throw new Error(`Asset with guid ${assetGuid} not found`);
+    if (!asset) {
+      throw new Error(`Asset with guid ${assetGuid} not found`);
+    }
+
+    // Validate that this is not an invalid/unknown asset
+    if (asset.symbol && asset.symbol.startsWith('UNKNOWN-')) {
+      throw new Error(
+        `Asset ${assetGuid} is invalid or unknown (${asset.symbol})`
+      );
+    }
+
+    if (asset.metaData && asset.metaData === 'Unknown Asset Type') {
+      throw new Error(`Asset ${assetGuid} is of unknown type`);
+    }
+
+    // Ensure symbol exists (required for Syscoin 5)
+    if (!asset.symbol) {
+      throw new Error(`Asset ${assetGuid} has no symbol`);
+    }
+
+    // Additional validation for proper asset
+    if (!asset.symbol || asset.symbol.trim() === '') {
+      throw new Error(`Asset ${assetGuid} has empty symbol`);
+    }
 
     return asset;
   } catch (error) {
+    console.error('getAsset error:', error);
     return;
   }
 };
