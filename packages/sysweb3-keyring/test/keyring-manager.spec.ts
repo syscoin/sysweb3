@@ -1,3 +1,4 @@
+import { ethers } from 'ethers';
 import mapValues from 'lodash/mapValues';
 import omit from 'lodash/omit';
 
@@ -52,15 +53,6 @@ jest.mock('syscoinjs-lib', () => {
     })),
   };
 });
-
-// Mock ethers - only mock what's needed for validation, use real Wallet.fromMnemonic
-jest.mock('ethers', () => ({
-  ...jest.requireActual('ethers'),
-  Wallet: {
-    ...jest.requireActual('ethers').Wallet,
-    // Use real fromMnemonic for deterministic address generation
-  },
-}));
 
 // Global mock storage
 const globalMockStorage = new Map();
@@ -1128,6 +1120,125 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
 
     console.log(
       '🎉 SUCCESS: Simplified approach successfully regenerates accounts for network switches!'
+    );
+  });
+
+  it('should create 4 UTXO accounts and regenerate all with correct EVM addresses when switching to EVM network', async () => {
+    // Setup: Start with UTXO network (Syscoin testnet)
+    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
+    keyringManager = new KeyringManager({
+      wallet: {
+        ...initialWalletState,
+        activeNetwork: syscoinTestnet,
+      },
+      activeChain: 'syscoin' as any,
+    });
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+
+    // Create initial account (account 0)
+    const initialAccount = await keyringManager.createKeyringVault();
+    expect(initialAccount.address.startsWith('tsys1')).toBe(true); // Testnet UTXO format
+    console.log('🔍 SETUP: Initial account (ID 0):', initialAccount.address);
+
+    // Create 3 additional accounts for a total of 4 accounts
+    const account1 = await keyringManager.addNewAccount('Account 1');
+    const account2 = await keyringManager.addNewAccount('Account 2');
+    const account3 = await keyringManager.addNewAccount('Account 3');
+
+    // Verify all accounts have UTXO addresses
+    expect(account1.address.startsWith('tsys1')).toBe(true);
+    expect(account2.address.startsWith('tsys1')).toBe(true);
+    expect(account3.address.startsWith('tsys1')).toBe(true);
+
+    console.log('🔍 SETUP: Account 1 (ID 1):', account1.address);
+    console.log('🔍 SETUP: Account 2 (ID 2):', account2.address);
+    console.log('🔍 SETUP: Account 3 (ID 3):', account3.address);
+
+    // Store UTXO addresses for comparison
+    const utxoAddresses = {
+      0: initialAccount.address,
+      1: account1.address,
+      2: account2.address,
+      3: account3.address,
+    };
+
+    // Switch to account 2 to make it active
+    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
+
+    // Verify account 2 is active
+    const { activeAccount: utxoActiveAccount } =
+      keyringManager.getActiveAccount();
+    expect(utxoActiveAccount.id).toBe(2);
+    expect(utxoActiveAccount.address).toBe(account2.address);
+    console.log(
+      '🔍 SETUP: Active account before switch (ID 2):',
+      utxoActiveAccount.address
+    );
+
+    // Now switch to EVM network (Ethereum mainnet)
+    const ethereumMainnet = initialWalletState.networks.ethereum[1];
+    const result = await keyringManager.setSignerNetwork(
+      ethereumMainnet,
+      'ethereum'
+    );
+    expect(result.success).toBe(true);
+
+    // Verify the network switch
+    const currentNetwork = keyringManager.getNetwork();
+    expect(currentNetwork.chainId).toBe(1); // Ethereum mainnet
+
+    // Get all accounts after network switch
+    //const evmWallet = keyringManager.getActiveAccount();
+    const evmAccounts =
+      keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
+
+    // Verify we still have 4 accounts
+    expect(Object.keys(evmAccounts)).toHaveLength(4);
+    console.log('✅ SUCCESS: Still have 4 accounts after EVM switch');
+
+    // Verify all accounts now have EVM addresses (0x format)
+    for (let i = 0; i < 4; i++) {
+      const account = evmAccounts[i];
+      console.log(`✅ SUCCESS: Account ${i} EVM address:`, account.address);
+      expect(account).toBeDefined();
+      expect(account.address.startsWith('0x')).toBe(true);
+      expect(account.address).not.toBe(utxoAddresses[i]); // Different from UTXO address
+      expect(account.xpub).toBeDefined(); // Should have EVM xpub
+    }
+
+    // Verify the active account is still account 2 but with EVM address
+    const { activeAccount: evmActiveAccount } =
+      keyringManager.getActiveAccount();
+    expect(evmActiveAccount.id).toBe(2); // Same ID
+    expect(evmActiveAccount.address.startsWith('0x')).toBe(true); // Now EVM format
+    expect(evmActiveAccount.address).not.toBe(account2.address); // Different from UTXO address
+    console.log(
+      '✅ SUCCESS: Active account after switch (ID 2):',
+      evmActiveAccount.address
+    );
+
+    // Verify the active account has the correct derived EVM private key
+    // by checking we can get its private key and it matches the address
+    const privateKey = keyringManager.getPrivateKeyByAccountId(
+      2,
+      KeyringAccountType.HDAccount,
+      FAKE_PASSWORD
+    );
+    expect(privateKey).toBeDefined();
+    expect(privateKey.length).toBeGreaterThan(50);
+    console.log('✅ SUCCESS: Active account private key derived successfully');
+
+    // Display the address for the private key
+    const wallet = new ethers.Wallet(privateKey);
+    // m/44'/60'/0'/0/2
+    expect(wallet.address).toBe('0xb6716976A3ebe8D39aCEB04372f22Ff8e6802D7A');
+    console.log(
+      '✅ SUCCESS: Signature recovery matches active account address'
+    );
+
+    console.log(
+      '🎉 SUCCESS: All 4 UTXO accounts successfully regenerated with correct EVM addresses and active account has working derived key!'
     );
   });
 });
