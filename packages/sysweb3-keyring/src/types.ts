@@ -281,7 +281,6 @@ export interface IKeyringManager {
     accountId: number,
     accountType: KeyringAccountType
   ) => void;
-  verifyIfIsTestnet: () => boolean | undefined;
   importTrezorAccount(
     coin: string,
     slip44: number,

@@ -952,14 +952,6 @@ export class KeyringManager implements IKeyringManager {
 
   public getNetwork = () => this.wallet.activeNetwork;
 
-  public verifyIfIsTestnet = () => {
-    const { chainId } = this.wallet.activeNetwork;
-    if (this.wallet.networks.syscoin[chainId] && this.hd) {
-      return this.hd.Signer.isTestnet;
-    }
-    return undefined;
-  };
-
   public createEthAccount = (privateKey: string) =>
     new ethers.Wallet(privateKey);
 
@@ -2408,6 +2400,8 @@ export class KeyringManager implements IKeyringManager {
         this.wallet.accounts[KeyringAccountType.Imported][accountId] = {
           ...account,
           address,
+          xpub: validation.node.neutered().toBase58(),
+          // BUG: xpub is NOT updated - it stays in EVM format!
         };
         return true;
       }
@@ -2469,7 +2463,7 @@ export class KeyringManager implements IKeyringManager {
       }
     }
 
-    // Now update addresses - always use index 0 for consistency with EVM
+    // Now update addresses and xpubs - always use index 0 for consistency with EVM
     for (const [id, account] of Object.entries(accounts)) {
       const accountId = Number(id);
 
@@ -2480,10 +2474,20 @@ export class KeyringManager implements IKeyringManager {
         bipNum
       );
 
-      // Update only the address
+      // Check if xpub needs to be regenerated (if it's in EVM format)
+      let xpub = account.xpub;
+      if (account.xpub && account.xpub.startsWith('0x')) {
+        // Set account index to get correct xpub for this account
+        this.hd.setAccountIndex(accountId);
+        xpub = this.hd.getAccountXpub();
+        console.log(`Regenerated UTXO xpub for account ${accountId}: ${xpub}`);
+      }
+
+      // Update both address and xpub
       this.wallet.accounts[this.wallet.activeAccountType][accountId] = {
         ...account,
         address,
+        xpub,
       };
     }
   }

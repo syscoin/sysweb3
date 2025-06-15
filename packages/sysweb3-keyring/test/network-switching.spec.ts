@@ -144,15 +144,25 @@ describe('Network Switching UTXO/EVM Issues', () => {
     const accountCount = Object.keys(hdAccounts).length;
     expect(accountCount).toBe(4);
 
-    // Store UTXO addresses for comparison
+    // Store UTXO addresses and xpubs for comparison
     const utxoAddresses = Object.values(hdAccounts).map(
       (acc: IKeyringAccountState) => acc.address
     );
+    const utxoXpubs = Object.values(hdAccounts).map(
+      (acc: IKeyringAccountState) => acc.xpub
+    );
     console.log('UTXO Addresses:', utxoAddresses);
+    console.log('UTXO Xpubs:', utxoXpubs);
 
     // All UTXO addresses should start with appropriate prefix
     utxoAddresses.forEach((addr) => {
       expect(addr).toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    });
+
+    // All UTXO xpubs should be proper Bitcoin/Syscoin xpubs
+    utxoXpubs.forEach((xpub) => {
+      expect(xpub).not.toMatch(/^0x/);
+      expect(xpub).toMatch(/^(xpub|ypub|zpub|tpub|upub|vpub)/);
     });
 
     // Switch to Ethereum network
@@ -176,14 +186,33 @@ describe('Network Switching UTXO/EVM Issues', () => {
     // Should still have 4 accounts
     expect(evmAccountCount).toBe(4);
 
-    // All accounts should now have Ethereum addresses
+    // All accounts should now have Ethereum addresses and xpubs
     const evmAddresses = Object.values(evmHdAccounts).map(
       (acc: IKeyringAccountState) => acc.address
     );
+    const evmXpubsAfterSwitch = Object.values(evmHdAccounts).map(
+      (acc: IKeyringAccountState) => acc.xpub
+    );
+    console.log('EVM Addresses after switch:', evmAddresses);
+    console.log('EVM Xpubs after switch:', evmXpubsAfterSwitch);
+
     evmAddresses.forEach((addr) => {
       expect(addr).toMatch(/^0x[a-fA-F0-9]{40}$/);
       // Make sure they're not UTXO addresses
       expect(addr).not.toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    });
+
+    // All EVM xpubs should be Ethereum public keys (start with 0x)
+    evmXpubsAfterSwitch.forEach((xpub) => {
+      expect(xpub).toMatch(/^0x[a-fA-F0-9]+$/);
+    });
+
+    // Ensure xpubs actually changed from UTXO format to EVM format
+    evmXpubsAfterSwitch.forEach((evmXpub, index) => {
+      const utxoXpub = utxoXpubs[index];
+      expect(evmXpub).not.toBe(utxoXpub);
+      expect(utxoXpub).not.toMatch(/^0x/); // Was UTXO format
+      expect(evmXpub).toMatch(/^0x/); // Now EVM format
     });
 
     // Check that account IDs are preserved
@@ -224,15 +253,24 @@ describe('Network Switching UTXO/EVM Issues', () => {
     const evmAccountCount = Object.keys(evmAccounts).length;
     expect(evmAccountCount).toBe(4);
 
-    // Store EVM addresses for comparison
+    // Store EVM addresses and xpubs for comparison
     const evmAddresses = Object.values(evmAccounts).map(
       (acc: IKeyringAccountState) => acc.address
     );
+    const evmXpubs = Object.values(evmAccounts).map(
+      (acc: IKeyringAccountState) => acc.xpub
+    );
     console.log('EVM Addresses:', evmAddresses);
+    console.log('EVM Xpubs:', evmXpubs);
 
     // All EVM addresses should be valid Ethereum addresses
     evmAddresses.forEach((addr) => {
       expect(addr).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    });
+
+    // All EVM xpubs should be Ethereum public keys (start with 0x)
+    evmXpubs.forEach((xpub) => {
+      expect(xpub).toMatch(/^0x[a-fA-F0-9]+$/);
     });
 
     // Switch to Syscoin UTXO network
@@ -256,14 +294,35 @@ describe('Network Switching UTXO/EVM Issues', () => {
     // Should still have 4 accounts
     expect(utxoAccountCount).toBe(4);
 
-    // All accounts should now have UTXO addresses
+    // All accounts should now have UTXO addresses and xpubs
     const utxoAddresses = Object.values(utxoAccounts).map(
       (acc: IKeyringAccountState) => acc.address
     );
+    const utxoXpubs = Object.values(utxoAccounts).map(
+      (acc: IKeyringAccountState) => acc.xpub
+    );
+    console.log('UTXO Addresses after switch:', utxoAddresses);
+    console.log('UTXO Xpubs after switch:', utxoXpubs);
+
     utxoAddresses.forEach((addr) => {
       expect(addr).toMatch(/^(bc1|tb1|sys1|tsys1)/);
       // Make sure they're not EVM addresses
       expect(addr).not.toMatch(/^0x/);
+    });
+
+    // All UTXO xpubs should be proper Bitcoin/Syscoin xpubs (NOT starting with 0x)
+    utxoXpubs.forEach((xpub) => {
+      expect(xpub).not.toMatch(/^0x/);
+      // UTXO xpubs should be base58 encoded and start with proper prefix
+      expect(xpub).toMatch(/^(xpub|ypub|zpub|tpub|upub|vpub)/);
+    });
+
+    // Ensure xpubs actually changed from EVM format to UTXO format
+    utxoXpubs.forEach((utxoXpub, index) => {
+      const evmXpub = evmXpubs[index];
+      expect(utxoXpub).not.toBe(evmXpub);
+      expect(evmXpub).toMatch(/^0x/); // Was EVM format
+      expect(utxoXpub).not.toMatch(/^0x/); // Now UTXO format
     });
 
     // Check that account IDs are preserved
@@ -337,5 +396,308 @@ describe('Network Switching UTXO/EVM Issues', () => {
     expect(utxoActiveAccount.activeAccount.address).toMatch(
       /^(bc1|tb1|sys1|tsys1)/
     );
+  });
+
+  it('should handle imported EVM account on EVM network, then import UTXO account on UTXO network', async () => {
+    // Setup: Start on Ethereum network
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    const ethNetwork = {
+      chainId: 1,
+      url: 'https://eth-mainnet.alchemyapi.io/v2/test',
+      label: 'Ethereum Mainnet',
+      isTestnet: false,
+      currency: 'ETH',
+      slip44: 60,
+    };
+    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+
+    // Import EVM account while on EVM network
+    const ethPrivateKey =
+      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const evmImportedAccount = await keyringManager.importAccount(
+      ethPrivateKey,
+      'Imported EVM'
+    );
+
+    expect(evmImportedAccount.address).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(evmImportedAccount.xpub).toMatch(/^0x[a-fA-F0-9]+$/);
+    console.log(
+      'EVM imported account:',
+      evmImportedAccount.address,
+      evmImportedAccount.xpub
+    );
+
+    // Switch to Syscoin UTXO network
+    const sysNetwork = {
+      chainId: 57,
+      url: 'https://blockbook.syscoin.org/',
+      label: 'Syscoin Mainnet',
+      isTestnet: false,
+      currency: 'SYS',
+      slip44: 57,
+    };
+    await keyringManager.setSignerNetwork(sysNetwork, 'syscoin');
+
+    // Import UTXO account while on UTXO network
+    const utxoPrivateKey =
+      'zprvAWgYBBk7JR8GkraNZJeEodHp6CDV2GL61un6yyqXyKaKCpbV89hfSmNhvGpW8vnRrDYcGFbx94k6KPD1MXFWhtkdD7aQjqJw9ZAUjqWRaK9';
+    const utxoImportedAccount = await keyringManager.importAccount(
+      utxoPrivateKey,
+      'Imported UTXO'
+    );
+
+    expect(utxoImportedAccount.address).toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    expect(utxoImportedAccount.xpub).toMatch(
+      /^(xpub|ypub|zpub|tpub|upub|vpub)/
+    );
+    console.log(
+      'UTXO imported account:',
+      utxoImportedAccount.address,
+      utxoImportedAccount.xpub
+    );
+
+    // Verify both accounts exist and are correct types
+    const evmAccountAfter = keyringManager.getAccountById(
+      evmImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+    const utxoAccountAfter = keyringManager.getAccountById(
+      utxoImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+
+    expect(evmAccountAfter.address).toMatch(/^0x/); // EVM account stays EVM
+    expect(utxoAccountAfter.address).toMatch(/^(bc1|tb1|sys1|tsys1)/); // UTXO account is UTXO
+  });
+
+  it('should handle imported UTXO account, then switch to EVM and back', async () => {
+    // Setup: Start on Syscoin UTXO network
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    const sysNetwork = {
+      chainId: 57,
+      url: 'https://blockbook.syscoin.org/',
+      label: 'Syscoin Mainnet',
+      isTestnet: false,
+      currency: 'SYS',
+      slip44: 57,
+    };
+    await keyringManager.setSignerNetwork(sysNetwork, 'syscoin');
+
+    // Import UTXO account while on UTXO network
+    const utxoPrivateKey =
+      'zprvAWgYBBk7JR8GkraNZJeEodHp6CDV2GL61un6yyqXyKaKCpbV89hfSmNhvGpW8vnRrDYcGFbx94k6KPD1MXFWhtkdD7aQjqJw9ZAUjqWRaK9';
+    const utxoImportedAccount = await keyringManager.importAccount(
+      utxoPrivateKey,
+      'Imported UTXO'
+    );
+
+    expect(utxoImportedAccount.address).toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    expect(utxoImportedAccount.xpub).toMatch(
+      /^(xpub|ypub|zpub|tpub|upub|vpub)/
+    );
+    const originalUtxoAddress = utxoImportedAccount.address;
+    const originalUtxoXpub = utxoImportedAccount.xpub;
+    console.log(
+      'Original UTXO imported:',
+      originalUtxoAddress,
+      originalUtxoXpub
+    );
+
+    // Switch to Ethereum network (HD accounts switch, imported accounts remain)
+    const ethNetwork = {
+      chainId: 1,
+      url: 'https://eth-mainnet.alchemyapi.io/v2/test',
+      label: 'Ethereum Mainnet',
+      isTestnet: false,
+      currency: 'ETH',
+      slip44: 60,
+    };
+    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+
+    // Check imported UTXO account after switching to EVM network
+    const utxoAccountOnEvm = keyringManager.getAccountById(
+      utxoImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+    expect(utxoAccountOnEvm.address).toBe(originalUtxoAddress); // Should remain unchanged
+    expect(utxoAccountOnEvm.xpub).toBe(originalUtxoXpub); // Should remain unchanged
+
+    // Switch back to UTXO network
+    await keyringManager.setSignerNetwork(sysNetwork, 'syscoin');
+
+    // Check imported account after switching back
+    const utxoAccountBack = keyringManager.getAccountById(
+      utxoImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+    expect(utxoAccountBack.address).toBe(originalUtxoAddress);
+    expect(utxoAccountBack.xpub).toBe(originalUtxoXpub);
+    console.log(
+      'UTXO imported after round trip:',
+      utxoAccountBack.address,
+      utxoAccountBack.xpub
+    );
+  });
+
+  it('should handle imported UTXO account switching between mainnet and testnet', async () => {
+    // Setup: Start on Syscoin mainnet
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    const sysMainnet = {
+      chainId: 57,
+      url: 'https://blockbook.syscoin.org/',
+      label: 'Syscoin Mainnet',
+      isTestnet: false,
+      currency: 'SYS',
+      slip44: 57,
+    };
+    await keyringManager.setSignerNetwork(sysMainnet, 'syscoin');
+
+    // Import UTXO account on mainnet
+    const utxoPrivateKey =
+      'zprvAWgYBBk7JR8GkraNZJeEodHp6CDV2GL61un6yyqXyKaKCpbV89hfSmNhvGpW8vnRrDYcGFbx94k6KPD1MXFWhtkdD7aQjqJw9ZAUjqWRaK9';
+    const utxoImportedAccount = await keyringManager.importAccount(
+      utxoPrivateKey,
+      'Imported UTXO'
+    );
+
+    expect(utxoImportedAccount.address).toMatch(/^sys1/); // Mainnet format
+    const mainnetAddress = utxoImportedAccount.address;
+    const mainnetXpub = utxoImportedAccount.xpub;
+    console.log('Mainnet UTXO imported:', mainnetAddress, mainnetXpub);
+
+    // Switch to Syscoin testnet
+    const sysTestnet = {
+      chainId: 5700,
+      url: 'https://blockbook-dev.syscoin.org/',
+      label: 'Syscoin Testnet',
+      isTestnet: true,
+      currency: 'SYS',
+      slip44: 1,
+    };
+    await keyringManager.setSignerNetwork(sysTestnet, 'syscoin');
+
+    // Check imported account after switching to testnet
+    const utxoAccountTestnet = keyringManager.getAccountById(
+      utxoImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+
+    // Address should change to testnet format, but xpub can remain the same (same private key)
+    expect(utxoAccountTestnet.address).toMatch(/^tsys1/); // Testnet format
+    expect(utxoAccountTestnet.address).not.toBe(mainnetAddress); // Different from mainnet
+    console.log(
+      'Testnet UTXO imported:',
+      utxoAccountTestnet.address,
+      utxoAccountTestnet.xpub
+    );
+
+    // Switch back to mainnet
+    await keyringManager.setSignerNetwork(sysMainnet, 'syscoin');
+
+    // Check account after switching back to mainnet
+    const utxoAccountMainnetBack = keyringManager.getAccountById(
+      utxoImportedAccount.id,
+      KeyringAccountType.Imported
+    );
+    expect(utxoAccountMainnetBack.address).toMatch(/^sys1/); // Back to mainnet format
+    expect(utxoAccountMainnetBack.address).toBe(mainnetAddress); // Should match original
+    console.log(
+      'Mainnet UTXO imported (back):',
+      utxoAccountMainnetBack.address,
+      utxoAccountMainnetBack.xpub
+    );
+  });
+
+  it('should handle multiple imported EVM accounts', async () => {
+    // Setup: Start on Ethereum network
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    const ethNetwork = {
+      chainId: 1,
+      url: 'https://eth-mainnet.alchemyapi.io/v2/test',
+      label: 'Ethereum Mainnet',
+      isTestnet: false,
+      currency: 'ETH',
+      slip44: 60,
+    };
+    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+
+    // Import first EVM account
+    const ethPrivateKey1 =
+      '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const evmAccount1 = await keyringManager.importAccount(
+      ethPrivateKey1,
+      'EVM Account 1'
+    );
+
+    // Import second EVM account
+    const ethPrivateKey2 =
+      '0xfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210';
+    const evmAccount2 = await keyringManager.importAccount(
+      ethPrivateKey2,
+      'EVM Account 2'
+    );
+
+    // Verify both accounts are different and in EVM format
+    expect(evmAccount1.address).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(evmAccount2.address).toMatch(/^0x[a-fA-F0-9]{40}$/);
+    expect(evmAccount1.address).not.toBe(evmAccount2.address);
+    expect(evmAccount1.xpub).not.toBe(evmAccount2.xpub);
+
+    console.log('EVM Account 1:', evmAccount1.address);
+    console.log('EVM Account 2:', evmAccount2.address);
+  });
+
+  it('should handle multiple imported UTXO accounts', async () => {
+    // Setup: Start on Syscoin network
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    const sysNetwork = {
+      chainId: 57,
+      url: 'https://blockbook.syscoin.org/',
+      label: 'Syscoin Mainnet',
+      isTestnet: false,
+      currency: 'SYS',
+      slip44: 57,
+    };
+    await keyringManager.setSignerNetwork(sysNetwork, 'syscoin');
+
+    // Import first UTXO account
+    const utxoPrivateKey1 =
+      'zprvAWgYBBk7JR8GkraNZJeEodHp6CDV2GL61un6yyqXyKaKCpbV89hfSmNhvGpW8vnRrDYcGFbx94k6KPD1MXFWhtkdD7aQjqJw9ZAUjqWRaK9';
+    const utxoAccount1 = await keyringManager.importAccount(
+      utxoPrivateKey1,
+      'UTXO Account 1'
+    );
+
+    // Import second UTXO account (different key)
+    const utxoPrivateKey2 =
+      'zprvAhdL1VgqZGQ7UQ4yoZ4d1J8MFe3K4Rt2FBqhG7K8GtYrC9mZHdUmN2vGjbW3SJUfF7KR5cF8T9Hj6jE5RqW9C3mP6tLxV1rSF3xY4eKw7nB';
+    const utxoAccount2 = await keyringManager.importAccount(
+      utxoPrivateKey2,
+      'UTXO Account 2'
+    );
+
+    // Verify both accounts are different and in UTXO format
+    expect(utxoAccount1.address).toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    expect(utxoAccount2.address).toMatch(/^(bc1|tb1|sys1|tsys1)/);
+    expect(utxoAccount1.address).not.toBe(utxoAccount2.address);
+    expect(utxoAccount1.xpub).not.toBe(utxoAccount2.xpub);
+
+    console.log('UTXO Account 1:', utxoAccount1.address);
+    console.log('UTXO Account 2:', utxoAccount2.address);
   });
 });
