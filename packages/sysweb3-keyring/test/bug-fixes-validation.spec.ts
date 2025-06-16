@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+
 import { KeyringManager, KeyringAccountType, initialWalletState } from '../src';
 import { FAKE_PASSWORD } from './constants';
 import { INetworkType } from '@pollum-io/sysweb3-network';
@@ -141,7 +143,6 @@ describe('Bug Fixes Validation', () => {
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)
@@ -196,7 +197,6 @@ describe('Bug Fixes Validation', () => {
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)
@@ -207,7 +207,6 @@ describe('Bug Fixes Validation', () => {
       (keyringManager as any).sessionPassword = sessionPassword;
       (keyringManager as any).currentSessionSalt = sessionSalt;
 
-      // Call createMainWallet which should use the correct network
       await keyringManager.createKeyringVault();
 
       const hd = (keyringManager as any).hd;
@@ -232,7 +231,6 @@ describe('Bug Fixes Validation', () => {
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)
@@ -243,7 +241,6 @@ describe('Bug Fixes Validation', () => {
       (keyringManager as any).sessionPassword = sessionPassword;
       (keyringManager as any).currentSessionSalt = sessionSalt;
 
-      // Call createMainWallet which should use the correct network
       await keyringManager.createKeyringVault();
 
       const hd = (keyringManager as any).hd;
@@ -311,7 +308,6 @@ describe('Bug Fixes Validation', () => {
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)
@@ -339,7 +335,6 @@ describe('Bug Fixes Validation', () => {
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)
@@ -376,7 +371,6 @@ describe('Bug Fixes Validation', () => {
       await syscoinKeyring.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
-      const crypto = require('crypto');
       const sessionSalt = 'mock-salt';
       const sessionPassword = crypto
         .createHmac('sha512', sessionSalt)

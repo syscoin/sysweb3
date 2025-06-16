@@ -100,9 +100,11 @@ export class KeyringManager implements IKeyringManager {
     this.storage.set('utf8Error', {
       hasUtf8Error: false,
     });
+
     if (opts) {
-      // Create a deep copy of the wallet state to prevent state contamination between keyring instances
+      // Load wallet state with migration support (async loading will happen in initialize methods)
       this.wallet = JSON.parse(JSON.stringify(opts.wallet));
+
       // Defensive: Ensure all account type objects exist for migration compatibility
       if (!this.wallet.accounts[KeyringAccountType.Imported]) {
         this.wallet.accounts[KeyringAccountType.Imported] = {};
@@ -121,6 +123,7 @@ export class KeyringManager implements IKeyringManager {
       this.activeChain = INetworkType.Syscoin;
       this.hd = null;
     }
+
     this.utf8Error = false;
     this.memMnemonic = '';
     this.sessionSeed = '';
@@ -148,7 +151,7 @@ export class KeyringManager implements IKeyringManager {
     );
   }
 
-  // Static factory method for creating a fully initialized KeyringManager
+  // Static factory method for creating a fully initialized KeyringManager with slip44 support
   public static async createInitialized(
     seed: string,
     password: string,
@@ -172,22 +175,17 @@ export class KeyringManager implements IKeyringManager {
     // Set the active account based on the wallet state (respects activeAccountId)
     try {
       await keyringManager.setActiveAccount(
-        walletState.activeAccountId,
-        walletState.activeAccountType
+        keyringManager.wallet.activeAccountId,
+        keyringManager.wallet.activeAccountType
       );
     } catch (error) {
       // If the specified active account doesn't exist, that's fine
       // The vault creation already set account 0 as active
       console.warn(
-        `[KeyringManager] Could not set active account ${walletState.activeAccountId}, using account 0:`,
+        `[KeyringManager] Could not set active account ${keyringManager.wallet.activeAccountId}, using account 0:`,
         error.message
       );
     }
-
-    console.log(
-      `[KeyringManager] Initialized with ${chainType} network:`,
-      walletState.activeNetwork.label
-    );
 
     return keyringManager;
   }
@@ -600,35 +598,29 @@ export class KeyringManager implements IKeyringManager {
           ).toString(CryptoJS.enc.Utf8);
 
           if (!decryptedXprv) {
-            throw new Error(
-              'Failed to decrypt imported account private key. Invalid password or corrupted data.'
-            );
+            throw new Error('Failed to decrypt account private key');
           }
 
           if (this.isZprv(decryptedXprv)) {
+            // It's a zprv, create HD signer from it
             const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
             hdSigner = await this.createHDSignerFromZprv(decryptedXprv, rpc);
             this.hdImportedByAccountId.set(id, hdSigner);
           } else {
-            throw new Error('Account is not a zprv');
+            throw new Error('Imported account does not have a valid zprv');
           }
         }
-        // hdSigner exists, use it (no action needed)
       }
-      // Trezor and Ledger don't need HD signers
 
-      this.hd = hdSigner;
-
-      // Update syscoinSigner if we have an HD
-      if (this.hd) {
+      if (hdSigner) {
+        this.hd = hdSigner;
         this.syscoinSigner = new syscoinjs.SyscoinJSLib(
-          this.hd,
+          hdSigner,
           this.wallet.activeNetwork.url,
           undefined
         );
       }
     }
-    // EVM keyrings don't need special account switching logic
   };
 
   public getAccountById = (
@@ -1716,138 +1708,82 @@ export class KeyringManager implements IKeyringManager {
 
   private async addNewAccountToSyscoinChain(label?: string) {
     try {
-      // Always use hdMain to create accounts from the main seed
       if (!this.hdMain) {
         await this.setActiveAccount(0, KeyringAccountType.HDAccount);
-
         // Verify hdMain was initialized
         if (!this.hdMain) {
           throw new Error('Failed to initialize HD signer from main seed');
         }
       }
 
-      const id = this.hdMain.createAccount(84);
-      // Temporarily set hdMain as active to get correct xpub/xprv
-      this.hdMain.setAccountIndex(id);
+      // Get next available account ID
+      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
+      const nextId = this.getNextAccountId(accounts);
+
+      // Create account at the specific index
+      await this.hdMain.createAccountAtIndex(nextId, 84);
+
       const xpub = this.hdMain.getAccountXpub();
-
-      // Get the private key for this specific account
-      const xprv = CryptoJS.AES.encrypt(
-        this.getSysActivePrivateKey(),
-        this.sessionPassword
-      ).toString();
-
-      const latestUpdate: ISysAccount = this.getFormattedBackendAccount({
+      const sysAccount = this.getFormattedBackendAccount({
         xpub,
-        id: id,
+        id: nextId,
       });
 
-      const account = this.getInitialAccountData({
-        label,
+      const accountData = this.getInitialAccountData({
+        label: label || `Account ${nextId + 1}`,
         signer: this.hdMain,
-        sysAccount: latestUpdate,
-        xprv,
+        sysAccount,
+        xprv: this.getEncryptedXprv(),
       });
 
-      this.wallet = {
-        ...this.wallet,
-        accounts: {
-          ...this.wallet.accounts,
-          [KeyringAccountType.HDAccount]: {
-            ...this.wallet.accounts[KeyringAccountType.HDAccount],
-            [id]: account,
-          },
-        },
-        activeAccountId: account.id,
-        activeAccountType: KeyringAccountType.HDAccount,
-      };
-      this.hd = this.hdMain;
+      // Store the new account
+      this.wallet.accounts[KeyringAccountType.HDAccount][nextId] = accountData;
 
-      return {
-        ...account,
-        id,
-      };
+      return accountData;
     } catch (error) {
       console.log('ERROR addNewAccountToSyscoinChain', {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
-      throw error; // Re-throw to ensure we always return or throw
+      throw error;
     }
   }
 
   private async addNewAccountToEth(label?: string) {
     try {
-      // Find the next available account ID - check for real accounts (not placeholder empty ones)
-      const hdAccounts = this.wallet.accounts[KeyringAccountType.HDAccount];
-      const realAccountIds = Object.entries(hdAccounts)
-        .filter(([_, account]) => account.xpub && account.address) // Only accounts with real data
-        .map(([id, _]) => parseInt(id));
+      // Get next available account ID
+      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
+      const nextId = this.getNextAccountId(accounts);
 
-      const nextAccountId =
-        realAccountIds.length === 0 ? 0 : Math.max(...realAccountIds) + 1;
-
-      const decryptedSeed = CryptoJS.AES.decrypt(
-        this.sessionSeed,
-        this.sessionPassword
-      ).toString(CryptoJS.enc.Utf8);
-
-      if (!decryptedSeed) {
-        throw new Error(
-          'Failed to decrypt session seed. Invalid password or corrupted data.'
-        );
-      }
-
-      const seed = Buffer.from(decryptedSeed, 'hex');
-      const privateRoot = hdkey.fromMasterSeed(seed);
-
-      // Use the account ID for the derivation path
-      const ethDerivationPath = getAddressDerivationPath(
-        'eth',
-        60,
-        0,
-        false,
-        nextAccountId
-      );
-      const derivedCurrentAccount = privateRoot.derivePath(ethDerivationPath);
-      const newWallet = derivedCurrentAccount.getWallet();
-      const address = newWallet.getAddressString();
-      const xprv = newWallet.getPrivateKeyString();
-      const xpub = newWallet.getPublicKeyString();
-
-      const basicAccountInfo = this.getBasicWeb3AccountInfo(
-        nextAccountId,
-        label
+      await this.setDerivedWeb3Accounts(
+        nextId,
+        label || `Account ${nextId + 1}`
       );
 
-      const createdAccount: IKeyringAccountState = {
-        address,
-        xpub,
-        xprv: CryptoJS.AES.encrypt(xprv, this.sessionPassword).toString(),
-        isImported: false,
-        ...basicAccountInfo,
-      };
+      const newAccount =
+        this.wallet.accounts[KeyringAccountType.HDAccount][nextId];
 
-      this.wallet = {
-        ...this.wallet,
-        accounts: {
-          ...this.wallet.accounts,
-          [KeyringAccountType.HDAccount]: {
-            ...this.wallet.accounts[KeyringAccountType.HDAccount],
-            [createdAccount.id]: createdAccount,
-          },
-        },
-        activeAccountId: createdAccount.id,
-        activeAccountType: KeyringAccountType.HDAccount,
-      };
-      return createdAccount;
+      return newAccount;
     } catch (error) {
       console.log('ERROR addNewAccountToEth', {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
-      throw error; // Re-throw to ensure we always return or throw
+      throw error;
     }
+  }
+
+  // Helper method to get next available account ID
+  private getNextAccountId(accounts: any): number {
+    const existingIds = Object.keys(accounts)
+      .map((id) => parseInt(id, 10))
+      .filter((id) => !isNaN(id));
+
+    if (existingIds.length === 0) {
+      return 0;
+    }
+
+    return Math.max(...existingIds) + 1;
   }
 
   private getBasicWeb3AccountInfo = (id: number, label?: string) => {

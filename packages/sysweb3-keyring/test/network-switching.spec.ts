@@ -2,6 +2,7 @@ import {
   KeyringManager,
   KeyringAccountType,
   IKeyringAccountState,
+  initialWalletState,
 } from '../src';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from './constants';
 import { INetworkType } from '@pollum-io/sysweb3-network';
@@ -144,7 +145,6 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
       };
 
       // Setup EVM keyring properly with Ethereum network
-      const { initialWalletState } = require('../src');
       evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
@@ -204,7 +204,6 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
       };
 
       // Setup EVM keyring properly with Ethereum network
-      const { initialWalletState } = require('../src');
       evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
@@ -386,7 +385,6 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
       };
 
       // Setup EVM keyring properly with Ethereum network
-      const { initialWalletState } = require('../src');
       evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
@@ -476,7 +474,6 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
       };
 
       // Setup EVM keyring properly with Ethereum network
-      const { initialWalletState } = require('../src');
       evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
@@ -518,7 +515,6 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
       };
 
       // Setup EVM keyring properly with Ethereum network
-      const { initialWalletState } = require('../src');
       evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
