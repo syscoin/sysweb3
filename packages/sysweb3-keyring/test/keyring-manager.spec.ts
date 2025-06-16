@@ -495,6 +495,12 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     expect(account2?.label).toBe('Account 2');
     expect(account2?.id).toBe(1);
 
+    // Manually set as active account (addNewAccount doesn't auto-switch)
+    await keyringManager.setActiveAccount(
+      account2.id,
+      KeyringAccountType.HDAccount
+    );
+
     const wallet = keyringManager.getActiveAccount();
     expect(wallet.activeAccount.id).toBe(1);
   });

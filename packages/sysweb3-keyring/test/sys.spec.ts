@@ -224,9 +224,11 @@ describe('testing functions for the new-sys txs', () => {
     expect(account2).toBeDefined();
     expect(account2?.label).toBe('Account 2');
 
+    // Check the returned account ID (addNewAccount doesn't set as active)
+    expect(account2.id).toBe(1);
     // Replace getState with proper method
     const { activeAccount } = keyringManager.getActiveAccount();
-    expect(activeAccount.id).toBe(1);
+    expect(activeAccount.id).toBe(0);
   });
 
   it('should send native token', async () => {

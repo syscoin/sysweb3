@@ -105,6 +105,12 @@ describe('Keyring Manager - Real Implementation Tests', () => {
     const account2 = await keyringManager.addNewAccount('Account 2');
     expect(account2?.id).toBe(1);
 
+    // Manually set as active account (addNewAccount doesn't auto-switch)
+    await keyringManager.setActiveAccount(
+      account2.id,
+      KeyringAccountType.HDAccount
+    );
+
     // Verify active account changed
     const activeAccount2 = keyringManager.getActiveAccount();
     expect(activeAccount2.activeAccount.id).toBe(1);
@@ -112,6 +118,12 @@ describe('Keyring Manager - Real Implementation Tests', () => {
     // Create third account
     const account3 = await keyringManager.addNewAccount('Account 3');
     expect(account3?.id).toBe(2);
+
+    // Manually set as active account (addNewAccount doesn't auto-switch)
+    await keyringManager.setActiveAccount(
+      account3.id,
+      KeyringAccountType.HDAccount
+    );
 
     // Verify active account changed
     const activeAccount3 = keyringManager.getActiveAccount();

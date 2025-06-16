@@ -531,8 +531,13 @@ export class KeyringManager implements IKeyringManager {
           id: 0,
         });
 
+        // Preserve existing label from wallet state if it exists
+        const existingAccount =
+          this.wallet.accounts[KeyringAccountType.HDAccount][0];
+        const label = existingAccount?.label || 'Account 1';
+
         rootAccount = this.getInitialAccountData({
-          label: 'Account 1',
+          label,
           signer: hd,
           sysAccount,
           xprv: this.getEncryptedXprv(),
@@ -1775,8 +1780,13 @@ export class KeyringManager implements IKeyringManager {
 
   // Helper method to get next available account ID
   private getNextAccountId(accounts: any): number {
-    const existingIds = Object.keys(accounts)
-      .map((id) => parseInt(id, 10))
+    const existingIds = Object.values(accounts)
+      .filter((account: any) => {
+        // Only count accounts that have been properly initialized
+        // Placeholder accounts from initialWalletState have empty addresses/xprv/xpub
+        return account && account.address && account.xpub;
+      })
+      .map((account: any) => account.id)
       .filter((id) => !isNaN(id));
 
     if (existingIds.length === 0) {
@@ -1928,7 +1938,7 @@ export class KeyringManager implements IKeyringManager {
   };
 
   private clearTemporaryLocalKeys = async (pwd: string) => {
-    this.wallet = initialWalletState;
+    this.wallet = JSON.parse(JSON.stringify(initialWalletState));
 
     await setEncryptedVault(
       {
