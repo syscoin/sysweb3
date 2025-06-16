@@ -4,20 +4,40 @@ import { sysweb3Di } from '@pollum-io/sysweb3-core';
 
 const storage = sysweb3Di.getStateStorageDb();
 
-//TODO: completely remove set and get vault from utils
-export const setEncryptedVault = async (decryptedVault: any, pwd: string) => {
+// Each keyring gets its own vault based on slip44
+export const setEncryptedVault = async (
+  decryptedVault: any,
+  pwd: string,
+  slip44?: number
+) => {
   const encryptedVault = CryptoJS.AES.encrypt(
     JSON.stringify(decryptedVault),
     pwd
   );
 
-  await storage.set('vault', encryptedVault.toString());
+  // Use slip44-specific key if provided, otherwise fall back to 'vault' for backward compatibility
+  const vaultKey = slip44 !== undefined ? `vault-${slip44}` : 'vault';
+  await storage.set(vaultKey, encryptedVault.toString());
 };
 
-export const getDecryptedVault = async (pwd: string) => {
-  const vault = await storage.get('vault');
+export const getDecryptedVault = async (pwd: string, slip44?: number) => {
+  // Use slip44-specific key if provided, otherwise fall back to 'vault' for backward compatibility
+  const vaultKey = slip44 !== undefined ? `vault-${slip44}` : 'vault';
+  const vault = await storage.get(vaultKey);
 
   if (!vault) {
+    // If slip44-specific vault doesn't exist, try the global vault for migration
+    if (slip44 !== undefined) {
+      const globalVault = await storage.get('vault');
+      if (globalVault) {
+        console.log(
+          `[Storage] Migrating global vault to slip44-specific vault: ${vaultKey}`
+        );
+        // Migrate the global vault to slip44-specific vault
+        await storage.set(vaultKey, globalVault);
+        return getDecryptedVault(pwd, slip44);
+      }
+    }
     throw new Error('Vault not found');
   }
 
