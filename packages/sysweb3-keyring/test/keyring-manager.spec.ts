@@ -462,12 +462,12 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     expect(importedAgain.isImported).toBe(true);
 
     // Create a second HD account to test HD account switching within UTXO
-    const secondHDAccount = await keyringManager.addNewAccount();
-    expect(secondHDAccount).toBeDefined();
-    expect(secondHDAccount!.id).toBe(1);
-    console.log('Second HD account isImported:', secondHDAccount!.isImported);
-    // Note: The account might inherit isImported property from current active account context
-    // We'll verify it works correctly regardless of this property
+    const secondAccount = await keyringManager.addNewAccount('Account 2');
+    expect(secondAccount).toBeDefined();
+    if (secondAccount) {
+      expect(secondAccount.id).toBe(1);
+      expect(secondAccount.isImported).toBe(false);
+    }
 
     // Test switching to the second HD account
     await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
@@ -1010,8 +1010,10 @@ describe('Syscoin network testing', () => {
     // Create a second HD account
     const secondAccount = await keyringManager.addNewAccount('Account 2');
     expect(secondAccount).toBeDefined();
-    expect(secondAccount!.id).toBe(1);
-    expect(secondAccount!.isImported).toBe(false);
+    if (secondAccount) {
+      expect(secondAccount.id).toBe(1);
+      expect(secondAccount.isImported).toBe(false);
+    }
 
     // Switch to the second account
     await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);

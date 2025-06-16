@@ -1076,8 +1076,13 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public async importTrezorAccount(label?: string) {
+    const currency = this.wallet.activeNetwork.currency;
+    if (!currency) {
+      throw new Error('Active network currency is not defined');
+    }
+
     const importedAccount = await this._createTrezorAccount(
-      this.wallet.activeNetwork.currency!,
+      currency,
       this.wallet.activeNetwork.slip44,
       Object.values(this.wallet.accounts[KeyringAccountType.Trezor]).length
     );
@@ -1097,8 +1102,13 @@ export class KeyringManager implements IKeyringManager {
         : await this.ledgerSigner.connectToLedgerDevice();
 
       if (connectionResponse) {
+        const currency = this.wallet.activeNetwork.currency;
+        if (!currency) {
+          throw new Error('Active network currency is not defined');
+        }
+
         const importedAccount = await this._createLedgerAccount(
-          this.wallet.activeNetwork.currency!,
+          currency,
           this.wallet.activeNetwork.slip44,
           Object.values(this.wallet.accounts[KeyringAccountType.Ledger]).length
         );
