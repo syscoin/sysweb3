@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-import { coins } from './coins';
+import { findCoin } from './coin-utils';
 
 export const toHexFromNumber = (decimal: number) =>
   ethers.utils.hexlify(decimal);
@@ -38,19 +38,8 @@ export const getPubType = (
 
 export const getNetworkConfig = (slip44: number, coinName: string) => {
   try {
-    // First try to find by both slip44 and coinName for precision
-    let coin = coins.find(
-      (supported: any) =>
-        supported.slip44 === slip44 &&
-        (supported.coinName?.toLowerCase() === coinName?.toLowerCase() ||
-          supported.name?.toLowerCase() === coinName?.toLowerCase() ||
-          supported.coinShortcut?.toLowerCase() === coinName?.toLowerCase())
-    );
-
-    // If not found by coinName, fall back to slip44 only (for backward compatibility)
-    if (!coin) {
-      coin = coins.find((supported: any) => supported.slip44 === slip44);
-    }
+    // Use the shared findCoin utility
+    const coin = findCoin({ slip44, name: coinName });
 
     if (!coin) {
       throw `${coinName} not supported, add its network config on coins.ts at Pali repo`;
@@ -65,8 +54,6 @@ export const getNetworkConfig = (slip44: number, coinName: string) => {
       wif,
     } = coin;
 
-    const isTestnet = coin.name.toLowerCase().includes('test');
-
     const hexPubKeyHash = addressType;
     const hexScriptHash = addressTypeP2sh;
     if (bech32Prefix === null) {
@@ -74,7 +61,9 @@ export const getNetworkConfig = (slip44: number, coinName: string) => {
         `We currently don't support ${coinName} as we don't have its bech32 prefix, please if you need it supported create a pr on sysweb3-network package adding it to coins.ts  `
       );
     }
-    const baseNetwork = {
+
+    // Each coin has its own network parameters - no testnet differentiation
+    const network = {
       messagePrefix: String(signedMessageHeader).replace(/[\r\n]/gm, ''),
       bech32: String(bech32Prefix),
       bip32: {
@@ -87,18 +76,15 @@ export const getNetworkConfig = (slip44: number, coinName: string) => {
       wif,
     };
 
+    // For backward compatibility, provide both mainnet and testnet as the same
     const networks = {
-      mainnet: baseNetwork,
-      testnet: baseNetwork,
+      mainnet: network,
+      testnet: network,
     };
-
-    const useMainnet = networks.mainnet && !isTestnet;
-
-    const networkChain = useMainnet ? networks.mainnet : networks.testnet;
 
     return {
       networks,
-      types: getPubType(networkChain) || null,
+      types: getPubType(network) || null,
     };
   } catch (error) {
     throw new Error(error);
@@ -121,7 +107,6 @@ export type BitcoinNetwork = {
 
 export type IPubTypes = {
   mainnet: { zprv: string; zpub: string };
-  testnet: { vprv: string; vpub: string };
 };
 
 export type INetwork = {
@@ -130,7 +115,6 @@ export type INetwork = {
   currency: string;
   default?: boolean;
   explorer?: string;
-  isTestnet: boolean;
   key?: string;
   label: string;
   slip44: number;

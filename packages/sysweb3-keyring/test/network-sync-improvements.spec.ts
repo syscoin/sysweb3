@@ -1,440 +1,320 @@
-import { mockVault, FAKE_PASSWORD, PEACE_SEED_PHRASE } from './constants';
-import { KeyringManager } from '../src/keyring-manager';
+import { KeyringManager, KeyringAccountType } from '../src';
+import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from './constants';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
-// Mock dependencies
-jest.mock('../src/storage', () => ({
-  getDecryptedVault: jest.fn(),
-  setEncryptedVault: jest.fn(),
-}));
+// Mock storage
+const globalMockStorage = new Map();
+const globalMockStorageClient = {
+  get: jest.fn((key: string) => {
+    const value = globalMockStorage.get(key);
+    return Promise.resolve(value);
+  }),
+  set: jest.fn((key: string, value: any) => {
+    globalMockStorage.set(key, value);
+    return Promise.resolve();
+  }),
+  clear: jest.fn(() => {
+    globalMockStorage.clear();
+  }),
+  setClient: jest.fn(),
+};
 
+// Mock sysweb3-core
 jest.mock('@pollum-io/sysweb3-core', () => ({
   sysweb3Di: {
-    getStateStorageDb: () => ({
-      set: jest.fn(),
-      get: jest.fn(),
-      remove: jest.fn(),
-    }),
+    getStateStorageDb: jest.fn(() => globalMockStorageClient),
   },
 }));
 
-// Mock getSysRpc to handle different UTXO networks
-jest.mock('@pollum-io/sysweb3-network', () => ({
-  getSysRpc: jest.fn((network) => {
-    const isTestnet =
-      network.chainId === 5700 ||
-      network.chainId === 1 ||
-      network.url.includes('dev') ||
-      network.url.includes('test') ||
-      network.isTestnet;
-
-    return Promise.resolve({
-      rpc: {
-        formattedNetwork: {
-          ...network,
-          chainId: network.chainId,
-        },
-        networkConfig: null,
+// Mock syscoinjs-lib
+jest.mock('syscoinjs-lib', () => {
+  const actual = jest.requireActual('syscoinjs-lib');
+  return {
+    ...actual,
+    utils: {
+      ...actual.utils,
+      fetchBackendAccount: jest.fn().mockResolvedValue({
+        balance: 100000000,
+        tokens: [{ path: "m/84'/57'/0'/0/0", transfers: 1 }],
+      }),
+      fetchBackendUTXOS: jest.fn().mockResolvedValue([]),
+      sanitizeBlockbookUTXOs: jest.fn().mockReturnValue([]),
+      fetchEstimateFee: jest.fn().mockResolvedValue(0.001024),
+    },
+    createTransaction: jest.fn(() => ({
+      txid: '0x123',
+      hex: '0x456',
+      psbt: {
+        toBase64: jest.fn(() => 'mock-psbt-base64'),
       },
-      chain: isTestnet ? 'test' : 'main',
-      isTestnet,
-    });
+      assets: new Map(),
+    })),
+    SyscoinJSLib: jest.fn().mockImplementation(() => ({
+      blockbookURL: 'https://blockbook.syscoin.org/',
+      createTransaction: jest.fn().mockResolvedValue({
+        txid: '0x123',
+        hex: '0x456',
+        psbt: {
+          toBase64: jest.fn(() => 'mock-psbt-base64'),
+        },
+        assets: new Map(),
+      }),
+      createPSBTFromRes: jest.fn().mockResolvedValue('mock-psbt'),
+      signAndSend: jest.fn().mockResolvedValue('mock-signed-psbt'),
+    })),
+  };
+});
+
+// Mock storage module
+jest.mock('../src/storage', () => ({
+  getDecryptedVault: jest.fn().mockImplementation(async () => ({
+    mnemonic:
+      'U2FsdGVkX19VZa0KFeqBLnyYo2O/2Y4txNjiZfYQ+1FmDBfXN20Vp0OB0r3UGjE+hZ69gUOsN54lGMtszBAVNY/W3asghe2Qu+QYwZnkkRyIhfiAk+wGo29R8I67ukscTxSFhOcBTRdF+AOsJIGhOA==',
+  })),
+  decryptAES: jest.fn().mockImplementation((cipherText) => {
+    if (
+      cipherText ===
+      'U2FsdGVkX19VZa0KFeqBLnyYo2O/2Y4txNjiZfYQ+1FmDBfXN20Vp0OB0r3UGjE+hZ69gUOsN54lGMtszBAVNY/W3asghe2Qu+QYwZnkkRyIhfiAk+wGo29R8I67ukscTxSFhOcBTRdF+AOsJIGhOA=='
+    ) {
+      return PEACE_SEED_PHRASE;
+    }
+    return cipherText;
   }),
-  clearRpcCaches: jest.fn(() => {
-    console.log('[RPC] Cleared all RPC caches');
+  encryptAES: jest.fn().mockImplementation((text) => {
+    return 'encrypted-' + text;
   }),
-  INetworkType: {
-    Syscoin: 'syscoin',
-    Ethereum: 'ethereum',
-  },
+  setEncryptedVault: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock transactions
-jest.mock('../src/transactions', () => ({
-  SyscoinTransactions: jest.fn().mockImplementation(() => ({})),
-  EthereumTransactions: jest.fn().mockImplementation(() => ({
-    setWeb3Provider: jest.fn(),
-    getBalance: jest.fn().mockResolvedValue(0),
+// Mock RPC validation
+jest.mock('@pollum-io/sysweb3-network', () => {
+  const actual = jest.requireActual('@pollum-io/sysweb3-network');
+  return {
+    ...actual,
+    validateSysRpc: jest.fn().mockResolvedValue({ status: 200 }),
+    validateEthRpc: jest.fn().mockResolvedValue({ status: 200 }),
+    clearRpcCaches: jest.fn().mockImplementation(() => {
+      console.log('[RPC] Cleared all RPC caches');
+    }),
+  };
+});
+
+// Mock providers
+jest.mock('../src/providers', () => ({
+  CustomJsonRpcProvider: jest.fn().mockImplementation((_signal, url) => ({
+    getNetwork: jest.fn().mockResolvedValue({
+      chainId:
+        url.includes('mainnet.infura.io') || url.includes('alchemyapi.io')
+          ? 1
+          : url.includes('blockbook')
+          ? 57
+          : 1,
+    }),
   })),
 }));
 
-const { getDecryptedVault } = require('../src/storage');
-
-describe('Network Synchronization Improvements', () => {
+describe('Network Synchronization with Multi-Keyring Architecture', () => {
   let keyringManager: KeyringManager;
-  const testPassword = FAKE_PASSWORD;
 
   beforeEach(async () => {
+    globalMockStorage.clear();
     jest.clearAllMocks();
-    getDecryptedVault.mockResolvedValue(mockVault);
+
     keyringManager = new KeyringManager();
-
-    // Setup wallet with proper initialization
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(testPassword);
-    await keyringManager.createKeyringVault();
   });
 
-  describe('shouldUpdateHDSigner method', () => {
-    it('should correctly identify when HD signer needs update due to testnet change', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Set initial network as mainnet
-      keyringManager.wallet.activeNetwork = {
-        chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook.syscoin.org',
-        label: 'Syscoin Mainnet',
-        currency: 'sys',
-        default: true,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      const shouldUpdate = (keyringManager as any).shouldUpdateHDSigner({
-        chainId: 5700,
-        isTestnet: true,
-        slip44: 1,
-        url: 'https://blockbook-dev.syscoin.org',
-      });
-
-      expect(shouldUpdate).toBe(true);
-    });
-
-    it('should correctly identify when HD signer needs update due to SLIP44 change', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Set initial network
-      keyringManager.wallet.activeNetwork = {
-        chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook.syscoin.org',
-        label: 'Syscoin Mainnet',
-        currency: 'sys',
-        default: true,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      const shouldUpdate = (keyringManager as any).shouldUpdateHDSigner({
-        chainId: 0, // Bitcoin
-        isTestnet: false,
-        slip44: 0,
-        url: 'https://btc1.trezor.io',
-      });
-
-      expect(shouldUpdate).toBe(true);
-    });
-
-    it('should correctly identify when HD signer needs update due to blockbook URL change', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Set initial network
-      keyringManager.wallet.activeNetwork = {
-        chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook.syscoin.org',
-        label: 'Syscoin Mainnet',
-        currency: 'sys',
-        default: true,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      const shouldUpdate = (keyringManager as any).shouldUpdateHDSigner({
-        chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook-backup.syscoin.org',
-      });
-
-      expect(shouldUpdate).toBe(true);
-    });
-
-    it('should not update HD signer when parameters are identical', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Set initial network
-      const network = {
-        chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook.syscoin.org',
-        label: 'Syscoin Mainnet',
-        currency: 'sys',
-        default: true,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.wallet.activeNetwork = network;
-
-      const shouldUpdate = (keyringManager as any).shouldUpdateHDSigner(
-        network
-      );
-
-      // Debug: Log to understand why shouldUpdate is true
-      console.log(
-        'Current active network:',
-        keyringManager.wallet.activeNetwork
-      );
-      console.log('Test network:', network);
-      console.log('shouldUpdate result:', shouldUpdate);
-
-      // This test expects false, but if shouldUpdateHDSigner logic changed,
-      // adjust expectation based on the actual behavior
-      expect(shouldUpdate).toBe(true); // Changed to match actual behavior
-    });
+  afterEach(() => {
+    keyringManager = null as any;
   });
 
-  describe('Custom UTXO Network Support', () => {
-    it('should handle Bitcoin network correctly', async () => {
-      await keyringManager.unlock(testPassword);
+  describe('Network Management', () => {
+    it('should validate network type requirements', async () => {
+      // Setup keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
 
-      const bitcoinNetwork = {
-        chainId: 0,
-        isTestnet: false,
-        slip44: 0,
-        url: 'https://btc1.trezor.io',
-        label: 'Bitcoin',
-        currency: 'BTC',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.addCustomNetwork(INetworkType.Syscoin, bitcoinNetwork);
-      await keyringManager.setSignerNetwork(
-        bitcoinNetwork,
-        INetworkType.Syscoin
-      );
-
-      expect(keyringManager.wallet.activeNetwork.chainId).toBe(0);
-      expect(keyringManager.wallet.activeNetwork.slip44).toBe(0);
-    });
-
-    it('should handle Litecoin network correctly', async () => {
-      await keyringManager.unlock(testPassword);
-
-      const litecoinNetwork = {
-        chainId: 2,
-        isTestnet: false,
-        slip44: 2,
-        url: 'https://ltc1.trezor.io',
-        label: 'Litecoin',
-        currency: 'LTC',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.addCustomNetwork(INetworkType.Syscoin, litecoinNetwork);
-      await keyringManager.setSignerNetwork(
-        litecoinNetwork,
-        INetworkType.Syscoin
-      );
-
-      expect(keyringManager.wallet.activeNetwork.chainId).toBe(2);
-      expect(keyringManager.wallet.activeNetwork.slip44).toBe(2);
-    });
-  });
-
-  describe('Edge Case Handling', () => {
-    it('should handle Bitcoin to Syscoin network switch correctly', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Start with Bitcoin
-      const bitcoinNetwork = {
-        chainId: 0,
-        isTestnet: false,
-        slip44: 0,
-        url: 'https://btc1.trezor.io',
-        label: 'Bitcoin',
-        currency: 'BTC',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.wallet.networks[INetworkType.Syscoin][0] = bitcoinNetwork;
-      await keyringManager.setSignerNetwork(
-        bitcoinNetwork,
-        INetworkType.Syscoin
-      );
-
-      const bitcoinHDSigner = (keyringManager as any).hd;
-
-      // Switch to Syscoin
       const syscoinNetwork = {
         chainId: 57,
-        isTestnet: false,
-        slip44: 57,
-        url: 'https://blockbook.syscoin.org',
+        url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
-        currency: 'sys',
-        default: true,
-        apiUrl: '',
-        explorer: '',
+        currency: 'SYS',
+        slip44: 57,
       };
+
+      // Should work with proper UTXO network
+      const result = await keyringManager.setSignerNetwork(
+        syscoinNetwork,
+        INetworkType.Syscoin
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it('should prevent invalid network type combinations', async () => {
+      // Setup keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
+
+      const ethNetwork = {
+        chainId: 1,
+        url: 'https://eth-mainnet.alchemyapi.io/v2/test',
+        label: 'Ethereum Mainnet',
+        currency: 'ETH',
+        slip44: 60,
+      };
+
+      // Should prevent using Ethereum network with Syscoin chain type
+      await expect(
+        keyringManager.setSignerNetwork(ethNetwork, INetworkType.Syscoin)
+      ).rejects.toThrow('Cannot use Syscoin chain type with Ethereum network');
+    });
+
+    it('should only allow EVM custom networks', async () => {
+      // Setup keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
+
+      const customUTXONetwork = {
+        chainId: 123,
+        url: 'https://custom-utxo.com/',
+        label: 'Custom UTXO',
+        currency: 'CUSTOM',
+        slip44: 123,
+      };
+
+      // Should prevent adding custom UTXO networks
+      expect(() => {
+        keyringManager.addCustomNetwork(
+          INetworkType.Syscoin,
+          customUTXONetwork
+        );
+      }).toThrow(
+        'Custom networks can only be added for EVM. UTXO networks require separate keyring instances.'
+      );
+    });
+  });
+
+  describe('Account Operations', () => {
+    it('should handle account creation correctly', async () => {
+      // Setup UTXO keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
+
+      const syscoinNetwork = {
+        chainId: 57,
+        url: 'https://blockbook.syscoin.org/',
+        label: 'Syscoin Mainnet',
+        currency: 'SYS',
+        slip44: 57,
+      };
+
       await keyringManager.setSignerNetwork(
         syscoinNetwork,
         INetworkType.Syscoin
       );
 
-      const syscoinHDSigner = (keyringManager as any).hd;
-
-      // Should have different HD signers
-      expect(syscoinHDSigner).not.toBe(bitcoinHDSigner);
-      expect((keyringManager as any).syscoinSigner).toBeDefined();
+      // Create new account
+      const newAccount = await keyringManager.addNewAccount('Test Account');
+      expect(newAccount).toBeDefined();
+      expect(newAccount.label).toBe('Test Account');
+      expect(newAccount.address).toMatch(/^(bc1|tb1|sys1|tsys1)/);
     });
 
-    it('should handle missing network properties gracefully', async () => {
-      await keyringManager.unlock(testPassword);
+    it('should handle account switching correctly', async () => {
+      // Setup UTXO keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
 
-      // Network with missing optional properties
-      const incompleteNetwork = {
-        chainId: 123,
-        url: 'https://custom.blockbook.io',
-        label: 'Custom Network',
-        isTestnet: false,
-        slip44: 123,
-        currency: 'custom',
-        default: false,
-        apiUrl: '',
-        explorer: '',
+      const syscoinNetwork = {
+        chainId: 57,
+        url: 'https://blockbook.syscoin.org/',
+        label: 'Syscoin Mainnet',
+        currency: 'SYS',
+        slip44: 57,
       };
 
-      keyringManager.wallet.networks[INetworkType.Syscoin][123] =
-        incompleteNetwork;
-
-      // Should not throw error
-      await expect(
-        keyringManager.setSignerNetwork(incompleteNetwork, INetworkType.Syscoin)
-      ).resolves.not.toThrow();
-    });
-  });
-
-  describe('Network Validation', () => {
-    it('should validate network parameters before HD signer creation', async () => {
-      await keyringManager.unlock(testPassword);
-
-      // Invalid network configuration
-      const invalidNetwork = {
-        chainId: -1,
-        isTestnet: false,
-        slip44: -1,
-        url: 'invalid-url',
-        label: 'Invalid Network',
-        currency: 'invalid',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.wallet.networks[INetworkType.Syscoin][-1] = invalidNetwork;
-
-      // Should handle invalid network gracefully
-      const invalidNetworkFull = {
-        ...invalidNetwork,
-        currency: 'invalid',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-      await expect(
-        keyringManager.setSignerNetwork(
-          invalidNetworkFull,
-          INetworkType.Syscoin
-        )
-      ).rejects.toThrow();
-    });
-
-    it('should properly detect testnet networks', async () => {
-      await keyringManager.unlock(testPassword);
-
-      const testnetNetwork = {
-        chainId: 5700,
-        isTestnet: true,
-        slip44: 1,
-        url: 'https://blockbook-dev.syscoin.org',
-        label: 'Syscoin Testnet',
-        currency: 'TSYS',
-        default: false,
-        apiUrl: '',
-        explorer: '',
-      };
-
-      keyringManager.wallet.networks[INetworkType.Syscoin][5700] =
-        testnetNetwork;
       await keyringManager.setSignerNetwork(
-        testnetNetwork,
+        syscoinNetwork,
         INetworkType.Syscoin
       );
 
-      expect(keyringManager.wallet.activeNetwork.isTestnet).toBe(true);
-      // Note: HD signer testnet property may be nested differently
-      const hdSigner = (keyringManager as any).hd;
-      expect(hdSigner).toBeDefined();
-      // The isTestnet property could be in Signer.isTestnet or other location
-      if (hdSigner.Signer && hdSigner.Signer.isTestnet !== undefined) {
-        expect(hdSigner.Signer.isTestnet).toBe(true);
-      } else if (hdSigner.isTestnet !== undefined) {
-        expect(hdSigner.isTestnet).toBe(true);
-      }
-      // If neither exists, just verify the network change worked
+      // Create additional account
+      await keyringManager.addNewAccount();
+
+      // Switch to account 1
+      await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+      const activeAccount = keyringManager.getActiveAccount();
+      expect(activeAccount.activeAccount.id).toBe(1);
     });
+  });
 
-    it('should recognize Bitcoin as syscoin chain after adding to network list', async () => {
-      await keyringManager.unlock(testPassword);
+  describe('Validation and Error Handling', () => {
+    it('should validate extended private keys correctly', async () => {
+      // Setup keyring
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
 
-      const bitcoinNetwork = {
-        chainId: 0,
-        isTestnet: false,
-        slip44: 0,
-        url: 'https://btc1.trezor.io',
-        label: 'Bitcoin',
-        currency: 'BTC',
-        default: false,
-        apiUrl: '',
-        explorer: '',
+      const syscoinNetwork = {
+        chainId: 57,
+        url: 'https://blockbook.syscoin.org/',
+        label: 'Syscoin Mainnet',
+        currency: 'SYS',
+        slip44: 57,
       };
 
-      // Add Bitcoin to the syscoin network list
-      keyringManager.addCustomNetwork(INetworkType.Syscoin, bitcoinNetwork);
+      // Test valid key format
+      const validKey =
+        'zprvAdJ5mPutamoCbmounzFidqfJUi2wywJSfevREt3CzbyVCHZDavEXVXY3GnMKB3ppQDMKXTikdQVV8bWR6qHvHM1F5kiPnYRZfYCesvN634X';
+      const validation = keyringManager.validateZprv(validKey, syscoinNetwork);
+      expect(validation.isValid).toBe(true);
 
-      // Now isSyscoinChain should return true for Bitcoin
-      const isSyscoinChain = (keyringManager as any).isSyscoinChain(
-        bitcoinNetwork
+      // Test invalid key format
+      const invalidKey = 'invalid-key-format';
+      const invalidValidation = keyringManager.validateZprv(
+        invalidKey,
+        syscoinNetwork
       );
-      expect(isSyscoinChain).toBe(true);
+      expect(invalidValidation.isValid).toBe(false);
     });
 
-    it('should recognize Litecoin as syscoin chain after adding to network list', async () => {
-      await keyringManager.unlock(testPassword);
-
-      const litecoinNetwork = {
-        chainId: 2,
-        isTestnet: false,
-        slip44: 2,
-        url: 'https://ltc1.trezor.io',
-        label: 'Litecoin',
-        currency: 'LTC',
-        default: false,
-        apiUrl: '',
-        explorer: '',
+    it('should handle network requirements correctly', async () => {
+      // Test that multi-keyring architecture constraints are enforced
+      const syscoinNetwork = {
+        chainId: 57,
+        url: 'https://blockbook.syscoin.org/',
+        label: 'Syscoin Mainnet',
+        currency: 'SYS',
+        slip44: 57,
       };
 
-      // Add Litecoin to the syscoin network list
-      keyringManager.addCustomNetwork(INetworkType.Syscoin, litecoinNetwork);
+      const ethNetwork = {
+        chainId: 1,
+        url: 'https://eth-mainnet.alchemyapi.io/v2/test',
+        label: 'Ethereum Mainnet',
+        currency: 'ETH',
+        slip44: 60,
+      };
 
-      // Now isSyscoinChain should return true for Litecoin
-      const isSyscoinChain = (keyringManager as any).isSyscoinChain(
-        litecoinNetwork
+      // Setup with Syscoin network
+      keyringManager.setSeed(PEACE_SEED_PHRASE);
+      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      await keyringManager.createKeyringVault();
+      await keyringManager.setSignerNetwork(
+        syscoinNetwork,
+        INetworkType.Syscoin
       );
-      expect(isSyscoinChain).toBe(true);
+
+      // Try to switch to Ethereum network (different slip44) - should be prevented by multi-keyring architecture
+      await expect(
+        keyringManager.setSignerNetwork(ethNetwork, INetworkType.Ethereum)
+      ).rejects.toThrow(
+        'Cannot switch between different UTXO networks within the same keyring'
+      );
     });
   });
 });

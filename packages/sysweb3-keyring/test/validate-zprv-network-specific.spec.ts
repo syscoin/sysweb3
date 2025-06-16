@@ -30,7 +30,7 @@ describe('validateZprv Network-Specific Validation', () => {
     url: 'https://blockbook.syscoin.org',
     currency: 'sys',
     slip44: 57,
-    isTestnet: false,
+
     default: true,
     apiUrl: '',
     explorer: 'https://blockbook.syscoin.org',
@@ -42,7 +42,7 @@ describe('validateZprv Network-Specific Validation', () => {
     url: 'https://explorer-blockbook-dev.syscoin.org',
     currency: 'tsys',
     slip44: 1,
-    isTestnet: true,
+
     default: false,
     apiUrl: '',
     explorer: 'https://explorer-blockbook-dev.syscoin.org',
@@ -54,7 +54,7 @@ describe('validateZprv Network-Specific Validation', () => {
     url: 'https://blockbook.bitcoin.org/',
     currency: 'btc',
     slip44: 0,
-    isTestnet: false,
+
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook.bitcoin.org/',
@@ -66,7 +66,7 @@ describe('validateZprv Network-Specific Validation', () => {
     url: 'https://blockbook-testnet.bitcoin.org/',
     currency: 'tbtc',
     slip44: 1,
-    isTestnet: true,
+
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook-testnet.bitcoin.org/',
@@ -78,7 +78,7 @@ describe('validateZprv Network-Specific Validation', () => {
     url: 'https://blockbook.litecoin.org/',
     currency: 'ltc',
     slip44: 2,
-    isTestnet: false,
+
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook.litecoin.org/',

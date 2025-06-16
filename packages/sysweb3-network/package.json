@@ -30,7 +30,6 @@
     "localTest": "yarn prebuild && yarn build && yarn copy"
   },
   "dependencies": {
-    "bip44-constants": "^114.0.0",
     "eth-chains": "^1.0.0",
     "ethers": "^5.6.9"
   },

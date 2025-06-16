@@ -1,9 +1,8 @@
-import bip44Constants from 'bip44-constants';
 import { Chain, chains } from 'eth-chains';
 import { hexlify } from 'ethers/lib/utils';
 
+import { findCoin } from './coin-utils';
 // import fetch from "node-fetch";
-
 import { getNetworkConfig, toDecimalFromHex, INetwork } from './networks';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
@@ -127,7 +126,6 @@ export const validateEthRpc = async (
   chainId: number;
   details: Chain | undefined;
   hexChainId: string;
-  isTestnet: boolean;
   valid: boolean;
 }> => {
   try {
@@ -146,18 +144,11 @@ export const validateEthRpc = async (
       throw new Error('RPC has an invalid chain ID');
     }
 
-    const ethTestnetsChainsIds = [5700, 80001, 11155111, 421611, 5, 69]; // Some ChainIds from Ethereum Testnets as Polygon Testnet, Goerli, Sepolia, etc.
-
-    const isTestnet = details
-      ? details.name.toLowerCase().includes('test')
-      : ethTestnetsChainsIds.includes(chainId); // Fallback for RPCs that don't have details
-
     return {
       chainId,
       details,
       chain: details && details.chain ? details.chain : 'unknown',
       hexChainId,
-      isTestnet,
       valid,
     };
   } catch (error) {
@@ -172,7 +163,7 @@ export const getEthRpc = async (
   formattedNetwork: INetwork;
 }> => {
   const endsWithSlash = /\/$/;
-  const { valid, hexChainId, details, isTestnet } = await validateEthRpc(
+  const { valid, hexChainId, details } = await validateEthRpc(
     data.url,
     isInCooldown
   );
@@ -199,7 +190,6 @@ export const getEthRpc = async (
     currency: details ? details.nativeCurrency.symbol : data.symbol,
     chainId: chainIdNumber,
     slip44: 60, // All EVM networks use ETH slip44 for address compatibility
-    isTestnet,
   };
 
   return {
@@ -251,38 +241,8 @@ export const validateSysRpc = async (
   }
 };
 
-// review keyring manager
-export const getBip44Chain = (coin: string, isTestnet?: boolean) => {
-  const bip44Coin = bip44Constants.find(
-    (item: any) => item[2] === (isTestnet ? bip44Constants[1][2] : coin)
-  );
-
-  const coinTypeInDecimal = bip44Coin[0];
-  const symbol = bip44Coin[1];
-
-  const { valid, hexChainId } = validateChainId(coinTypeInDecimal);
-
-  const isChainValid = bip44Coin && valid;
-
-  const replacedCoinTypePrefix = hexChainId.replace('0x8', '');
-  const chainId = toDecimalFromHex(replacedCoinTypePrefix);
-
-  if (!isChainValid) {
-    throw new Error(
-      'RPC invalid. Not found in Trezor Blockbook list of RPCS. See https://github.com/satoshilabs/slips/blob/master/slip-0044.md for available networks.'
-    );
-  }
-
-  return {
-    nativeCurrency: {
-      name: coin,
-      symbol: symbol.toString().toLowerCase(),
-      decimals: 8,
-    },
-    coinType: coinTypeInDecimal,
-    chainId,
-  };
-};
+// With proper slip44 in network configs, we don't need special testnet handling
+// Each network (including testnets) has its own slip44 value
 
 // TODO: type data with ICustomRpcParams later
 // TODO: type return correctly
@@ -292,9 +252,14 @@ export const getSysRpc = async (data: any) => {
 
     if (!valid) throw new Error('Invalid Trezor Blockbook Explorer URL');
 
-    // Use standard BIP44 approach for all networks - no special cases
-    const { nativeCurrency, chainId } = getBip44Chain(coin, chain === 'test');
-    const networkConfig = getNetworkConfig(chainId, coin);
+    // Look up coin configuration directly - no special testnet handling
+    const coinData = findCoin({ name: coin });
+    if (!coinData) {
+      throw new Error(`Coin configuration not found for ${coin}`);
+    }
+
+    // Get network config using the coin's slip44
+    const networkConfig = getNetworkConfig(coinData.slip44, coin);
 
     let explorer: string | undefined = data.explorer;
     if (!explorer) {
@@ -302,17 +267,16 @@ export const getSysRpc = async (data: any) => {
       explorer = data.url.replace(/\/api\/v[12]/, ''); // trimming /api/v{number}/ from explorer
     }
 
-    const networkType = chain === 'test' ? 'testnet' : 'mainnet';
+    // Use coin's actual slip44/chainId - no testnet differentiation
     const formattedNetwork = {
       url: data.url,
       apiUrl: data.url, // apiURL and URL are the same for blockbooks explorer TODO: remove this field from UTXO networks
       explorer,
-      currency: nativeCurrency.symbol,
+      currency: coin.toLowerCase(),
       label: data.label || coin,
       default: true,
-      chainId,
-      slip44: networkConfig.networks[networkType].slip44,
-      isTestnet: chain === 'test',
+      chainId: coinData.slip44, // Use coin's actual slip44 as chainId
+      slip44: coinData.slip44,
     };
 
     const rpc = {

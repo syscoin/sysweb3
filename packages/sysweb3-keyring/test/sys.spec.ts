@@ -118,9 +118,26 @@ describe('testing functions for the new-sys txs', () => {
     });
     mockStorage.set('utf8Error', { hasUtf8Error: false });
 
-    // Create a fresh keyring manager for each test
-    keyringManager = new KeyringManager({
-      wallet: {
+    // Initialize with Syscoin testnet using new architecture
+    const syscoinTestnet = {
+      chainId: 5700,
+      label: 'Syscoin Testnet',
+      url: 'https://blockbook-dev.elint.services/',
+      default: true,
+      currency: 'tsys',
+      apiUrl: '',
+      explorer: '',
+      slip44: 1,
+    };
+
+    const seed =
+      PEACE_SEED_PHRASE ||
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+
+    keyringManager = await KeyringManager.createInitialized(
+      seed,
+      FAKE_PASSWORD,
+      {
         accounts: {
           HDAccount: {},
           Imported: {},
@@ -137,35 +154,16 @@ describe('testing functions for the new-sys txs', () => {
               url: 'https://blockbook.syscoin.org/',
               default: true,
               currency: 'sys',
-              isTestnet: false,
               slip44: 57,
             },
-            5700: {
-              chainId: 5700,
-              label: 'Syscoin Testnet',
-              url: 'https://blockbook-dev.elint.services/',
-              default: true,
-              currency: 'tsys',
-              isTestnet: true,
-              slip44: 60,
-            },
+            5700: syscoinTestnet,
           },
           ethereum: {},
         },
-        activeNetwork: {
-          chainId: 5700,
-          label: 'Syscoin Testnet',
-          url: 'https://blockbook-dev.elint.services/',
-          default: true,
-          currency: 'tsys',
-          apiUrl: '',
-          explorer: '',
-          slip44: 1,
-          isTestnet: true,
-        },
+        activeNetwork: syscoinTestnet,
       },
-      activeChain: 'syscoin' as any,
-    });
+      'syscoin' as any
+    );
 
     sysJS = new sjs.SyscoinJSLib(
       null,
@@ -173,15 +171,8 @@ describe('testing functions for the new-sys txs', () => {
       sjs.utils.syscoinNetworks.testnet
     );
 
-    // Setup the wallet properly
-    const seed =
-      PEACE_SEED_PHRASE ||
-      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-    keyringManager.setSeed(seed);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-
-    // Create the keyring vault first
-    const account = await keyringManager.createKeyringVault();
+    // Get the created account
+    const account = keyringManager.getActiveAccount().activeAccount;
     address = account?.address || '';
   });
 
@@ -227,21 +218,7 @@ describe('testing functions for the new-sys txs', () => {
 
   /* addNewAccount */
   it('should add a new account', async () => {
-    // Need to unlock first
-    await keyringManager.unlock(FAKE_PASSWORD);
-    await keyringManager.setSignerNetwork(
-      {
-        chainId: 5700,
-        label: 'Syscoin Testnet',
-        url: 'https://blockbook-dev.elint.services/',
-        default: true,
-        currency: 'tsys',
-        apiUrl: '',
-        explorer: '',
-        isTestnet: true,
-      },
-      'syscoin'
-    );
+    // KeyringManager is already initialized and unlocked
 
     const account2 = await keyringManager.addNewAccount(undefined);
     expect(account2).toBeDefined();
@@ -253,21 +230,7 @@ describe('testing functions for the new-sys txs', () => {
   });
 
   it('should send native token', async () => {
-    // Need to unlock first
-    await keyringManager.unlock(FAKE_PASSWORD);
-    await keyringManager.setSignerNetwork(
-      {
-        chainId: 5700,
-        label: 'Syscoin Testnet',
-        url: 'https://blockbook-dev.elint.services/',
-        default: true,
-        currency: 'tsys',
-        apiUrl: '',
-        explorer: '',
-        isTestnet: true,
-      },
-      'syscoin'
-    );
+    // KeyringManager is already initialized and unlocked
 
     const tx = { ...DATA['send'], receivingAddress: address, sender: address };
     const { txid } = await keyringManager.syscoinTransaction.sendTransaction(
@@ -282,21 +245,7 @@ describe('testing functions for the new-sys txs', () => {
   }, 180000);
 
   it('should generate signPSBT json', async () => {
-    // Need to unlock first
-    await keyringManager.unlock(FAKE_PASSWORD);
-    await keyringManager.setSignerNetwork(
-      {
-        chainId: 5700,
-        label: 'Syscoin Testnet',
-        url: 'https://blockbook-dev.elint.services/',
-        default: true,
-        currency: 'tsys',
-        apiUrl: '',
-        explorer: '',
-        isTestnet: true,
-      },
-      'syscoin'
-    );
+    // KeyringManager is already initialized and unlocked
     const res = await keyringManager.syscoinTransaction.signPSBT({
       psbt: DATA['sign'],
       isTrezor: true,
@@ -308,21 +257,7 @@ describe('testing functions for the new-sys txs', () => {
   }, 180000);
 
   it('should sign and send tx', async () => {
-    // Need to unlock first
-    await keyringManager.unlock(FAKE_PASSWORD);
-    await keyringManager.setSignerNetwork(
-      {
-        chainId: 5700,
-        label: 'Syscoin Testnet',
-        url: 'https://blockbook-dev.elint.services/',
-        default: true,
-        currency: 'tsys',
-        apiUrl: '',
-        explorer: '',
-        isTestnet: true,
-      },
-      'syscoin'
-    );
+    // KeyringManager is already initialized and unlocked
     const feeRate = new sjs.utils.BN(10);
     const txOpts = { rbf: false };
     // if SYS need change sent, set this address. null to let HDSigner find a new address for you

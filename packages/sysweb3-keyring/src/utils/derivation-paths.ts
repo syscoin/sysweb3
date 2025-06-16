@@ -1,29 +1,14 @@
 // Import coins data from the relative package in the monorepo
-import { coins } from '@pollum-io/sysweb3-network';
-const getCoinsData = () => {
-  try {
-    return coins || [];
-  } catch (error) {
-    console.error(
-      'Failed to load coins from @pollum-io/sysweb3-network:',
-      error
-    );
-    return [];
-  }
-};
+import { findCoin } from '@pollum-io/sysweb3-network';
 
 /**
  * Get coin information by coin shortcut or slip44
- * Priority: 1) Check if slip44=60 or 61 (EVM), 2) Check coins.ts (UTXO), 3) Default to unknown
+ * Priority: 1) Check if slip44=60 (EVM), 2) Check coins.ts (UTXO), 3) Default to unknown
  */
 export function getCoinInfo(coinShortcut: string, slip44: number) {
-  const coinKey = coinShortcut.toLowerCase();
-
-  // CRITICAL: If slip44 is 60 or 61, it's ALWAYS EVM
   // slip44=60: Ethereum and most EVM-compatible networks (BSC, Polygon, Arbitrum, etc.)
-  // slip44=61: Ethereum Classic (ETC)
   // This must be checked FIRST to prevent any UTXO coin conflicts
-  if (slip44 === 60 || slip44 === 61) {
+  if (slip44 === 60) {
     return {
       slip44,
       segwit: false,
@@ -31,14 +16,8 @@ export function getCoinInfo(coinShortcut: string, slip44: number) {
     };
   }
 
-  // Second, check UTXO coins from coins.ts (comprehensive database)
-  const coins = getCoinsData();
-  const coin = coins.find(
-    (c: any) =>
-      c.coinShortcut?.toLowerCase() === coinKey ||
-      c.shortcut?.toLowerCase() === coinKey ||
-      c.coinName?.toLowerCase() === coinKey
-  );
+  // Use the shared findCoin utility to search for UTXO coins
+  const coin = findCoin({ slip44, name: coinShortcut });
 
   if (coin) {
     return {
@@ -46,18 +25,6 @@ export function getCoinInfo(coinShortcut: string, slip44: number) {
       segwit: coin.segwit || false,
       isEvm: false, // UTXO coins from coins.ts are not EVM
     };
-  }
-
-  // Third, if searching by slip44, check remaining UTXO coins (slip44=60,61 already handled above)
-  if (slip44 !== undefined) {
-    const coinBySlip44 = coins.find((c: any) => c.slip44 === slip44);
-    if (coinBySlip44) {
-      return {
-        slip44: coinBySlip44.slip44,
-        segwit: coinBySlip44.segwit || false,
-        isEvm: false,
-      };
-    }
   }
 
   // For unknown slip44 values, we cannot safely assume EVM

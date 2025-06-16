@@ -1,3 +1,5 @@
+import * as syscoinjs from 'syscoinjs-lib';
+
 import { FAKE_PASSWORD } from './constants';
 import { KeyringManager } from '../src/keyring-manager';
 import { KeyringAccountType } from '../src/types';
@@ -189,8 +191,6 @@ describe('Hardware Wallet UTXO Signing Verification', () => {
       // 2. syscoinjs-lib uses this xpub to fetch UTXOs
       // 3. PSBT is created with proper inputs/outputs
       // 4. Hardware wallet can sign using the derivation paths
-
-      const syscoinjs = require('syscoinjs-lib');
 
       // Setup
       keyringManager.setSeed(

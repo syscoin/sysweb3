@@ -57,13 +57,6 @@ jest.mock('../src/providers', () => ({
 // Mock getSysRpc to handle different UTXO networks
 jest.mock('@pollum-io/sysweb3-network', () => ({
   getSysRpc: jest.fn((network) => {
-    const isTestnet =
-      network.chainId === 5700 ||
-      network.chainId === 1 ||
-      network.url.includes('dev') ||
-      network.url.includes('test') ||
-      network.isTestnet;
-
     // For testing purposes, we don't provide networkConfig for Bitcoin networks
     // to avoid complex Bitcoin network parameter requirements that would require
     // extensive Bitcoin-specific network structure
@@ -78,8 +71,7 @@ jest.mock('@pollum-io/sysweb3-network', () => ({
         },
         networkConfig,
       },
-      chain: isTestnet ? 'test' : 'main',
-      isTestnet,
+      chain: 'main',
     });
   }),
   clearRpcCaches: jest.fn(() => {
@@ -100,7 +92,7 @@ jest.mock('../src/transactions', () => ({
   })),
 }));
 
-describe('Custom Network Synchronization', () => {
+describe('Account Management and EVM Network Switching', () => {
   let keyringManager: KeyringManager;
 
   beforeEach(() => {
@@ -108,133 +100,78 @@ describe('Custom Network Synchronization', () => {
     mockStorage.clear();
   });
 
-  it('should recreate HD signer when switching between different UTXO networks (mainnet to mainnet)', async () => {
-    // Start with Syscoin mainnet
+  it('should handle EVM network switching correctly', async () => {
+    // Start with Ethereum mainnet
     keyringManager = new KeyringManager({
       wallet: {
         ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[57], // Syscoin mainnet
+        activeNetwork: initialWalletState.networks.ethereum[1], // Ethereum mainnet
       },
-      activeChain: INetworkType.Syscoin,
+      activeChain: INetworkType.Ethereum,
     });
 
     keyringManager.setSeed(PEACE_SEED_PHRASE);
     await keyringManager.setWalletPassword(FAKE_PASSWORD);
     await keyringManager.createKeyringVault();
 
-    // Set Syscoin mainnet
-    const syscoinMainnet = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+    // Set Ethereum mainnet
+    const ethMainnet = initialWalletState.networks.ethereum[1];
+    await keyringManager.setSignerNetwork(ethMainnet, 'ethereum');
 
     const hdBefore = (keyringManager as any).hd;
-    expect(hdBefore.Signer.isTestnet).toBe(false);
-    // Note: SLIP44 will be set by the current active network, which is Syscoin (57)
+    expect(hdBefore).toBeDefined();
 
-    // Create a custom Bitcoin mainnet network
-    const bitcoinMainnet = {
-      chainId: 0, // Bitcoin mainnet
-      label: 'Bitcoin Mainnet',
-      url: 'https://blockbook.bitcoin.org',
-      currency: 'btc',
-      slip44: 0,
-      isTestnet: false,
-      default: false,
-      apiUrl: '',
-      explorer: 'https://blockbook.bitcoin.org',
-    };
-
-    // Add the custom network to wallet state
-    (keyringManager as any).wallet.networks.syscoin[0] = bitcoinMainnet;
-
-    // Switch to Bitcoin mainnet (both are mainnet, but different networks)
-    await keyringManager.setSignerNetwork(bitcoinMainnet, 'syscoin');
+    // Switch to Polygon network (different EVM network)
+    const polygonMainnet = initialWalletState.networks.ethereum[137];
+    await keyringManager.setSignerNetwork(polygonMainnet, 'ethereum');
 
     const hdAfter = (keyringManager as any).hd;
-    const syscoinSignerAfter = (keyringManager as any).syscoinSigner;
+    expect(hdAfter).toBeDefined();
 
-    // Test validates that network switching updates the signer URL
-
-    // HD signer should have been recreated for the new network
-    expect(hdAfter.Signer.isTestnet).toBe(false); // Still mainnet
-    expect(hdAfter.Signer.SLIP44).toBe(0); // Now Bitcoin (from networkConfig)
-    expect(syscoinSignerAfter.blockbookURL).toBe(bitcoinMainnet.url);
-
-    // Now test setActiveAccount with the network mismatch scenario
-    // Manually set network back to Syscoin without updating HD signer
-    (keyringManager as any).wallet.activeNetwork = syscoinMainnet;
-
-    // This should detect network mismatch and recreate HD signer for Syscoin
+    // Account switching should work across EVM networks
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-
-    const syscoinSignerFinal = (keyringManager as any).syscoinSigner;
-    // Verify that switching back to Syscoin updated the signer URL
-    expect(syscoinSignerFinal.blockbookURL).toBe(syscoinMainnet.url);
-    const hdFinal = (keyringManager as any).hd;
-    expect(hdFinal.Signer.SLIP44).toBe(57);
   });
 
-  it('should recreate HD signer when switching between different testnet networks', async () => {
-    // Start with Syscoin testnet
+  it('should handle custom EVM network switching', async () => {
+    // Start with Ethereum mainnet
     keyringManager = new KeyringManager({
       wallet: {
         ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[5700], // Syscoin testnet
+        activeNetwork: initialWalletState.networks.ethereum[1],
       },
-      activeChain: INetworkType.Syscoin,
+      activeChain: INetworkType.Ethereum,
     });
 
     keyringManager.setSeed(PEACE_SEED_PHRASE);
     await keyringManager.setWalletPassword(FAKE_PASSWORD);
     await keyringManager.createKeyringVault();
 
-    // Set Syscoin testnet
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    const originalNetwork = initialWalletState.networks.ethereum[1];
+    await keyringManager.setSignerNetwork(originalNetwork, 'ethereum');
 
-    const hdBefore = (keyringManager as any).hd;
-    expect(hdBefore.Signer.isTestnet).toBe(true);
-    // Note: SLIP44 will be set to testnet value (1) from the Bitcoin testnet network config
-
-    // Create a custom Bitcoin testnet network
-    const bitcoinTestnet = {
-      chainId: 1, // Bitcoin testnet (using 1 as example)
-      label: 'Bitcoin Testnet',
-      url: 'https://blockbook-dev.bitcoin.org',
-      currency: 'tbtc',
-      slip44: 1,
-      isTestnet: true,
+    // Create a custom EVM network
+    const customEVMNetwork = {
+      chainId: 999,
+      label: 'Custom EVM Network',
+      url: 'https://custom-evm-rpc.example.com',
+      currency: 'CUSTOM',
+      slip44: 60, // EVM networks use slip44=60
       default: false,
       apiUrl: '',
-      explorer: 'https://blockbook-test.bitcoin.org',
+      explorer: 'https://custom-evm-explorer.example.com',
     };
 
     // Add the custom network
-    (keyringManager as any).wallet.networks.syscoin[1] = bitcoinTestnet;
+    (keyringManager as any).wallet.networks.ethereum[999] = customEVMNetwork;
 
-    // Switch to Bitcoin testnet (both are testnet, but different networks)
-    await keyringManager.setSignerNetwork(bitcoinTestnet, 'syscoin');
+    // Switch to custom EVM network
+    await keyringManager.setSignerNetwork(customEVMNetwork, 'ethereum');
 
-    const hdAfter = (keyringManager as any).hd;
-
-    // HD signer should have been recreated for Bitcoin testnet
-    expect(hdAfter.Signer.isTestnet).toBe(true); // Still testnet
-    // Both Syscoin testnet and Bitcoin testnet have SLIP44 = 1, but URLs should be different
-    const syscoinSignerAfter = (keyringManager as any).syscoinSigner;
-    expect(syscoinSignerAfter.blockbookURL).toBe(bitcoinTestnet.url);
-    expect(hdAfter.Signer.SLIP44).toBe(1); // Both Bitcoin testnet and Syscoin testnet use SLIP44 = 1
-
-    // Test setActiveAccount with URL mismatch scenario
-    (keyringManager as any).wallet.activeNetwork = syscoinTestnet;
-
+    // Account switching should work with custom EVM networks
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-    const hdFinal = (keyringManager as any).hd;
-    expect(hdFinal.Signer.SLIP44).toBe(1); // Syscoin testnet also uses SLIP44 = 1
-    const syscoinSignerFinal = (keyringManager as any).syscoinSigner;
-    // Verify that switching back to Syscoin testnet updated the signer URL
-    expect(syscoinSignerFinal.blockbookURL).toBe(syscoinTestnet.url);
   });
 
-  it('should recreate HD signer when URL changes even with same chainId', async () => {
+  it('should handle UTXO account switching within same network', async () => {
     keyringManager = new KeyringManager({
       wallet: {
         ...initialWalletState,
@@ -247,63 +184,36 @@ describe('Custom Network Synchronization', () => {
     await keyringManager.setWalletPassword(FAKE_PASSWORD);
     await keyringManager.createKeyringVault();
 
-    const originalNetwork = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(originalNetwork, 'syscoin');
-
-    const syscoinSignerBefore = (keyringManager as any).syscoinSigner;
-    expect(syscoinSignerBefore.blockbookURL).toBe(originalNetwork.url);
-
-    // Create same chainId but different URL (custom RPC endpoint)
-    const customSyscoinMainnet = {
-      ...originalNetwork,
-      url: 'https://custom-syscoin-rpc.example.com',
-      label: 'Custom Syscoin Mainnet',
-    };
-
-    // Simulate network change to custom RPC
-    (keyringManager as any).wallet.activeNetwork = customSyscoinMainnet;
-
-    // setActiveAccount should detect URL mismatch and recreate signer
-    await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-
-    const syscoinSignerAfter = (keyringManager as any).syscoinSigner;
-    expect(syscoinSignerAfter.blockbookURL).toBe(customSyscoinMainnet.url);
-  });
-
-  it('should not recreate HD signer when network is truly identical', async () => {
-    keyringManager = new KeyringManager({
-      wallet: {
-        ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[57],
-      },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    const network = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(network, 'syscoin');
-
-    const hdBefore = (keyringManager as any).hd;
-    const syscoinSignerBefore = (keyringManager as any).syscoinSigner;
+    // Note: No setSignerNetwork call needed - setupWallet initializes with Syscoin
 
     // Create another account
     await keyringManager.addNewAccount();
 
-    // Switch between accounts - should NOT recreate since all parameters match
+    // Switch between UTXO accounts within the same network - this is valid
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
     await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+  });
 
-    const hdAfter = (keyringManager as any).hd;
-    const syscoinSignerAfter = (keyringManager as any).syscoinSigner;
+  it('should maintain account consistency during operations', async () => {
+    keyringManager = new KeyringManager({
+      wallet: {
+        ...initialWalletState,
+        activeNetwork: initialWalletState.networks.syscoin[57],
+      },
+      activeChain: INetworkType.Syscoin,
+    });
 
-    // Should be same instances since no network change occurred
-    expect(hdAfter.Signer.isTestnet).toBe(hdBefore.Signer.isTestnet);
-    expect(hdAfter.Signer.SLIP44).toBe(hdBefore.Signer.SLIP44);
-    expect(syscoinSignerAfter.blockbookURL).toBe(
-      syscoinSignerBefore.blockbookURL
-    );
+    keyringManager.setSeed(PEACE_SEED_PHRASE);
+    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    await keyringManager.createKeyringVault();
+
+    // Create multiple accounts
+    await keyringManager.addNewAccount();
+    await keyringManager.addNewAccount();
+
+    // Switch between accounts - should work seamlessly
+    await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
   });
 });

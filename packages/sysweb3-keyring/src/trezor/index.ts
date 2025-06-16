@@ -175,15 +175,11 @@ export class TrezorKeyring {
   }: {
     coin: string;
     hdPath?: string;
-    index?: string;
+    index?: number;
     slip44: number;
   }): Promise<AccountInfo> {
     // Use dynamic path generation instead of hardcoded switch
-    this.hdPath = getAccountDerivationPath(
-      coin,
-      slip44,
-      parseInt(index || '0')
-    );
+    this.hdPath = getAccountDerivationPath(coin, slip44, index);
 
     if (hdPath) this.hdPath = hdPath;
 

@@ -10,33 +10,33 @@ import {
 
 export const getSyscoinSigners = ({
   mnemonic,
-  isTestnet,
   rpc,
 }: ISyscoinSignerParams): { hd: SyscoinHDSigner; main: any } => {
-  const { url } = rpc.formattedNetwork;
+  const { url, slip44, currency } = rpc.formattedNetwork;
   let config: BitcoinNetwork | null = null;
   let pubTypes: IPubTypes | null = null;
   let networks: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork } | null =
     null;
+  let isTestnet = false;
 
-  // Use explicit SLIP44 from network configuration - all networks now have correct slip44 values
-  const slip44 = rpc.formattedNetwork.slip44;
+  // Determine if this is a testnet based on slip44 and currency
+  isTestnet =
+    slip44 === 1 || Boolean(currency && currency.toLowerCase().startsWith('t'));
 
   if (rpc.networkConfig) {
     const { networkConfig } = rpc;
-
     const { networks: _networkConfig, types } = networkConfig;
 
     config = isTestnet ? _networkConfig.testnet : _networkConfig.mainnet;
-
     networks = _networkConfig;
     pubTypes = types.zPubType;
   }
+
   // @ts-ignore
   const hd: SyscoinHDSigner = new syscoinjs.utils.HDSigner(
     mnemonic,
     null,
-    isTestnet,
+    isTestnet, // Use proper testnet flag
     networks,
     slip44,
     pubTypes,
@@ -52,7 +52,6 @@ export const getSyscoinSigners = ({
 };
 
 export type SyscoinHdAccount = {
-  isTestnet: boolean;
   network: BitcoinNetwork;
   networks: {
     mainnet: BitcoinNetwork;
@@ -69,7 +68,6 @@ export interface Bip84FromMnemonic {
 }
 
 export type ISyscoinSignerParams = {
-  isTestnet: boolean;
   mnemonic: string;
   rpc: {
     formattedNetwork: INetwork;
@@ -93,7 +91,6 @@ export interface SyscoinHDSigner {
     accounts: any;
     blockbookURL: string;
     changeIndex: number;
-    isTestnet: boolean;
     network: BitcoinNetwork;
     networks: { mainnet: BitcoinNetwork; testnet: BitcoinNetwork };
     password: string | null;
@@ -105,6 +102,8 @@ export interface SyscoinHDSigner {
   blockbookURL: string;
   // Already async
   createAccount: (bipNum?: number, zprv?: string) => number;
+  // New method for creating accounts at specific indexes
+  createAccountAtIndex: (index: number, bipNum?: number) => Promise<number>;
   createAddress: (
     addressIndex: number,
     isChange: boolean,
@@ -130,7 +129,6 @@ export interface SyscoinHDSigner {
   // Added new property for import method tracking
   node: {
     seed: Buffer;
-    isTestnet: boolean;
     coinType: number;
     pubTypes: IPubTypes;
     network: BitcoinNetwork;

@@ -47,7 +47,6 @@ export const initialNetworksState = {
       apiUrl: '',
       explorer: 'https://explorer-blockbook.syscoin.org',
       slip44: 57,
-      isTestnet: false,
     },
     5700: {
       chainId: 5700,
@@ -58,7 +57,6 @@ export const initialNetworksState = {
       apiUrl: '',
       explorer: '',
       slip44: 1,
-      isTestnet: true,
     },
   },
   ethereum: {
@@ -70,7 +68,6 @@ export const initialNetworksState = {
       currency: 'eth',
       explorer: 'https://etherscan.io',
       apiUrl: 'https://api.etherscan.io/api',
-      isTestnet: false,
       slip44: 60,
     },
     137: {
@@ -81,7 +78,6 @@ export const initialNetworksState = {
       url: 'https://polygon-rpc.com',
       apiUrl: 'https://api.polygonscan.com/api',
       explorer: 'https://polygonscan.com',
-      isTestnet: false,
       slip44: 60,
     },
     80001: {
@@ -92,7 +88,6 @@ export const initialNetworksState = {
       url: 'https://endpoints.omniatech.io/v1/matic/mumbai/public',
       apiUrl: 'https://api-testnet.polygonscan.com/api',
       explorer: 'https://mumbai.polygonscan.com',
-      isTestnet: true,
       slip44: 60,
     },
     57: {
@@ -103,7 +98,6 @@ export const initialNetworksState = {
       url: 'https://rpc.syscoin.org',
       apiUrl: 'https://explorer.syscoin.org/api',
       explorer: 'https://explorer.syscoin.org',
-      isTestnet: false,
       slip44: 60,
     },
     570: {
@@ -114,7 +108,6 @@ export const initialNetworksState = {
       url: 'https://rpc.rollux.com',
       apiUrl: 'https://explorer.rollux.com/api',
       explorer: 'https://explorer.rollux.com',
-      isTestnet: false,
       slip44: 60,
     },
     5700: {
@@ -125,7 +118,6 @@ export const initialNetworksState = {
       url: 'https://rpc.tanenbaum.io',
       apiUrl: 'https://explorer.tanenbaum.io/api',
       explorer: 'https://explorer.tanenbaum.io',
-      isTestnet: true,
       slip44: 60,
     },
   },
@@ -156,7 +148,6 @@ export const initialWalletState: IWalletState = {
     explorer: 'https://explorer-blockbook.syscoin.org',
     default: true,
     currency: 'sys',
-    isTestnet: false,
     slip44: 57,
   },
 };

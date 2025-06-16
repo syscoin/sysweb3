@@ -5,28 +5,7 @@ import { IWalletState, KeyringAccountType } from '../src/types';
 dotenv.config();
 export const FAKE_PASSWORD = 'Asdqwe123!';
 export const FAKE_INVALID_PASSWORD = '12345';
-export const POLYGON_MUMBAI_NETWORK = {
-  chainId: 80001,
-  currency: 'MATIC',
-  default: true,
-  label: 'Polygon Mumbai',
-  url: 'https://rpc.ankr.com/polygon_mumbai',
-  apiUrl: 'https://api-testnet.polygonscan.com/api',
-  explorer: 'https://mumbai.polygonscan.com',
-  isTestnet: true,
-  slip44: 60,
-};
-export const SYS_EVM_NETWORK = {
-  chainId: 57,
-  currency: 'sys',
-  default: true,
-  label: 'Syscoin Mainnet',
-  url: 'https://rpc.syscoin.org',
-  apiUrl: 'https://explorer.syscoin.org/api',
-  explorer: 'https://explorer.syscoin.org',
-  isTestnet: false,
-  slip44: 60,
-};
+
 export const SYS_TANENBAUM_UTXO_NETWORK = {
   chainId: 5700,
   label: 'Syscoin Testnet',
@@ -35,34 +14,8 @@ export const SYS_TANENBAUM_UTXO_NETWORK = {
   currency: 'tsys',
   apiUrl: '',
   explorer: '',
-  isTestnet: true,
   slip44: 60,
 };
-
-export const BTC_TESTNET_TOKEN = {
-  chainId: 57,
-  label: 'Bitcoin Testnet',
-  url: 'https://explorer-blockbook.syscoin.org',
-  default: true,
-  currency: 'sys',
-  apiUrl: '',
-  explorer: 'https://explorer-blockbook.syscoin.org',
-  isTestnet: true,
-  slip44: 57,
-};
-
-export const SYS_MAINNET_UTXO_NETWORK = {
-  chainId: 57,
-  label: 'Syscoin Mainnet',
-  url: 'https://explorer-blockbook.syscoin.org',
-  default: true,
-  currency: 'sys',
-  isTestnet: false,
-  slip44: 57,
-};
-
-export const SYS_TESTNET_UTXO_ADDRESS =
-  'tsys1q4v8sagt0znwaxdscrzhvu8t33n7vj8j45czpv4';
 
 export const DATA: { [type: string]: any } = {
   send: {
@@ -193,7 +146,6 @@ export const previousWalletState: IWalletState = {
     explorer: 'https://explorer-blockbook.syscoin.org',
     default: true,
     currency: 'sys',
-    isTestnet: false,
     slip44: 57,
   },
 };
@@ -214,7 +166,7 @@ export const secPreviousWalletState: IWalletState = {
   activeAccountId: 0,
   activeAccountType: KeyringAccountType.HDAccount,
   networks: initialNetworksState,
-  activeNetwork: POLYGON_MUMBAI_NETWORK,
+  activeNetwork: SYS_TANENBAUM_UTXO_NETWORK,
 };
 
 export const mockVault = {

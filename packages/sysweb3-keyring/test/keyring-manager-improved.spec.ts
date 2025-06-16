@@ -85,18 +85,21 @@ describe('Keyring Manager - Real Implementation Tests', () => {
   });
 
   it('should properly manage account indexes when switching accounts', async () => {
-    // Setup
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-
-    // Create initial account
-    const account1 = await keyringManager.createKeyringVault();
-    expect(account1.id).toBe(0);
-
-    // Set to Syscoin network to initialize HD signer before adding accounts
+    // Initialize with Syscoin testnet using new architecture
     const testnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: testnet,
+      },
+      'syscoin' as any
+    );
+
+    // Account 0 is already created
+    const account1 = keyringManager.getActiveAccount().activeAccount;
+    expect(account1.id).toBe(0);
 
     // Create second account
     const account2 = await keyringManager.addNewAccount('Account 2');
@@ -133,14 +136,17 @@ describe('Keyring Manager - Real Implementation Tests', () => {
   });
 
   it('should derive correct addresses for different accounts', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set to Syscoin network to initialize HD signer before adding accounts
+    // Initialize with Syscoin testnet using new architecture
     const testnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: testnet,
+      },
+      'syscoin' as any
+    );
 
     // Get addresses from different accounts
     const addresses: string[] = [];
@@ -159,31 +165,26 @@ describe('Keyring Manager - Real Implementation Tests', () => {
   });
 
   it('should properly handle imported accounts', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set to Syscoin network first
+    // Initialize with Syscoin testnet using new architecture
     const testnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: testnet,
+      },
+      'syscoin' as any
+    );
 
-    // Import a UTXO account with a valid mainnet zprv (BIP84)
+    // Import a UTXO account with a valid mainnet vprv (BIP84)
     // We'll use a mainnet key and let the address format adjust for testnet
     const zprv =
-      'zprvAdG4iTXWBoARxkkzNpNh8r6Qag3irQB8PzEMkAFeTRXxHpbF9z4QgEvBRmfvqWvGp42t42nvgGpNgYSJA9iefm1yYNZKEm7z6qUWCroSQnE';
-    const syscoinTestnet = {
-      chainId: 5700,
-      currency: 'Syscoin Testnet',
-      slip44: 1,
-      isTestnet: true,
-      url: 'https://explorer-blockbook-dev.syscoin.org/',
-      label: 'Syscoin Testnet',
-    };
+      'vprv9Kq1NEwFrCd4Lw2kDNicFsKvDGkA5c1G7NJd35wrD5fNdeVJKjo73h6xZuepV4hJ3a2hUjNmn4XjuLhbsuSRHHtVuAL8hsj8n6BwtMiPzf8';
+    // Note: Network configuration not needed for this test
     const importedAccount = await keyringManager.importAccount(
       zprv,
-      'Imported UTXO',
-      syscoinTestnet
+      'Imported UTXO'
     );
 
     expect(importedAccount.isImported).toBe(true);
@@ -200,15 +201,19 @@ describe('Keyring Manager - Real Implementation Tests', () => {
     expect(activeAccount.activeAccount.id).toBe(importedAccount.id);
   });
 
-  it('should maintain correct state when switching between networks', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Start with Syscoin
+  it('should maintain correct account state within UTXO keyring', async () => {
+    // Note: With multi-keyring architecture, each keyring is dedicated to one network type
+    // This test now focuses on account state management within a single UTXO keyring
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinTestnet,
+      },
+      'syscoin' as any
+    );
 
     // Create multiple accounts
     await keyringManager.addNewAccount('Syscoin Account 2');
@@ -216,34 +221,32 @@ describe('Keyring Manager - Real Implementation Tests', () => {
 
     // Switch to account 1 (index 1)
     await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
-    const activeBeforeSwitch = keyringManager.getActiveAccount();
-    expect(activeBeforeSwitch.activeAccount.id).toBe(1);
+    const activeAccount1 = keyringManager.getActiveAccount();
+    expect(activeAccount1.activeAccount.id).toBe(1);
 
-    // Switch to Ethereum
-    const ethMainnet = initialWalletState.networks.ethereum[1];
-    await keyringManager.setSignerNetwork(ethMainnet, 'ethereum');
+    // Switch to account 2
+    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
+    const activeAccount2 = keyringManager.getActiveAccount();
+    expect(activeAccount2.activeAccount.id).toBe(2);
 
-    // Active account should remain the same
-    const activeOnEth = keyringManager.getActiveAccount();
-    expect(activeOnEth.activeAccount.id).toBe(1);
-
-    // Switch back to Syscoin
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
-
-    // Should restore the correct account index
-    const activeAfterSwitch = keyringManager.getActiveAccount();
-    expect(activeAfterSwitch.activeAccount.id).toBe(1);
+    // Switch back to account 1
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+    const activeAccountBack = keyringManager.getActiveAccount();
+    expect(activeAccountBack.activeAccount.id).toBe(1);
   });
 
   it('should handle edge cases in account switching', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set to Syscoin network first to initialize HD signer
+    // Initialize with Syscoin testnet using new architecture
     const testnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: testnet,
+      },
+      'syscoin' as any
+    );
 
     // Create accounts non-sequentially
     await keyringManager.addNewAccount('Account 2');
@@ -266,14 +269,17 @@ describe('Keyring Manager - Real Implementation Tests', () => {
   });
 
   it('should properly update receiving addresses', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set to Syscoin network first to initialize HD signer
+    // Initialize with Syscoin testnet using new architecture
     const testnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: testnet,
+      },
+      'syscoin' as any
+    );
 
     // Get initial address
     const address1 = await keyringManager.updateReceivingAddress();

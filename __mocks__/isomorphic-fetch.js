@@ -141,15 +141,13 @@ nodeFetch.mockImplementation((url, options) => {
         json: () => Promise.resolve(blockbookResponses['/api/v2/xpub']),
       });
     } else if (url.includes('/api/v2')) {
-      // Determine if it's mainnet or testnet based on URL
-      const isTestnet = url.includes('test') || url.includes('dev.elint');
       const response = {
         blockbook: {
-          coin: isTestnet ? 'Syscoin Testnet' : 'Syscoin',
+          coin: 'Syscoin',
           about: 'Blockbook - blockchain indexer for Syscoin',
         },
         backend: {
-          chain: isTestnet ? 'test' : 'main',
+          chain: 'main',
           blocks: 1000000,
           headers: 1000000,
         },

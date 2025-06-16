@@ -1,7 +1,3 @@
-import { ethers } from 'ethers';
-import mapValues from 'lodash/mapValues';
-import omit from 'lodash/omit';
-
 import { initialWalletState, KeyringAccountType, KeyringManager } from '../src';
 import {
   FAKE_PASSWORD,
@@ -10,6 +6,10 @@ import {
   SECOND_FAKE_SEED_PHRASE,
   FAKE_ADDRESS,
 } from './constants';
+import { INetworkType } from '@pollum-io/sysweb3-network';
+
+const mapValues = require('lodash/mapValues');
+const omit = require('lodash/omit');
 
 // Use real signers - only mock network-dependent operations to allow deterministic crypto operations
 
@@ -107,12 +107,10 @@ jest.mock('@pollum-io/sysweb3-network', () => ({
         chainId: 5700,
         url: 'https://blockbook-dev.syscoin.org/',
         currency: 'tsys',
-        isTestnet: true,
       },
       networkConfig: null,
     },
     chain: 'test',
-    isTestnet: true,
   }),
   clearRpcCaches: jest.fn(() => {
     console.log('[RPC] Cleared all RPC caches');
@@ -247,10 +245,33 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
   let mainAccount: any;
 
   const setupWallet = async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    mainAccount = await keyringManager.createKeyringVault();
+    // Default UTXO setup for backward compatibility
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
+    mainAccount = keyringManager.getActiveAccount().activeAccount;
+  };
+
+  const setupEVMWallet = async () => {
+    // EVM setup with Ethereum mainnet
+    const ethereumMainnet = initialWalletState.networks.ethereum[1];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: ethereumMainnet,
+      },
+      INetworkType.Ethereum
+    );
+    mainAccount = keyringManager.getActiveAccount().activeAccount;
   };
 
   beforeEach(async () => {
@@ -277,10 +298,16 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
 
   //* setWalletPassword / lock / unlock
   it('should set password, lock and unlock with the proper password', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
     keyringManager.lockWallet();
     const wrong = await keyringManager.unlock('wrongp@ss123');
     const right = await keyringManager.unlock(FAKE_PASSWORD);
@@ -290,11 +317,18 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
 
   //* createKeyringVault
   it('should create the keyring vault', async () => {
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    const account = await keyringManager.createKeyringVault();
-    expect(account.address).toBeDefined();
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
+    const { activeAccount } = keyringManager.getActiveAccount();
+    expect(activeAccount.address).toBeDefined();
   });
 
   it('should overwrite current seed', async () => {
@@ -333,17 +367,22 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
   });
 
   // * importAccount UTXO (zprv) and Web3
-  it('should import a UTXO account by zprv and handle network switches', async () => {
-    // NOTE: Imported zprv/vprv accounts are network-specific.
-    // A mainnet zprv cannot be used on testnet, and vice versa.
-    // This test verifies that imported accounts maintain their addresses
-    // and can switch between different networks of the same type (e.g., Bitcoin mainnet to Syscoin mainnet)
+  it('should import a UTXO account by zprv and handle account switching', async () => {
+    // NOTE: This test covers UTXO account management within a single network.
+    // setActiveAccount should work for switching between HD and imported accounts.
+    // Network switching between different UTXO networks requires separate keyring instances.
 
     // Create a fresh wallet to avoid conflicts with other tests
-    keyringManager = new KeyringManager();
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
 
     // Store the initial HD account info
     const { activeAccount: initialHDAccount } =
@@ -351,14 +390,12 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     expect(initialHDAccount.id).toBe(0);
     expect(initialHDAccount.isImported).toBe(false);
 
-    // Start with Syscoin mainnet
-    const syscoinMainnet = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+    // Note: Using default network from keyring setup
 
     // Use a valid mainnet zprv (BIP84) that's NOT from our current wallet
     // This is from BIP84 test vectors - a known valid zprv
     const mainnetZprv =
-      'zprvAdG4iTXWBoARxkkzNpNh8r6Qag3irQB8PzEMkAFeTRXxHpbF9z4QgEvBRmfvqWvGp42t42nvgGpNgYSJA9iefm1yYNZKEm7z6qUWCroSQnE';
+      'zprvAdGDwa3WySqQoVwVSbYRMKxDhSXpK2wW6wDjekCMdm7TaQ3igf52xRRjYghTvnFurtMm6CMgQivEDJs5ixGSnTtv8usFmkAoTe6XCF5hnpR';
 
     // Import the UTXO account
     const importedUTXOAccount = await keyringManager.importAccount(mainnetZprv);
@@ -389,107 +426,65 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     expect(activeAccountType).toBe(KeyringAccountType.Imported);
     expect(activeAccount.address).toBe(importedMainnetAddress);
 
-    // Now switch to Syscoin testnet
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    // Test UTXO account switching (this is valid within the same network)
 
-    // Verify the network switch
-    const currentNetwork = keyringManager.getNetwork();
-    expect(currentNetwork.chainId).toBe(5700);
-    expect(currentNetwork.isTestnet).toBe(true);
-
-    // Check that the address format updated for testnet
-    const { activeAccount: testnetAccount } = keyringManager.getActiveAccount();
-    console.log('Testnet account address:', testnetAccount.address);
-    console.log('Account ID:', testnetAccount.id);
-    console.log('Is imported:', testnetAccount.isImported);
-    // The address should start with 'tsys1' for testnet
-    expect(testnetAccount.address.startsWith('tsys1')).toBe(true);
-    expect(testnetAccount.id).toBe(utxoAccountId); // Same account ID
-    expect(testnetAccount.isImported).toBe(true);
-
-    // Switch back to mainnet
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
-
-    // Verify address is back to mainnet format
-    const { activeAccount: mainnetAccountAgain } =
-      keyringManager.getActiveAccount();
-    expect(mainnetAccountAgain.address).toBe(importedMainnetAddress);
-    expect(mainnetAccountAgain.address.startsWith('sys1')).toBe(true);
-
-    // Now switch to Ethereum network
-    const ethNetwork = initialWalletState.networks.ethereum[1];
-    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
-
-    // When switching to Ethereum from UTXO with imported account,
-    // the system tries to maintain the active account but regenerates accounts for the new chain
-    const ethWallet = keyringManager.getActiveAccount();
-    // Since imported UTXO accounts don't exist on Ethereum, it should still show the imported account
-    // but the actual account data will be empty/invalid for Ethereum
-    expect(ethWallet.activeAccountType).toBe(KeyringAccountType.Imported);
-    expect(ethWallet.activeAccount.id).toBe(utxoAccountId);
-
-    // Import an Ethereum account - use a different key to avoid conflicts
-    const ethPrivateKey =
-      '0x4646464646464646464646464646464646464646464646464646464646464646';
-    const expectedEthAddress = '0x9d8A62f656a8d1615C1294fd71e9CFb3E4855A4F';
-
-    const importedEthAccount = await keyringManager.importAccount(
-      ethPrivateKey
+    // Check if the original HD account (account 0) still exists
+    const originalHDAccount = keyringManager.getAccountById(
+      0,
+      KeyringAccountType.HDAccount
     );
+    console.log('Original HD account (ID 0):', originalHDAccount);
 
-    // Verify Ethereum account import
-    expect(importedEthAccount).toBeDefined();
-    expect(importedEthAccount.address.toLowerCase()).toBe(
-      expectedEthAddress.toLowerCase()
-    );
-    expect(importedEthAccount.isImported).toBe(true);
-    const ethAccountId = importedEthAccount.id;
+    // If it exists, test switching back to it
+    if (originalHDAccount) {
+      await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
 
-    // Set Ethereum imported account as active
-    await keyringManager.setActiveAccount(
-      ethAccountId,
-      KeyringAccountType.Imported
-    );
+      const { activeAccount: hdAccount, activeAccountType: hdAccountType } =
+        keyringManager.getActiveAccount();
+      expect(hdAccount.id).toBe(0);
+      expect(hdAccountType).toBe(KeyringAccountType.HDAccount);
+      expect(hdAccount.isImported).toBe(false);
+    } else {
+      console.log('Original HD account (ID 0) does not exist after import');
+      // This would indicate a bug in the import process
+      expect(originalHDAccount).toBeDefined();
+    }
 
-    // Verify it's active
-    const { activeAccount: activeEthAccount } =
-      keyringManager.getActiveAccount();
-    expect(activeEthAccount.id).toBe(ethAccountId);
-    expect(activeEthAccount.address.toLowerCase()).toBe(
-      expectedEthAddress.toLowerCase()
-    );
-
-    // Switch back to Syscoin network
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
-
-    // The system maintains the active account type even when switching chains
-    // Since the ETH imported account isn't valid for UTXO, it stays on imported but the account will be empty
-    const backToSyscoin = keyringManager.getActiveAccount();
-    expect(backToSyscoin.activeAccountType).toBe(KeyringAccountType.Imported);
-    expect(backToSyscoin.activeAccount.id).toBe(ethAccountId);
-
-    // Switch back to Syscoin mainnet and set our UTXO imported account as active
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+    // Test switching back to imported account
     await keyringManager.setActiveAccount(
       utxoAccountId,
       KeyringAccountType.Imported
     );
-    const { activeAccount: finalUTXOAccount } =
-      keyringManager.getActiveAccount();
-    expect(finalUTXOAccount.address).toBe(importedMainnetAddress);
 
-    // Switch back to Ethereum and verify ETH imported account is still there
-    await keyringManager.setSignerNetwork(ethNetwork, 'ethereum');
+    const { activeAccount: importedAgain } = keyringManager.getActiveAccount();
+    expect(importedAgain.id).toBe(utxoAccountId);
+    expect(importedAgain.address).toBe(importedMainnetAddress);
+    expect(importedAgain.isImported).toBe(true);
+
+    // Create a second HD account to test HD account switching within UTXO
+    const secondHDAccount = await keyringManager.addNewAccount();
+    expect(secondHDAccount).toBeDefined();
+    expect(secondHDAccount!.id).toBe(1);
+    console.log('Second HD account isImported:', secondHDAccount!.isImported);
+    // Note: The account might inherit isImported property from current active account context
+    // We'll verify it works correctly regardless of this property
+
+    // Test switching to the second HD account
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+
+    const { activeAccount: secondHD } = keyringManager.getActiveAccount();
+    expect(secondHD.id).toBe(1);
+    expect(secondHD.isImported).toBe(false);
+
+    // Verify we can switch back to imported account again
     await keyringManager.setActiveAccount(
-      ethAccountId,
+      utxoAccountId,
       KeyringAccountType.Imported
     );
-    const { activeAccount: finalEthAccount } =
-      keyringManager.getActiveAccount();
-    expect(finalEthAccount.address.toLowerCase()).toBe(
-      expectedEthAddress.toLowerCase()
-    );
+
+    const { activeAccount: finalImported } = keyringManager.getActiveAccount();
+    expect(finalImported.address).toBe(importedMainnetAddress);
+    expect(finalImported.isImported).toBe(true);
   });
 
   // * addNewAccount
@@ -498,6 +493,7 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
 
     const account2 = await keyringManager.addNewAccount(undefined);
     expect(account2?.label).toBe('Account 2');
+    expect(account2?.id).toBe(1);
 
     const wallet = keyringManager.getActiveAccount();
     expect(wallet.activeAccount.id).toBe(1);
@@ -646,12 +642,12 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
 
   //* setSignerNetwork
   it('should set the network', async () => {
-    await setupWallet();
+    await setupEVMWallet(); // Use EVM wallet for EVM network switching
 
     const testnet = initialWalletState.networks.ethereum[80001];
     console.log('Checking testnet network', testnet);
 
-    await keyringManager.setSignerNetwork(testnet, 'ethereum');
+    await keyringManager.setSignerNetwork(testnet, INetworkType.Ethereum);
 
     const network = keyringManager.getNetwork();
 
@@ -659,7 +655,7 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
   });
 
   it('Should validate txSend', async () => {
-    await setupWallet();
+    await setupEVMWallet(); // Use EVM wallet for Ethereum transactions
 
     const tx = TX;
     const { maxFeePerGas, maxPriorityFeePerGas } =
@@ -837,13 +833,11 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     // Ensure we have the HD signer initialized
     await keyringManager.unlock(FAKE_PASSWORD);
 
-    // Set the network to initialize HD signer for Syscoin
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
-
+    // Note: setupWallet already initializes with Syscoin network, no need to switch
     const newAccount = await keyringManager.addNewAccount();
     expect(newAccount).toBeTruthy();
     expect(newAccount?.address).toBeTruthy();
+    expect(newAccount?.isImported).toBe(false); // HD accounts should not be imported
   });
 
   it('should create an account with name', async () => {
@@ -852,23 +846,18 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     // Ensure we have the HD signer initialized
     await keyringManager.unlock(FAKE_PASSWORD);
 
-    // Set the network to initialize HD signer for Syscoin
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
-
+    // Note: setupWallet already initializes with Syscoin network, no need to switch
     const newAccount = await keyringManager.addNewAccount('Teddy');
     expect(newAccount).toBeTruthy();
     expect(newAccount?.label).toBe('Teddy');
+    expect(newAccount?.isImported).toBe(false); // HD accounts should not be imported
   });
 
   //* forgetMainWallet
   it('should forget wallet / reset to initial state', async () => {
     await setupWallet();
 
-    // Switch to Syscoin network first since getUTXOState only works for Syscoin
-    const syscoinMainnet = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
-
+    // Note: setupWallet already initializes with Syscoin network, no need to switch
     await keyringManager.forgetMainWallet(FAKE_PASSWORD);
 
     const wallet = keyringManager.getUTXOState();
@@ -916,9 +905,16 @@ describe('Syscoin network testing', () => {
   });
 
   const setupWallet = async () => {
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
   };
 
   jest.setTimeout(500000); // 200s
@@ -938,11 +934,16 @@ describe('Syscoin network testing', () => {
 
   //* setWalletPassword / lock / unlock
   it('should set password, lock and unlock with the proper password', async () => {
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-
-    // Create vault first
-    await keyringManager.createKeyringVault();
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
 
     keyringManager.lockWallet();
     const wrong = await keyringManager.unlock('wrongp@ss123');
@@ -953,41 +954,71 @@ describe('Syscoin network testing', () => {
 
   //* createKeyringVault
   it('should create the keyring vault', async () => {
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+    const syscoinMainnet = initialWalletState.networks.syscoin[57];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
 
-    const account = await keyringManager.createKeyringVault();
-
-    expect(account).toBeDefined();
+    const { activeAccount } = keyringManager.getActiveAccount();
+    expect(activeAccount).toBeDefined();
   });
 
-  //* setSignerNetwork - pass to ethereum
-  it('should set the network', async () => {
-    await setupWallet();
+  //* setSignerNetwork - EVM network switching (valid use case)
+  it('should switch between EVM networks', async () => {
+    // Start with EVM setup instead of UTXO
+    const ethMainnet = initialWalletState.networks.ethereum[1];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: ethMainnet,
+      },
+      INetworkType.Ethereum
+    );
 
-    const testnet = initialWalletState.networks.ethereum[80001];
-    console.log('Checking testnet network', testnet);
+    let network = keyringManager.getNetwork();
+    expect(network).toEqual(ethMainnet);
 
-    await keyringManager.setSignerNetwork(testnet, 'ethereum');
+    // Then switch to Polygon testnet (another EVM network)
+    const polygonTestnet = initialWalletState.networks.ethereum[80001];
+    await keyringManager.setSignerNetwork(
+      polygonTestnet,
+      INetworkType.Ethereum
+    );
 
-    const network = keyringManager.getNetwork();
-
-    expect(network).toEqual(testnet);
+    network = keyringManager.getNetwork();
+    expect(network).toEqual(polygonTestnet);
   });
 
-  //* setSignerNetwork - back to syscoin testnet
-  it('should set the network', async () => {
+  //* setActiveAccount - UTXO account switching (correct approach for UTXO)
+  it('should switch between UTXO accounts within the same network', async () => {
     await setupWallet();
 
-    const testnet = initialWalletState.networks.syscoin[5700]; //Syscoin testnet
-    console.log('Checking testnet network', testnet);
+    // Create a second HD account
+    const secondAccount = await keyringManager.addNewAccount('Account 2');
+    expect(secondAccount).toBeDefined();
+    expect(secondAccount!.id).toBe(1);
+    expect(secondAccount!.isImported).toBe(false);
 
-    await keyringManager.setSignerNetwork(testnet, 'syscoin');
+    // Switch to the second account
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
 
-    const network = keyringManager.getNetwork();
-    console.log('Check the network', network);
+    const { activeAccount } = keyringManager.getActiveAccount();
+    expect(activeAccount.id).toBe(1);
+    expect(activeAccount.label).toBe('Account 2');
 
-    expect(network).toEqual(testnet);
+    // Switch back to first account
+    await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
+
+    const { activeAccount: firstAccount } = keyringManager.getActiveAccount();
+    expect(firstAccount.id).toBe(0);
   });
 });
 
@@ -1005,14 +1036,16 @@ describe('Account derivation with another seed in keyring', () => {
   jest.setTimeout(500000); // 500s
 
   it('should derivate a new account with specific address', async () => {
-    keyringManager.setSeed(SECOND_FAKE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-
-    // Create the keyring vault first
-    await keyringManager.createKeyringVault();
-
     const mainnet = initialWalletState.networks.ethereum[1];
-    await keyringManager.setSignerNetwork(mainnet, 'ethereum');
+    keyringManager = await KeyringManager.createInitialized(
+      SECOND_FAKE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: mainnet,
+      },
+      INetworkType.Ethereum
+    );
 
     // Now that we fixed the state contamination, this should use the correct SECOND_FAKE_SEED_PHRASE
     // SECOND_FAKE_SEED_PHRASE: 'gauge gauge gauge gauge gauge gauge gauge gauge gauge gauge gauge gauge'
@@ -1049,19 +1082,18 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
 
   jest.setTimeout(500000);
 
-  it('should reproduce the EVM address filter bug by forcing HD accounts to hit filter logic', async () => {
+  it('should demonstrate multi-keyring architecture prevents cross-chain switching', async () => {
     // Setup: Start with EVM network and create HD account
     const ethereumMainnet = initialWalletState.networks.ethereum[1];
-    keyringManager = new KeyringManager({
-      wallet: {
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
         ...initialWalletState,
         activeNetwork: ethereumMainnet,
       },
-      activeChain: 'ethereum' as any,
-    });
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
+      INetworkType.Ethereum
+    );
 
     // Create additional HD account on EVM network (this will have an EVM address like 0x...)
     const newAccount = await keyringManager.addNewAccount('Test Account');
@@ -1070,8 +1102,6 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
     expect(newAccount.address.startsWith('0x')).toBe(true);
     expect(newAccount.id).toBeDefined();
     expect(newAccount.xpub).toBeDefined(); // HD accounts have proper xpub
-    console.log('🔍 SETUP: HD account address (EVM):', newAccount.address);
-    console.log('🔍 SETUP: Account has xpub:', !!newAccount.xpub);
 
     // Switch to the new account to make it active
     await keyringManager.setActiveAccount(
@@ -1089,156 +1119,135 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
       activeAccount.address
     );
 
-    // Now switch to UTXO network (Syscoin testnet)
-    // The fix ensures that accounts are regenerated with the correct format when switching chain types
+    // Now attempt to switch to UTXO network (Syscoin testnet)
+    // This should be blocked by the multi-keyring architecture
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    const result = await keyringManager.setSignerNetwork(
+
+    // Attempt the switch and expect it to fail (returns {success: false} instead of throwing)
+    const switchResult = await keyringManager.setSignerNetwork(
       syscoinTestnet,
-      'syscoin'
+      INetworkType.Syscoin
     );
-
-    expect(result.success).toBe(true);
-
-    // FIXED: With simplified approach, account should now have proper UTXO address
-    const { activeAccount: updatedActiveAccount } =
-      keyringManager.getActiveAccount();
-
-    // This demonstrates the fix - the address should have changed to UTXO format
-    console.log(
-      '✅ FIXED: Account address after UTXO switch:',
-      updatedActiveAccount.address
-    );
-    console.log(
-      '✅ FIXED: Address is now UTXO format:',
-      !updatedActiveAccount.address.startsWith('0x')
-    );
-
-    // The fix ensures the address gets regenerated for UTXO networks
-    expect(updatedActiveAccount.address).not.toBe(newAccount.address); // Different address than before
-    expect(updatedActiveAccount.address.startsWith('0x')).toBe(false); // Now UTXO format
-    expect(updatedActiveAccount.xpub).toBeDefined(); // Should have UTXO xpub
+    expect(switchResult.success).toBe(false);
 
     console.log(
-      '🎉 SUCCESS: Simplified approach successfully regenerates accounts for network switches!'
+      '🎉 SUCCESS: Multi-keyring architecture correctly prevents cross-chain switching!'
     );
   });
 
-  it('should create 4 UTXO accounts and regenerate all with correct EVM addresses when switching to EVM network', async () => {
+  it('should create 4 UTXO accounts correctly and verify multi-keyring constraints', async () => {
     // Setup: Start with UTXO network (Syscoin testnet)
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    keyringManager = new KeyringManager({
-      wallet: {
+    const utxoKeyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
         ...initialWalletState,
         activeNetwork: syscoinTestnet,
       },
-      activeChain: 'syscoin' as any,
-    });
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      INetworkType.Syscoin
+    );
 
-    // Create initial account (account 0)
-    const initialAccount = await keyringManager.createKeyringVault();
+    // Get initial account (account 0)
+    const initialAccount = utxoKeyringManager.getActiveAccount().activeAccount;
     expect(initialAccount.address.startsWith('tsys1')).toBe(true); // Testnet UTXO format
-    console.log('🔍 SETUP: Initial account (ID 0):', initialAccount.address);
 
     // Create 3 additional accounts for a total of 4 accounts
-    const account1 = await keyringManager.addNewAccount('Account 1');
-    const account2 = await keyringManager.addNewAccount('Account 2');
-    const account3 = await keyringManager.addNewAccount('Account 3');
+    const account1 = await utxoKeyringManager.addNewAccount('Account 1');
+    const account2 = await utxoKeyringManager.addNewAccount('Account 2');
+    const account3 = await utxoKeyringManager.addNewAccount('Account 3');
 
     // Verify all accounts have UTXO addresses
     expect(account1.address.startsWith('tsys1')).toBe(true);
     expect(account2.address.startsWith('tsys1')).toBe(true);
     expect(account3.address.startsWith('tsys1')).toBe(true);
 
-    console.log('🔍 SETUP: Account 1 (ID 1):', account1.address);
-    console.log('🔍 SETUP: Account 2 (ID 2):', account2.address);
-    console.log('🔍 SETUP: Account 3 (ID 3):', account3.address);
-
-    // Store UTXO addresses for comparison
-    const utxoAddresses = {
-      0: initialAccount.address,
-      1: account1.address,
-      2: account2.address,
-      3: account3.address,
-    };
-
     // Switch to account 2 to make it active
-    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
+    await utxoKeyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
 
     // Verify account 2 is active
     const { activeAccount: utxoActiveAccount } =
-      keyringManager.getActiveAccount();
+      utxoKeyringManager.getActiveAccount();
     expect(utxoActiveAccount.id).toBe(2);
     expect(utxoActiveAccount.address).toBe(account2.address);
     console.log(
-      '🔍 SETUP: Active account before switch (ID 2):',
+      '🔍 SETUP: Active account before constraint test (ID 2):',
       utxoActiveAccount.address
     );
 
-    // Now switch to EVM network (Ethereum mainnet)
+    // Test multi-keyring constraint: Attempting to switch to EVM network should fail
     const ethereumMainnet = initialWalletState.networks.ethereum[1];
-    const result = await keyringManager.setSignerNetwork(
-      ethereumMainnet,
-      'ethereum'
-    );
-    expect(result.success).toBe(true);
 
-    // Verify the network switch
-    const currentNetwork = keyringManager.getNetwork();
-    expect(currentNetwork.chainId).toBe(1); // Ethereum mainnet
+    console.log('🧪 TESTING: Multi-keyring constraint enforcement...');
 
-    // Get all accounts after network switch
-    //const evmWallet = keyringManager.getActiveAccount();
-    const evmAccounts =
-      keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
-
-    // Verify we still have 4 accounts
-    expect(Object.keys(evmAccounts)).toHaveLength(4);
-    console.log('✅ SUCCESS: Still have 4 accounts after EVM switch');
-
-    // Verify all accounts now have EVM addresses (0x format)
-    for (let i = 0; i < 4; i++) {
-      const account = evmAccounts[i];
-      console.log(`✅ SUCCESS: Account ${i} EVM address:`, account.address);
-      expect(account).toBeDefined();
-      expect(account.address.startsWith('0x')).toBe(true);
-      expect(account.address).not.toBe(utxoAddresses[i]); // Different from UTXO address
-      expect(account.xpub).toBeDefined(); // Should have EVM xpub
-    }
-
-    // Verify the active account is still account 2 but with EVM address
-    const { activeAccount: evmActiveAccount } =
-      keyringManager.getActiveAccount();
-    expect(evmActiveAccount.id).toBe(2); // Same ID
-    expect(evmActiveAccount.address.startsWith('0x')).toBe(true); // Now EVM format
-    expect(evmActiveAccount.address).not.toBe(account2.address); // Different from UTXO address
-    console.log(
-      '✅ SUCCESS: Active account after switch (ID 2):',
-      evmActiveAccount.address
+    // This should throw an error since we're trying to switch from UTXO (slip44=1) to EVM (slip44=60)
+    await expect(
+      utxoKeyringManager.setSignerNetwork(
+        ethereumMainnet,
+        INetworkType.Ethereum
+      )
+    ).rejects.toThrow(
+      'Cannot switch between different UTXO networks within the same keyring'
     );
 
-    // Verify the active account has the correct derived EVM private key
-    // by checking we can get its private key and it matches the address
-    const privateKey = keyringManager.getPrivateKeyByAccountId(
-      2,
-      KeyringAccountType.HDAccount,
-      FAKE_PASSWORD
-    );
-    expect(privateKey).toBeDefined();
-    expect(privateKey.length).toBeGreaterThan(50);
-    console.log('✅ SUCCESS: Active account private key derived successfully');
+    console.log('✅ SUCCESS: Multi-keyring constraint properly enforced!');
 
-    // Display the address for the private key
-    const wallet = new ethers.Wallet(privateKey);
-    // m/44'/60'/0'/0/2
-    expect(wallet.address).toBe('0xb6716976A3ebe8D39aCEB04372f22Ff8e6802D7A');
-    console.log(
-      '✅ SUCCESS: Signature recovery matches active account address'
-    );
+    // Test that UTXO account switching still works correctly
+    await utxoKeyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
+    const { activeAccount: firstAccount } =
+      utxoKeyringManager.getActiveAccount();
+    expect(firstAccount.id).toBe(0);
+    expect(firstAccount.address).toBe(initialAccount.address);
 
     console.log(
-      '🎉 SUCCESS: All 4 UTXO accounts successfully regenerated with correct EVM addresses and active account has working derived key!'
+      '✅ SUCCESS: UTXO account switching works correctly within same keyring'
+    );
+
+    // Now create a separate EVM keyring to demonstrate proper multi-keyring architecture
+    const evmKeyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE, // Same seed
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: ethereumMainnet,
+      },
+      INetworkType.Ethereum
+    );
+
+    // Get the initial EVM account
+
+    const evmAccount0 = evmKeyringManager.getActiveAccount().activeAccount;
+
+    const evmAccount1 = await evmKeyringManager.addNewAccount('EVM Account 1');
+    const evmAccount2 = await evmKeyringManager.addNewAccount('EVM Account 2');
+    const evmAccount3 = await evmKeyringManager.addNewAccount('EVM Account 3');
+
+    // Verify all EVM accounts have proper EVM addresses
+    expect(evmAccount0.address.startsWith('0x')).toBe(true);
+    expect(evmAccount1.address.startsWith('0x')).toBe(true);
+    expect(evmAccount2.address.startsWith('0x')).toBe(true);
+    expect(evmAccount3.address.startsWith('0x')).toBe(true);
+
+    // Verify EVM network switching works within same slip44
+    const polygonTestnet = initialWalletState.networks.ethereum[80001];
+    const evmSwitchResult = await evmKeyringManager.setSignerNetwork(
+      polygonTestnet,
+      INetworkType.Ethereum
+    );
+    expect(evmSwitchResult.success).toBe(true);
+
+    console.log(
+      '✅ SUCCESS: EVM network switching works correctly within same slip44'
+    );
+
+    // Verify the derived addresses match expected values for the same seed
+    // m/44'/60'/0'/0/2 should derive to the same address regardless of keyring
+    const expectedAccount2Address =
+      '0xb6716976a3ebe8d39aceb04372f22ff8e6802d7a';
+    expect(evmAccount2.address).toBe(expectedAccount2Address);
+
+    console.log(
+      '🎉 SUCCESS: Multi-keyring architecture properly enforces constraints while allowing valid operations!'
     );
   });
 });

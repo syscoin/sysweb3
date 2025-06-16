@@ -212,7 +212,6 @@ describe('Bug Fixes Validation', () => {
 
       const hd = (keyringManager as any).hd;
       expect(hd).toBeDefined();
-      // HD signer should be created with isTestnet: false for mainnet
       expect(hd.Signer.networks.mainnet).toBeDefined();
     });
 
@@ -249,7 +248,6 @@ describe('Bug Fixes Validation', () => {
 
       const hd = (keyringManager as any).hd;
       expect(hd).toBeDefined();
-      // HD signer should be created with isTestnet: true for testnet
       expect(hd.Signer.networks.testnet).toBeDefined();
     });
   });
@@ -362,11 +360,20 @@ describe('Bug Fixes Validation', () => {
     });
 
     it('should accept matching network and chain types', async () => {
-      keyringManager = new KeyringManager();
-      keyringManager.setSeed(
-        'test test test test test test test test test test test junk'
-      );
-      await keyringManager.setWalletPassword(FAKE_PASSWORD);
+      const seed =
+        'test test test test test test test test test test test junk';
+
+      // Test 1: Syscoin network with syscoin chain type
+      const syscoinKeyring = new KeyringManager({
+        wallet: {
+          ...initialWalletState,
+          activeNetwork: initialWalletState.networks.syscoin[5700],
+        },
+        activeChain: INetworkType.Syscoin,
+      });
+
+      syscoinKeyring.setSeed(seed);
+      await syscoinKeyring.setWalletPassword(FAKE_PASSWORD);
 
       // Set up session variables to match what real unlock would create
       const crypto = require('crypto');
@@ -376,23 +383,39 @@ describe('Bug Fixes Validation', () => {
         .update(FAKE_PASSWORD)
         .digest('hex');
 
-      (keyringManager as any).sessionSeed = 'encrypted-seed';
-      (keyringManager as any).sessionPassword = sessionPassword;
-      (keyringManager as any).currentSessionSalt = sessionSalt;
+      (syscoinKeyring as any).sessionSeed = 'encrypted-seed';
+      (syscoinKeyring as any).sessionPassword = sessionPassword;
+      (syscoinKeyring as any).currentSessionSalt = sessionSalt;
 
-      await keyringManager.createKeyringVault();
+      await syscoinKeyring.createKeyringVault();
 
-      // Syscoin network with syscoin chain type
       const syscoinNetwork = initialWalletState.networks.syscoin[5700];
-      const result1 = await keyringManager.setSignerNetwork(
+      const result1 = await syscoinKeyring.setSignerNetwork(
         syscoinNetwork,
         'syscoin'
       );
       expect(result1.success).toBe(true);
 
-      // Ethereum network with ethereum chain type
+      // Test 2: Ethereum network with ethereum chain type (separate keyring instance)
+      const ethereumKeyring = new KeyringManager({
+        wallet: {
+          ...initialWalletState,
+          activeNetwork: initialWalletState.networks.ethereum[1],
+        },
+        activeChain: INetworkType.Ethereum,
+      });
+
+      ethereumKeyring.setSeed(seed);
+      await ethereumKeyring.setWalletPassword(FAKE_PASSWORD);
+
+      (ethereumKeyring as any).sessionSeed = 'encrypted-seed';
+      (ethereumKeyring as any).sessionPassword = sessionPassword;
+      (ethereumKeyring as any).currentSessionSalt = sessionSalt;
+
+      await ethereumKeyring.createKeyringVault();
+
       const ethereumNetwork = initialWalletState.networks.ethereum[1];
-      const result2 = await keyringManager.setSignerNetwork(
+      const result2 = await ethereumKeyring.setSignerNetwork(
         ethereumNetwork,
         'ethereum'
       );

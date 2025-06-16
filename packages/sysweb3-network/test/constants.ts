@@ -42,7 +42,6 @@ export const VALID_ETH_RPC_RESPONSE = {
   valid: true,
   chainId: 1,
   details: CHAINS_DETAILS,
-  isTestnet: false,
 };
 
 export const FORMATTED_BEDROCK_TESTNET = {

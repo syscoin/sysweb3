@@ -112,14 +112,16 @@ describe('validateZprv Improvements', () => {
         chainId: 0,
         currency: 'Bitcoin',
         slip44: 0,
-        isTestnet: false,
+
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
       };
       const result = keyringManager.validateZprv(mainnetZprv, bitcoinMainnet);
 
       expect(result.isValid).toBe(true);
-      expect(result.message).toBe('The zprv is valid.');
+      expect(result.message).toBe(
+        'The extended private key is valid for this network.'
+      );
       expect(result.node).toBeDefined();
       expect(result.network).toBeDefined();
     });
@@ -132,7 +134,7 @@ describe('validateZprv Improvements', () => {
         chainId: 1,
         currency: 'Bitcoin',
         slip44: 1,
-        isTestnet: true,
+
         url: 'https://blockbook-testnet.bitcoin.org/',
         label: 'Bitcoin Testnet',
       };
@@ -153,7 +155,7 @@ describe('validateZprv Improvements', () => {
         chainId: 0,
         currency: 'Bitcoin',
         slip44: 0,
-        isTestnet: false,
+
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
       };
@@ -175,7 +177,7 @@ describe('validateZprv Improvements', () => {
         chainId: 2,
         currency: 'ltc',
         slip44: 2,
-        isTestnet: false,
+
         url: 'https://blockbook.ltc.org/',
         label: 'Litecoin Mainnet',
       };
@@ -197,7 +199,7 @@ describe('validateZprv Improvements', () => {
         chainId: 999,
         currency: 'custom',
         slip44: 999,
-        isTestnet: false,
+
         url: 'https://custom.network/',
         label: 'Custom Network',
       };
@@ -214,7 +216,7 @@ describe('validateZprv Improvements', () => {
         chainId: 57,
         currency: 'sys',
         slip44: 57,
-        isTestnet: false,
+
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
       };
@@ -232,7 +234,7 @@ describe('validateZprv Improvements', () => {
         chainId: 57,
         currency: 'sys',
         slip44: 57,
-        isTestnet: false,
+
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
       };
@@ -276,22 +278,14 @@ describe('validateZprv Improvements', () => {
     });
 
     it('should reject Bitcoin xprv for Bitcoin network (only BIP84 supported)', async () => {
-      // Use a valid Bitcoin xprv with a Bitcoin network - but we only support BIP84
+      // Use a valid Bitcoin xprv - but we only support BIP84
       const bitcoinXprv =
         'xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi';
-      const bitcoinMainnet = {
-        chainId: 0,
-        currency: 'Bitcoin',
-        slip44: 0,
-        isTestnet: false,
-        url: 'https://blockbook.bitcoin.org/',
-        label: 'Bitcoin Mainnet',
-      };
 
       // Should reject xprv (BIP44) - only zprv/vprv (BIP84) are supported
-      await expect(
-        keyringManager.importAccount(bitcoinXprv, undefined, bitcoinMainnet)
-      ).rejects.toThrow('Invalid key prefix');
+      await expect(keyringManager.importAccount(bitcoinXprv)).rejects.toThrow(
+        'Invalid key prefix'
+      );
     });
 
     it('should reject Syscoin xprv for Syscoin network (only BIP84 supported)', async () => {
@@ -302,7 +296,7 @@ describe('validateZprv Improvements', () => {
         chainId: 57,
         currency: 'Syscoin',
         slip44: 57,
-        isTestnet: false,
+
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
       };
@@ -316,9 +310,9 @@ describe('validateZprv Improvements', () => {
       expect(validationResult.message).toContain("Invalid key prefix 'xprv'");
 
       // Should reject xprv
-      await expect(
-        keyringManager.importAccount(syscoinXprv, undefined, syscoinMainnet)
-      ).rejects.toThrow('Invalid key prefix');
+      await expect(keyringManager.importAccount(syscoinXprv)).rejects.toThrow(
+        'Invalid key prefix'
+      );
     });
 
     it('should reject Syscoin testnet tprv for Syscoin testnet (only BIP84 supported)', async () => {
@@ -329,7 +323,7 @@ describe('validateZprv Improvements', () => {
         chainId: 5700,
         currency: 'Syscoin Testnet',
         slip44: 1,
-        isTestnet: true,
+
         url: 'https://explorer-blockbook-dev.syscoin.org/',
         label: 'Syscoin Testnet',
       };
@@ -346,8 +340,7 @@ describe('validateZprv Improvements', () => {
       await expect(
         keyringManager.importAccount(
           bitcoinTestnetTprv,
-          'Cross-Compatible Testnet',
-          syscoinTestnet
+          'Cross-Compatible Testnet'
         )
       ).rejects.toThrow('Invalid key prefix');
     });
@@ -361,7 +354,7 @@ describe('validateZprv Improvements', () => {
         chainId: 0,
         currency: 'Bitcoin',
         slip44: 0,
-        isTestnet: false,
+
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
       };
@@ -370,7 +363,7 @@ describe('validateZprv Improvements', () => {
         chainId: 57,
         currency: 'Syscoin',
         slip44: 57,
-        isTestnet: false,
+
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
       };

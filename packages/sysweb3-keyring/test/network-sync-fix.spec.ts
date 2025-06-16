@@ -39,17 +39,12 @@ jest.mock('../src/providers', () => ({
 // Mock getSysRpc
 jest.mock('@pollum-io/sysweb3-network', () => ({
   getSysRpc: jest.fn((network) => {
-    const isTestnet =
-      network.chainId === 5700 ||
-      network.url.includes('dev') ||
-      network.url.includes('test');
     return Promise.resolve({
       rpc: {
         formattedNetwork: network,
         networkConfig: null,
       },
-      chain: isTestnet ? 'test' : 'main',
-      isTestnet,
+      chain: 'main',
     });
   }),
   clearRpcCaches: jest.fn(() => {
@@ -70,7 +65,7 @@ jest.mock('../src/transactions', () => ({
   })),
 }));
 
-describe('Network Synchronization Fix', () => {
+describe('EVM Network Synchronization', () => {
   let keyringManager: KeyringManager;
 
   beforeEach(() => {
@@ -78,114 +73,75 @@ describe('Network Synchronization Fix', () => {
     mockStorage.clear();
   });
 
-  it('should recreate HD signer when switching from mainnet to testnet', async () => {
-    // Start with mainnet
-    keyringManager = new KeyringManager({
-      wallet: {
+  it('should handle EVM network switching correctly', async () => {
+    // Initialize with Ethereum mainnet using new architecture
+    const ethMainnet = initialWalletState.networks.ethereum[1];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
         ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[57], // Syscoin mainnet
+        activeNetwork: ethMainnet,
       },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    // Setup wallet
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set mainnet network
-    const syscoinMainnet = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+      INetworkType.Ethereum
+    );
 
     const hdBefore = (keyringManager as any).hd;
     expect(hdBefore).toBeDefined();
-    expect(hdBefore.Signer.isTestnet).toBe(false); // Should be mainnet
 
-    // Now switch to testnet network
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    // Now switch to Polygon network (different EVM network)
+    const polygonMainnet = initialWalletState.networks.ethereum[137];
+    await keyringManager.setSignerNetwork(polygonMainnet, 'ethereum');
 
-    // The HD signer should have been recreated for testnet
+    // The HD signer should still exist and work for EVM networks
     const hdAfter = (keyringManager as any).hd;
     expect(hdAfter).toBeDefined();
-    expect(hdAfter.Signer.isTestnet).toBe(true); // Should be testnet
 
-    // Now when we call setActiveAccount, it should detect the network sync is needed
-    // if we manually manipulate the network back to mainnet without updating HD
-    (keyringManager as any).wallet.activeNetwork = syscoinMainnet;
-
-    // This call should recreate HD signer due to network mismatch
+    // Account switching should work across EVM networks
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-    const hdAfter2 = (keyringManager as any).hd;
-
-    // The HD signer should have been recreated due to network mismatch
-    expect(hdAfter2.Signer.isTestnet).toBe(false); // Should be mainnet again
   });
 
-  it('should not recreate HD signer when network matches', async () => {
-    keyringManager = new KeyringManager({
-      wallet: {
+  it('should maintain account consistency across EVM networks', async () => {
+    // Initialize with Ethereum mainnet using new architecture
+    const ethMainnet = initialWalletState.networks.ethereum[1];
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
         ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[5700], // Testnet
+        activeNetwork: ethMainnet,
       },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set testnet network
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
-
-    const hdBefore = (keyringManager as any).hd;
-    expect(hdBefore.Signer.isTestnet).toBe(true);
+      INetworkType.Ethereum
+    );
 
     // Create another account
     await keyringManager.addNewAccount();
 
-    // Switch between accounts - should NOT recreate HD signer since network matches
+    // Switch between accounts - should work seamlessly
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-    const hdAfter1 = (keyringManager as any).hd;
-
     await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
-    const hdAfter2 = (keyringManager as any).hd;
-
-    // HD signer should be the same instance since network didn't change
-    expect(hdAfter1.Signer.isTestnet).toBe(true);
-    expect(hdAfter2.Signer.isTestnet).toBe(true);
   });
 
-  it('should handle edge case where HD signer network becomes out of sync', async () => {
-    keyringManager = new KeyringManager({
-      wallet: {
-        ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[57], // Mainnet
-      },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set mainnet
+  it('should handle UTXO account switching within same network', async () => {
+    // Initialize with Syscoin mainnet using new architecture
     const syscoinMainnet = initialWalletState.networks.syscoin[57];
-    await keyringManager.setSignerNetwork(syscoinMainnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinMainnet,
+      },
+      INetworkType.Syscoin
+    );
 
-    const hd = (keyringManager as any).hd;
-    expect(hd.Signer.isTestnet).toBe(false);
+    // Note: HD signer is already initialized with the network
 
-    // Simulate edge case: network changes but HD signer doesn't get updated
-    // (this could happen in race conditions or bugs)
-    (keyringManager as any).wallet.activeNetwork =
-      initialWalletState.networks.syscoin[5700]; // Switch to testnet
+    // Create another account
+    await keyringManager.addNewAccount();
 
-    // Now setActiveAccount should detect the mismatch and fix it
+    // Switch between UTXO accounts within the same network - this is valid
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
-
-    const hdAfter = (keyringManager as any).hd;
-    expect(hdAfter.Signer.isTestnet).toBe(true); // Should have been corrected to testnet
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
   });
 });

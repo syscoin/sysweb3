@@ -54,26 +54,21 @@ describe('Account Index Fix - Issue #1157', () => {
   });
 
   it('should maintain correct account index when switching between accounts in UTXO', async () => {
-    // Initialize with Syscoin network
-    keyringManager = new KeyringManager({
-      wallet: {
-        ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[5700], // Syscoin testnet
-      },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    // Setup wallet
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-
-    // Create initial account - this creates the HD signer
-    const account0 = await keyringManager.createKeyringVault();
-    expect(account0.id).toBe(0);
-
-    // Make sure we're on Syscoin network to initialize HD signer
+    // Initialize with Syscoin testnet using new architecture
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinTestnet,
+      },
+      INetworkType.Syscoin
+    );
+
+    // Account 0 is already created by createInitialized
+    const account0 = keyringManager.getActiveAccount().activeAccount;
+    expect(account0.id).toBe(0);
 
     // The HD signer should be initialized and pointing to account 0
     let hd = (keyringManager as any).hd;
@@ -112,32 +107,27 @@ describe('Account Index Fix - Issue #1157', () => {
     expect(activeAccount.activeAccount.id).toBe(2);
   });
 
-  it('should correctly set account index when recreating accounts after network switch', async () => {
-    // Start with Ethereum network
-    keyringManager = new KeyringManager({
-      wallet: {
-        ...initialWalletState,
-        activeNetwork: initialWalletState.networks.ethereum[1],
-      },
-      activeChain: INetworkType.Ethereum,
-    });
-
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Create accounts on Ethereum
-    await keyringManager.addNewAccount('ETH Account 2');
-    await keyringManager.addNewAccount('ETH Account 3');
-
-    // Switch to account 2
-    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
-
-    // Switch to Syscoin network - this will initialize the HD signer
+  it('should correctly set account index when creating new UTXO keyring with existing account structure', async () => {
+    // Initialize with Syscoin testnet using standard approach
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinTestnet,
+      },
+      INetworkType.Syscoin
+    );
 
-    // The HD signer should be created and set to account 2 (the active account)
+    // Create multiple accounts (account 0 already exists from createInitialized)
+    const account1 = await keyringManager.addNewAccount('Account 2');
+    expect(account1?.id).toBe(1);
+
+    const account2 = await keyringManager.addNewAccount('Account 3');
+    expect(account2?.id).toBe(2);
+
+    // HD signer should be at account 2 (the last created account)
     let hd = (keyringManager as any).hd;
     expect(hd).toBeDefined();
     expect(hd.Signer.accountIndex).toBe(2);
@@ -151,48 +141,68 @@ describe('Account Index Fix - Issue #1157', () => {
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
     hd = (keyringManager as any).hd; // Get fresh reference
     expect(hd.Signer.accountIndex).toBe(0);
+
+    // Switch back to account 2 to verify it works
+    await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
+    hd = (keyringManager as any).hd; // Get fresh reference
+    expect(hd.Signer.accountIndex).toBe(2);
   });
 
   it('should handle non-sequential account switching correctly', async () => {
-    keyringManager = new KeyringManager({
-      wallet: {
-        ...initialWalletState,
-        activeNetwork: initialWalletState.networks.syscoin[5700],
-      },
-      activeChain: INetworkType.Syscoin,
-    });
-
-    keyringManager.setSeed(PEACE_SEED_PHRASE);
-    await keyringManager.setWalletPassword(FAKE_PASSWORD);
-    await keyringManager.createKeyringVault();
-
-    // Set up Syscoin network to initialize HD signer
+    // Initialize with Syscoin testnet using new architecture
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
-    await keyringManager.setSignerNetwork(syscoinTestnet, 'syscoin');
+    keyringManager = await KeyringManager.createInitialized(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      {
+        ...initialWalletState,
+        activeNetwork: syscoinTestnet,
+      },
+      INetworkType.Syscoin
+    );
 
     let hd = (keyringManager as any).hd;
 
-    // Create multiple accounts
-    await keyringManager.addNewAccount();
-    await keyringManager.addNewAccount();
-    await keyringManager.addNewAccount();
+    // Create multiple accounts (account 0 already exists)
+    const account1 = await keyringManager.addNewAccount('Account 2');
+    expect(account1?.id).toBe(1);
+
+    const account2 = await keyringManager.addNewAccount('Account 3');
+    expect(account2?.id).toBe(2);
+
+    const account3 = await keyringManager.addNewAccount('Account 4');
+    expect(account3?.id).toBe(3);
 
     // After creating 3 accounts, should be at account 3 (the last created account)
     hd = (keyringManager as any).hd; // Get fresh reference
     expect(hd.Signer.accountIndex).toBe(3);
+
+    // Jump from account 3 to account 0 (non-sequential)
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
     hd = (keyringManager as any).hd; // Get fresh reference
     expect(hd.Signer.accountIndex).toBe(0);
+    let activeAccount = keyringManager.getActiveAccount().activeAccount;
+    expect(activeAccount.id).toBe(0);
 
-    // Jump from account 0 to account 2
+    // Jump from account 0 to account 2 (non-sequential)
     await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
     hd = (keyringManager as any).hd; // Get fresh reference
     expect(hd.Signer.accountIndex).toBe(2);
+    activeAccount = keyringManager.getActiveAccount().activeAccount;
+    expect(activeAccount.id).toBe(2);
 
-    // Verify accounts array is properly populated
-    expect(hd.Signer.accounts[0]).toBeDefined();
-    expect(hd.Signer.accounts[1]).toBeDefined();
-    expect(hd.Signer.accounts[2]).toBeDefined();
-    expect(hd.Signer.accounts[3]).toBeDefined();
+    // Jump from account 2 to account 1 (non-sequential)
+    await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
+    hd = (keyringManager as any).hd; // Get fresh reference
+    expect(hd.Signer.accountIndex).toBe(1);
+    activeAccount = keyringManager.getActiveAccount().activeAccount;
+    expect(activeAccount.id).toBe(1);
+
+    // Jump from account 1 to account 3 (non-sequential)
+    await keyringManager.setActiveAccount(3, KeyringAccountType.HDAccount);
+    hd = (keyringManager as any).hd; // Get fresh reference
+    expect(hd.Signer.accountIndex).toBe(3);
+    activeAccount = keyringManager.getActiveAccount().activeAccount;
+    expect(activeAccount.id).toBe(3);
   });
 });
