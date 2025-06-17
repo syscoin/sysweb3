@@ -91,7 +91,7 @@ describe('EVM Network Synchronization', () => {
 
     // Now switch to Polygon network (different EVM network)
     const polygonMainnet = initialWalletState.networks.ethereum[137];
-    await keyringManager.setSignerNetwork(polygonMainnet, 'ethereum');
+    await keyringManager.setSignerNetwork(polygonMainnet);
 
     // The HD signer should still exist and work for EVM networks
     const hdAfter = (keyringManager as any).hd;

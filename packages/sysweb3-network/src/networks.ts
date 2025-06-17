@@ -116,6 +116,7 @@ export type INetwork = {
   default?: boolean;
   explorer?: string;
   key?: string;
+  kind: INetworkType;
   label: string;
   slip44: number;
   url: string;

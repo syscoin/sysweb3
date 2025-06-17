@@ -323,8 +323,10 @@ describe('Bug Fixes Validation', () => {
       const syscoinNetwork = initialWalletState.networks.syscoin[5700];
 
       await expect(
-        keyringManager.setSignerNetwork(syscoinNetwork, 'ethereum')
-      ).rejects.toThrow('Cannot use Ethereum chain type with Syscoin network');
+        keyringManager.setSignerNetwork(syscoinNetwork)
+      ).rejects.toThrow(
+        'Cannot switch between different UTXO networks within the same keyring. Current network uses slip44=57, target network uses slip44=1. Each UTXO network requires a separate KeyringManager instance.'
+      );
     });
 
     it('should reject Syscoin chain type with Ethereum network', async () => {
@@ -350,8 +352,8 @@ describe('Bug Fixes Validation', () => {
       const ethereumNetwork = initialWalletState.networks.ethereum[1];
 
       await expect(
-        keyringManager.setSignerNetwork(ethereumNetwork, 'syscoin')
-      ).rejects.toThrow('Cannot use Syscoin chain type with Ethereum network');
+        keyringManager.setSignerNetwork(ethereumNetwork)
+      ).rejects.toThrow('Cannot use Ethereum chain type with Syscoin network');
     });
 
     it('should accept matching network and chain types', async () => {
@@ -384,10 +386,7 @@ describe('Bug Fixes Validation', () => {
       await syscoinKeyring.createKeyringVault();
 
       const syscoinNetwork = initialWalletState.networks.syscoin[5700];
-      const result1 = await syscoinKeyring.setSignerNetwork(
-        syscoinNetwork,
-        'syscoin'
-      );
+      const result1 = await syscoinKeyring.setSignerNetwork(syscoinNetwork);
       expect(result1.success).toBe(true);
 
       // Test 2: Ethereum network with ethereum chain type (separate keyring instance)
@@ -409,10 +408,7 @@ describe('Bug Fixes Validation', () => {
       await ethereumKeyring.createKeyringVault();
 
       const ethereumNetwork = initialWalletState.networks.ethereum[1];
-      const result2 = await ethereumKeyring.setSignerNetwork(
-        ethereumNetwork,
-        'ethereum'
-      );
+      const result2 = await ethereumKeyring.setSignerNetwork(ethereumNetwork);
       expect(result2.success).toBe(true);
     });
   });

@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv';
 
 import { initialNetworksState } from '../src/initial-state';
 import { IWalletState, KeyringAccountType } from '../src/types';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 dotenv.config();
 export const FAKE_PASSWORD = 'Asdqwe123!';
 export const FAKE_INVALID_PASSWORD = '12345';
@@ -15,6 +16,7 @@ export const SYS_TANENBAUM_UTXO_NETWORK = {
   apiUrl: '',
   explorer: '',
   slip44: 60,
+  kind: INetworkType.Syscoin,
 };
 
 export const DATA: { [type: string]: any } = {
@@ -147,6 +149,7 @@ export const previousWalletState: IWalletState = {
     default: true,
     currency: 'sys',
     slip44: 57,
+    kind: INetworkType.Syscoin,
   },
 };
 

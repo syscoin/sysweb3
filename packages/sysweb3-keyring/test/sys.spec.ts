@@ -10,6 +10,7 @@ import {
   SYS_TANENBAUM_UTXO_NETWORK,
 } from './constants';
 import { KeyringManager } from '../src/keyring-manager';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 
 // Use real signers - no mock needed for deterministic crypto
 
@@ -128,6 +129,7 @@ describe('testing functions for the new-sys txs', () => {
       apiUrl: '',
       explorer: '',
       slip44: 1,
+      kind: INetworkType.Syscoin,
     };
 
     const seed =
@@ -155,6 +157,7 @@ describe('testing functions for the new-sys txs', () => {
               default: true,
               currency: 'sys',
               slip44: 57,
+              kind: INetworkType.Syscoin,
             },
             5700: syscoinTestnet,
           },

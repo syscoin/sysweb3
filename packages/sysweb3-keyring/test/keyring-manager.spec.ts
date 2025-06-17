@@ -653,7 +653,7 @@ describe('Keyring Manager and Ethereum Transaction tests', () => {
     const testnet = initialWalletState.networks.ethereum[80001];
     console.log('Checking testnet network', testnet);
 
-    await keyringManager.setSignerNetwork(testnet, INetworkType.Ethereum);
+    await keyringManager.setSignerNetwork(testnet);
 
     const network = keyringManager.getNetwork();
 
@@ -994,10 +994,7 @@ describe('Syscoin network testing', () => {
 
     // Then switch to Polygon testnet (another EVM network)
     const polygonTestnet = initialWalletState.networks.ethereum[80001];
-    await keyringManager.setSignerNetwork(
-      polygonTestnet,
-      INetworkType.Ethereum
-    );
+    await keyringManager.setSignerNetwork(polygonTestnet);
 
     network = keyringManager.getNetwork();
     expect(network).toEqual(polygonTestnet);
@@ -1131,12 +1128,9 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
     // This should be blocked by the multi-keyring architecture
     const syscoinTestnet = initialWalletState.networks.syscoin[5700];
 
-    // Attempt the switch and expect it to fail (returns {success: false} instead of throwing)
-    const switchResult = await keyringManager.setSignerNetwork(
-      syscoinTestnet,
-      INetworkType.Syscoin
-    );
-    expect(switchResult.success).toBe(false);
+    await expect(
+      keyringManager.setSignerNetwork(syscoinTestnet)
+    ).rejects.toThrow('Cannot use Syscoin chain type with Ethereum network');
 
     console.log(
       '🎉 SUCCESS: Multi-keyring architecture correctly prevents cross-chain switching!'
@@ -1190,13 +1184,8 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
 
     // This should throw an error since we're trying to switch from UTXO (slip44=1) to EVM (slip44=60)
     await expect(
-      utxoKeyringManager.setSignerNetwork(
-        ethereumMainnet,
-        INetworkType.Ethereum
-      )
-    ).rejects.toThrow(
-      'Cannot switch between different UTXO networks within the same keyring'
-    );
+      utxoKeyringManager.setSignerNetwork(ethereumMainnet)
+    ).rejects.toThrow('Cannot use Ethereum chain type with Syscoin network');
 
     console.log('✅ SUCCESS: Multi-keyring constraint properly enforced!');
 
@@ -1239,8 +1228,7 @@ describe('EVM to UTXO Network Switching Bug Reproduction', () => {
     // Verify EVM network switching works within same slip44
     const polygonTestnet = initialWalletState.networks.ethereum[80001];
     const evmSwitchResult = await evmKeyringManager.setSignerNetwork(
-      polygonTestnet,
-      INetworkType.Ethereum
+      polygonTestnet
     );
     expect(evmSwitchResult.success).toBe(true);
 

@@ -2,6 +2,7 @@ import * as syscoinjs from 'syscoinjs-lib';
 
 import { KeyringAccountType } from '../../types';
 import { SyscoinTransactions } from '../syscoin';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 import { getAsset } from '@pollum-io/sysweb3-utils';
 
 // Mock dependencies
@@ -116,6 +117,10 @@ describe('SyscoinTransactions', () => {
       activeNetwork: {
         currency: 'sys',
         chainId: 57,
+        kind: INetworkType.Syscoin,
+        url: 'https://blockbook.test',
+        slip44: 57,
+        label: 'Syscoin Mainnet',
       },
     });
 

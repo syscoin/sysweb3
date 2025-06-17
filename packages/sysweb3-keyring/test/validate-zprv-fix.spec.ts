@@ -1,5 +1,6 @@
 import { KeyringManager } from '../src';
 import { FAKE_PASSWORD } from './constants';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 
 // Mock syscoinjs-lib with proper network configurations
 jest.mock('syscoinjs-lib', () => {
@@ -115,6 +116,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(mainnetZprv, bitcoinMainnet);
 
@@ -137,6 +139,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook-testnet.bitcoin.org/',
         label: 'Bitcoin Testnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(testnetVprv, bitcoinTestnet);
 
@@ -158,6 +161,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(xprv, bitcoinMainnet);
 
@@ -180,6 +184,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.ltc.org/',
         label: 'Litecoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(yprv, litecoinMainnet);
 
@@ -202,6 +207,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://custom.network/',
         label: 'Custom Network',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(customKey, customNetwork);
 
@@ -219,6 +225,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(invalidKey, syscoinMainnet);
 
@@ -237,6 +244,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
       const result = keyringManager.validateZprv(shortKey, syscoinMainnet);
 
@@ -299,6 +307,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
 
       // First test validateZprv to confirm it rejects xprv
@@ -326,6 +335,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://explorer-blockbook-dev.syscoin.org/',
         label: 'Syscoin Testnet',
+        kind: INetworkType.Syscoin,
       };
 
       // First test validateZprv - should reject tprv
@@ -357,6 +367,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.bitcoin.org/',
         label: 'Bitcoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
 
       const syscoinMainnet = {
@@ -366,6 +377,7 @@ describe('validateZprv Improvements', () => {
 
         url: 'https://blockbook.syscoin.org/',
         label: 'Syscoin Mainnet',
+        kind: INetworkType.Syscoin,
       };
 
       // xprv (BIP44) should be rejected for both networks

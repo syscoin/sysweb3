@@ -1,5 +1,5 @@
 import { KeyringManager } from '../src/keyring-manager';
-import { INetwork } from '@pollum-io/sysweb3-network';
+import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
 
 // Mock storage
 const mockStorage = new Map<string, any>();
@@ -34,6 +34,7 @@ describe('validateZprv Network-Specific Validation', () => {
     default: true,
     apiUrl: '',
     explorer: 'https://blockbook.syscoin.org',
+    kind: INetworkType.Syscoin,
   };
 
   const syscoinTestnet: INetwork = {
@@ -46,6 +47,7 @@ describe('validateZprv Network-Specific Validation', () => {
     default: false,
     apiUrl: '',
     explorer: 'https://explorer-blockbook-dev.syscoin.org',
+    kind: INetworkType.Syscoin,
   };
 
   const bitcoinMainnet: INetwork = {
@@ -58,6 +60,7 @@ describe('validateZprv Network-Specific Validation', () => {
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook.bitcoin.org/',
+    kind: INetworkType.Syscoin,
   };
 
   const bitcoinTestnet: INetwork = {
@@ -70,6 +73,7 @@ describe('validateZprv Network-Specific Validation', () => {
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook-testnet.bitcoin.org/',
+    kind: INetworkType.Syscoin,
   };
 
   const litecoinMainnet: INetwork = {
@@ -82,6 +86,7 @@ describe('validateZprv Network-Specific Validation', () => {
     default: false,
     apiUrl: '',
     explorer: 'https://blockbook.litecoin.org/',
+    kind: INetworkType.Syscoin,
   };
 
   describe('Network-specific validation', () => {

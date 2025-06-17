@@ -213,7 +213,7 @@ export class KeyringManager implements IKeyringManager {
 
     // Set the network if provided (this is crucial for proper address derivation)
     if (network) {
-      await this.setSignerNetwork(network, this.activeChain);
+      await this.setSignerNetwork(network);
     }
 
     // Set the wallet password
@@ -428,9 +428,10 @@ export class KeyringManager implements IKeyringManager {
             label: 'Syscoin Mainnet',
             slip44: 57,
             url: 'https://explorer-blockbook.syscoin.org',
+            kind: INetworkType.Syscoin,
           };
 
-          await this.setSignerNetwork(sysMainnetNetwork, INetworkType.Syscoin);
+          await this.setSignerNetwork(sysMainnetNetwork);
           needsRestore = true;
           this.storage.set('utf8Error', { hasUtf8Error: false });
         }
@@ -791,19 +792,16 @@ export class KeyringManager implements IKeyringManager {
     return mnemonic;
   };
 
-  public updateNetworkConfig = async (
-    data: INetwork,
-    chainType: INetworkType
-  ) => {
+  public updateNetworkConfig = async (data: INetwork) => {
     if (
-      chainType !== INetworkType.Syscoin &&
-      chainType !== INetworkType.Ethereum
+      data.kind !== INetworkType.Syscoin &&
+      data.kind !== INetworkType.Ethereum
     ) {
       throw new Error('Invalid chain type');
     }
 
     // For UTXO networks, only allow updating the same network (e.g., changing RPC URL)
-    if (chainType === INetworkType.Syscoin) {
+    if (data.kind === INetworkType.Syscoin) {
       if (data.chainId !== this.wallet.activeNetwork.chainId) {
         throw new Error(
           'Cannot change UTXO network. Each UTXO network has its own keyring instance.'
@@ -811,18 +809,18 @@ export class KeyringManager implements IKeyringManager {
       }
     }
 
-    if (!this.wallet.networks[chainType][data.chainId]) {
+    if (!this.wallet.networks[data.kind][data.chainId]) {
       throw new Error('Network does not exist');
     }
     if (
       this.wallet.activeNetwork.chainId === data.chainId &&
-      this.activeChain === chainType
+      this.activeChain === data.kind
     ) {
       // Clear RPC caches when updating network configuration
       clearRpcCaches();
 
       if (
-        chainType === INetworkType.Syscoin &&
+        data.kind === INetworkType.Syscoin &&
         this.syscoinSigner?.blockbookURL
       ) {
         this.syscoinSigner.blockbookURL = data.url;
@@ -834,17 +832,17 @@ export class KeyringManager implements IKeyringManager {
       ...this.wallet,
       networks: {
         ...this.wallet.networks,
-        [chainType]: {
-          ...this.wallet.networks[chainType],
+        [data.kind]: {
+          ...this.wallet.networks[data.kind],
           [data.chainId]: data,
         },
       },
     };
   };
 
-  public addCustomNetwork = (chain: INetworkType, network: INetwork) => {
+  public addCustomNetwork = (network: INetwork) => {
     // Only EVM networks can be added dynamically
-    if (chain !== INetworkType.Ethereum) {
+    if (network.kind !== INetworkType.Ethereum) {
       throw new Error(
         'Custom networks can only be added for EVM. UTXO networks require separate keyring instances.'
       );
@@ -856,8 +854,8 @@ export class KeyringManager implements IKeyringManager {
       ...this.wallet,
       networks: {
         ...this.wallet.networks,
-        [chain]: {
-          ...this.wallet.networks[chain],
+        [network.kind]: {
+          ...this.wallet.networks[network.kind],
           [networkIdentifier]: network,
         },
       },
@@ -928,8 +926,7 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public setSignerNetwork = async (
-    network: INetwork,
-    chain: string
+    network: INetwork
   ): Promise<{
     activeChain?: INetworkType;
     success: boolean;
@@ -939,15 +936,24 @@ export class KeyringManager implements IKeyringManager {
     clearRpcCaches();
 
     // With multi-keyring architecture, each keyring is dedicated to specific slip44
-    if (INetworkType.Ethereum !== chain && INetworkType.Syscoin !== chain) {
+    if (
+      INetworkType.Ethereum !== network.kind &&
+      INetworkType.Syscoin !== network.kind
+    ) {
       throw new Error('Unsupported chain');
     }
 
     // Validate network/chain type compatibility
-    if (chain === INetworkType.Ethereum && network.slip44 !== 60) {
+    if (
+      network.kind === INetworkType.Ethereum &&
+      this.activeChain === INetworkType.Syscoin
+    ) {
       throw new Error('Cannot use Ethereum chain type with Syscoin network');
     }
-    if (chain === INetworkType.Syscoin && network.slip44 === 60) {
+    if (
+      network.kind === INetworkType.Syscoin &&
+      this.activeChain === INetworkType.Ethereum
+    ) {
       throw new Error('Cannot use Syscoin chain type with Ethereum network');
     }
 
@@ -969,17 +975,14 @@ export class KeyringManager implements IKeyringManager {
       }
     }
 
-    const networkChain: INetworkType =
-      INetworkType.Ethereum === chain
-        ? INetworkType.Ethereum
-        : INetworkType.Syscoin;
+    const networkChain = network.kind;
 
     try {
       // With multi-keyring architecture:
       // - UTXO: Each keyring is dedicated to one network (slip44), so this is only called during initialization
       // - EVM: All EVM networks share slip44=60, so network can change within the same keyring
 
-      if (chain === INetworkType.Syscoin) {
+      if (network.kind === INetworkType.Syscoin) {
         // For UTXO networks, this should only be called during initial setup
         // as each UTXO network has its own keyring manager
         if (!this.hd || !this.syscoinSigner) {
@@ -994,7 +997,7 @@ export class KeyringManager implements IKeyringManager {
           if (!this.hd) throw new Error('Error initialising HD');
         }
         // If HD signer already exists, the active account is already set correctly
-      } else if (chain === INetworkType.Ethereum) {
+      } else if (network.kind === INetworkType.Ethereum) {
         // For EVM, network can change within the same keyring manager (all use slip44=60)
         // First update the provider with new network
         await this.setSignerEVM(network);

@@ -1,5 +1,7 @@
 import * as dotenv from 'dotenv';
 
+import { INetworkType } from '@pollum-io/sysweb3-network';
+
 dotenv.config();
 
 export const CHAIN_ID_NUMBER = 1;
@@ -50,6 +52,7 @@ export const FORMATTED_BEDROCK_TESTNET = {
   apiUrl: undefined,
   label: 'Rollux Bedrock Testnet',
   symbol: 'bSYS',
+  kind: INetworkType.Ethereum,
 };
 
 export const FORMATTED_GOERLI = {
@@ -60,6 +63,7 @@ export const FORMATTED_GOERLI = {
   default: true,
   currency: 'GOR',
   explorer: 'https://goerli.etherscan.io/',
+  kind: INetworkType.Ethereum,
 };
 
 export const FORMATTED_OPTIMISM = {
@@ -70,6 +74,7 @@ export const FORMATTED_OPTIMISM = {
   default: false,
   currency: 'OP',
   explorer: 'https://optimistic.etherscan.io/',
+  kind: INetworkType.Ethereum,
 };
 
 export const DEFAULT_ETHEREUM_NETWORKS = [57, 5700, 80001, 137];

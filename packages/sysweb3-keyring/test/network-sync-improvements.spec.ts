@@ -140,34 +140,12 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
       // Should work with proper UTXO network
-      const result = await keyringManager.setSignerNetwork(
-        syscoinNetwork,
-        INetworkType.Syscoin
-      );
+      const result = await keyringManager.setSignerNetwork(syscoinNetwork);
       expect(result.success).toBe(true);
-    });
-
-    it('should prevent invalid network type combinations', async () => {
-      // Setup keyring
-      keyringManager.setSeed(PEACE_SEED_PHRASE);
-      await keyringManager.setWalletPassword(FAKE_PASSWORD);
-      await keyringManager.createKeyringVault();
-
-      const ethNetwork = {
-        chainId: 1,
-        url: 'https://eth-mainnet.alchemyapi.io/v2/test',
-        label: 'Ethereum Mainnet',
-        currency: 'ETH',
-        slip44: 60,
-      };
-
-      // Should prevent using Ethereum network with Syscoin chain type
-      await expect(
-        keyringManager.setSignerNetwork(ethNetwork, INetworkType.Syscoin)
-      ).rejects.toThrow('Cannot use Syscoin chain type with Ethereum network');
     });
 
     it('should only allow EVM custom networks', async () => {
@@ -182,14 +160,12 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Custom UTXO',
         currency: 'CUSTOM',
         slip44: 123,
+        kind: INetworkType.Syscoin,
       };
 
       // Should prevent adding custom UTXO networks
       expect(() => {
-        keyringManager.addCustomNetwork(
-          INetworkType.Syscoin,
-          customUTXONetwork
-        );
+        keyringManager.addCustomNetwork(customUTXONetwork);
       }).toThrow(
         'Custom networks can only be added for EVM. UTXO networks require separate keyring instances.'
       );
@@ -209,12 +185,10 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
-      await keyringManager.setSignerNetwork(
-        syscoinNetwork,
-        INetworkType.Syscoin
-      );
+      await keyringManager.setSignerNetwork(syscoinNetwork);
 
       // Create new account
       const newAccount = await keyringManager.addNewAccount('Test Account');
@@ -235,12 +209,10 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
-      await keyringManager.setSignerNetwork(
-        syscoinNetwork,
-        INetworkType.Syscoin
-      );
+      await keyringManager.setSignerNetwork(syscoinNetwork);
 
       // Create additional account
       await keyringManager.addNewAccount();
@@ -265,6 +237,7 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
       // Test valid key format
@@ -290,6 +263,7 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
       const ethNetwork = {
@@ -298,22 +272,18 @@ describe('Network Synchronization with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup with Syscoin network
       keyringManager.setSeed(PEACE_SEED_PHRASE);
       await keyringManager.setWalletPassword(FAKE_PASSWORD);
       await keyringManager.createKeyringVault();
-      await keyringManager.setSignerNetwork(
-        syscoinNetwork,
-        INetworkType.Syscoin
-      );
+      await keyringManager.setSignerNetwork(syscoinNetwork);
 
       // Try to switch to Ethereum network (different slip44) - should be prevented by multi-keyring architecture
-      await expect(
-        keyringManager.setSignerNetwork(ethNetwork, INetworkType.Ethereum)
-      ).rejects.toThrow(
-        'Cannot switch between different UTXO networks within the same keyring'
+      await expect(keyringManager.setSignerNetwork(ethNetwork)).rejects.toThrow(
+        'Cannot use Ethereum chain type with Syscoin network'
       );
     });
   });

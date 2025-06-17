@@ -221,7 +221,7 @@ export interface ISyscoinTransactions {
 }
 
 export interface IKeyringManager {
-  addCustomNetwork: (chain: INetworkType, network: INetwork) => void;
+  addCustomNetwork: (network: INetwork) => void;
   addNewAccount: (label?: string) => Promise<IKeyringAccountState>;
   createKeyringVault: () => Promise<IKeyringAccountState>;
   createNewSeed: () => string;
@@ -249,10 +249,7 @@ export interface IKeyringManager {
     accountId: number,
     accountType: KeyringAccountType
   ) => void;
-  setSignerNetwork: (
-    network: INetwork,
-    chain: string
-  ) => Promise<{
+  setSignerNetwork: (network: INetwork) => Promise<{
     success: boolean;
     wallet?: IWalletState;
     activeChain?: INetworkType;
@@ -270,7 +267,7 @@ export interface IKeyringManager {
     key?: string
   ) => void;
   setSeed: (seed: string) => void;
-  updateNetworkConfig: (network: INetwork, chainType: INetworkType) => void;
+  updateNetworkConfig: (network: INetwork) => void;
   setStorage: (client: any) => void;
   setWalletPassword: (password: string) => void;
   syscoinTransaction: ISyscoinTransactions;

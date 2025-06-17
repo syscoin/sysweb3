@@ -3,6 +3,7 @@ import * as sjs from 'syscoinjs-lib';
 
 import { SyscoinTransactions } from '../src/transactions/syscoin';
 import { KeyringAccountType } from '../src/types';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 
 // Mock dependencies
 jest.mock('@pollum-io/sysweb3-core', () => ({
@@ -163,6 +164,8 @@ describe('SyscoinTransactions', () => {
         currency: 'tsys',
         url: 'https://blockbook-dev.elint.services/',
         slip44: 1,
+        kind: INetworkType.Syscoin,
+        label: 'Syscoin Testnet',
       },
     }));
 

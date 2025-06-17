@@ -116,14 +116,14 @@ describe('Account Management and EVM Network Switching', () => {
 
     // Set Ethereum mainnet
     const ethMainnet = initialWalletState.networks.ethereum[1];
-    await keyringManager.setSignerNetwork(ethMainnet, 'ethereum');
+    await keyringManager.setSignerNetwork(ethMainnet);
 
     const hdBefore = (keyringManager as any).hd;
     expect(hdBefore).toBeDefined();
 
     // Switch to Polygon network (different EVM network)
     const polygonMainnet = initialWalletState.networks.ethereum[137];
-    await keyringManager.setSignerNetwork(polygonMainnet, 'ethereum');
+    await keyringManager.setSignerNetwork(polygonMainnet);
 
     const hdAfter = (keyringManager as any).hd;
     expect(hdAfter).toBeDefined();
@@ -147,7 +147,7 @@ describe('Account Management and EVM Network Switching', () => {
     await keyringManager.createKeyringVault();
 
     const originalNetwork = initialWalletState.networks.ethereum[1];
-    await keyringManager.setSignerNetwork(originalNetwork, 'ethereum');
+    await keyringManager.setSignerNetwork(originalNetwork);
 
     // Create a custom EVM network
     const customEVMNetwork = {
@@ -159,13 +159,14 @@ describe('Account Management and EVM Network Switching', () => {
       default: false,
       apiUrl: '',
       explorer: 'https://custom-evm-explorer.example.com',
+      kind: INetworkType.Ethereum,
     };
 
     // Add the custom network
     (keyringManager as any).wallet.networks.ethereum[999] = customEVMNetwork;
 
     // Switch to custom EVM network
-    await keyringManager.setSignerNetwork(customEVMNetwork, 'ethereum');
+    await keyringManager.setSignerNetwork(customEVMNetwork);
 
     // Account switching should work with custom EVM networks
     await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);

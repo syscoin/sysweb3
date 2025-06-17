@@ -4,6 +4,7 @@ import { hexlify } from 'ethers/lib/utils';
 import { findCoin } from './coin-utils';
 // import fetch from "node-fetch";
 import { getNetworkConfig, toDecimalFromHex, INetwork } from './networks';
+import { INetworkType } from './networks';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
 
@@ -190,6 +191,7 @@ export const getEthRpc = async (
     currency: details ? details.nativeCurrency.symbol : data.symbol,
     chainId: chainIdNumber,
     slip44: 60, // All EVM networks use ETH slip44 for address compatibility
+    kind: INetworkType.Ethereum,
   };
 
   return {
@@ -277,6 +279,7 @@ export const getSysRpc = async (data: any) => {
       default: true,
       chainId: coinData.slip44, // Use coin's actual slip44 as chainId
       slip44: coinData.slip44,
+      kind: INetworkType.Syscoin,
     };
 
     const rpc = {

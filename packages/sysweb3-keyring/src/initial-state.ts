@@ -3,6 +3,7 @@ import {
   IWalletState,
   KeyringAccountType,
 } from './types';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 
 export const initialActiveHdAccountState: IKeyringAccountState = {
   address: '',
@@ -47,6 +48,7 @@ export const initialNetworksState = {
       apiUrl: '',
       explorer: 'https://explorer-blockbook.syscoin.org',
       slip44: 57,
+      kind: INetworkType.Syscoin,
     },
     5700: {
       chainId: 5700,
@@ -57,6 +59,7 @@ export const initialNetworksState = {
       apiUrl: '',
       explorer: '',
       slip44: 1,
+      kind: INetworkType.Syscoin,
     },
   },
   ethereum: {
@@ -69,6 +72,7 @@ export const initialNetworksState = {
       explorer: 'https://etherscan.io',
       apiUrl: 'https://api.etherscan.io/api',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     137: {
       chainId: 137,
@@ -79,6 +83,7 @@ export const initialNetworksState = {
       apiUrl: 'https://api.polygonscan.com/api',
       explorer: 'https://polygonscan.com',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     80001: {
       chainId: 80001,
@@ -89,6 +94,7 @@ export const initialNetworksState = {
       apiUrl: 'https://api-testnet.polygonscan.com/api',
       explorer: 'https://mumbai.polygonscan.com',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     57: {
       chainId: 57,
@@ -99,6 +105,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.syscoin.org/api',
       explorer: 'https://explorer.syscoin.org',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     570: {
       chainId: 570,
@@ -109,6 +116,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.rollux.com/api',
       explorer: 'https://explorer.rollux.com',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     5700: {
       chainId: 5700,
@@ -119,6 +127,7 @@ export const initialNetworksState = {
       apiUrl: 'https://explorer.tanenbaum.io/api',
       explorer: 'https://explorer.tanenbaum.io',
       slip44: 60,
+      kind: INetworkType.Ethereum,
     },
   },
 };
@@ -149,5 +158,6 @@ export const initialWalletState: IWalletState = {
     default: true,
     currency: 'sys',
     slip44: 57,
+    kind: INetworkType.Syscoin,
   },
 };

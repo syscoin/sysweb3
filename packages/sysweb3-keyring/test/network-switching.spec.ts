@@ -142,6 +142,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup EVM keyring properly with Ethereum network
@@ -176,8 +177,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Polygon',
         currency: 'MATIC',
         slip44: 60, // Same slip44 as Ethereum
+        kind: INetworkType.Ethereum,
       };
-      await evmKeyring.setSignerNetwork(polygon, INetworkType.Ethereum);
+      await evmKeyring.setSignerNetwork(polygon);
 
       // Accounts should remain the same (same addresses/xpubs)
       const evmAccountsAfter =
@@ -201,6 +203,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup EVM keyring properly with Ethereum network
@@ -233,8 +236,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'BSC',
         currency: 'BNB',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
-      await evmKeyring.setSignerNetwork(bsc, INetworkType.Ethereum);
+      await evmKeyring.setSignerNetwork(bsc);
 
       // Imported account should remain unchanged
       const importedAfter = evmKeyring.getAccountById(
@@ -259,8 +263,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
-      await utxoKeyring.setSignerNetwork(syscoinMainnet, INetworkType.Syscoin);
+      await utxoKeyring.setSignerNetwork(syscoinMainnet);
 
       // Create multiple accounts
       await utxoKeyring.addNewAccount();
@@ -290,8 +295,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
-      await utxoKeyring.setSignerNetwork(syscoinMainnet, INetworkType.Syscoin);
+      await utxoKeyring.setSignerNetwork(syscoinMainnet);
 
       // Import UTXO account
       const zprvKey =
@@ -319,6 +325,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
 
       // Test valid mainnet key
@@ -356,8 +363,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
-      await utxoKeyring.setSignerNetwork(syscoinMainnet, INetworkType.Syscoin);
+      await utxoKeyring.setSignerNetwork(syscoinMainnet);
 
       // Try to switch to Bitcoin (different slip44)
       const bitcoinMainnet = {
@@ -366,10 +374,11 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Bitcoin Mainnet',
         currency: 'BTC',
         slip44: 0,
+        kind: INetworkType.Syscoin,
       };
 
       await expect(
-        utxoKeyring.setSignerNetwork(bitcoinMainnet, INetworkType.Syscoin)
+        utxoKeyring.setSignerNetwork(bitcoinMainnet)
       ).rejects.toThrow(
         'Cannot switch between different UTXO networks within the same keyring'
       );
@@ -382,6 +391,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup EVM keyring properly with Ethereum network
@@ -402,14 +412,13 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Ethereum,
       };
 
       // Try to switch to Syscoin UTXO - should fail
-      const result = await evmKeyring.setSignerNetwork(
-        syscoinMainnet,
-        INetworkType.Syscoin
-      );
-      expect(result.success).toBe(false);
+      await expect(
+        utxoKeyring.setSignerNetwork(syscoinMainnet)
+      ).rejects.toThrow('Cannot use Ethereum chain type with Syscoin network');
     });
 
     it('should prevent switching from UTXO to EVM', async () => {
@@ -424,8 +433,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
-      await utxoKeyring.setSignerNetwork(syscoinMainnet, INetworkType.Syscoin);
+      await utxoKeyring.setSignerNetwork(syscoinMainnet);
 
       // Try to switch to Ethereum
       const ethMainnet = {
@@ -434,12 +444,11 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
-      await expect(
-        utxoKeyring.setSignerNetwork(ethMainnet, INetworkType.Ethereum)
-      ).rejects.toThrow(
-        'Cannot switch between different UTXO networks within the same keyring'
+      await expect(utxoKeyring.setSignerNetwork(ethMainnet)).rejects.toThrow(
+        'Cannot use Ethereum chain type with Syscoin network'
       );
     });
 
@@ -455,10 +464,11 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Custom UTXO',
         currency: 'CUSTOM',
         slip44: 123,
+        kind: INetworkType.Syscoin,
       };
 
       expect(() => {
-        evmKeyring.addCustomNetwork(INetworkType.Syscoin, customUTXONetwork);
+        evmKeyring.addCustomNetwork(customUTXONetwork);
       }).toThrow(
         'Custom networks can only be added for EVM. UTXO networks require separate keyring instances.'
       );
@@ -471,6 +481,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup EVM keyring properly with Ethereum network
@@ -490,11 +501,12 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Custom EVM',
         currency: 'CUSTOM',
         slip44: 60, // EVM networks use slip44=60
+        kind: INetworkType.Ethereum,
       };
 
       // Should not throw
       expect(() => {
-        evmKeyring.addCustomNetwork(INetworkType.Ethereum, customEVMNetwork);
+        evmKeyring.addCustomNetwork(customEVMNetwork);
       }).not.toThrow();
 
       // Network should be added
@@ -512,6 +524,7 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Ethereum Mainnet',
         currency: 'ETH',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
 
       // Setup EVM keyring properly with Ethereum network
@@ -542,8 +555,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Polygon',
         currency: 'MATIC',
         slip44: 60,
+        kind: INetworkType.Ethereum,
       };
-      await evmKeyring.setSignerNetwork(polygon, INetworkType.Ethereum);
+      await evmKeyring.setSignerNetwork(polygon);
 
       const newAccountIds = Object.keys(
         evmKeyring.wallet.accounts[KeyringAccountType.HDAccount]
@@ -566,8 +580,9 @@ describe('Network Switching with Multi-Keyring Architecture', () => {
         label: 'Syscoin Mainnet',
         currency: 'SYS',
         slip44: 57,
+        kind: INetworkType.Syscoin,
       };
-      await utxoKeyring.setSignerNetwork(syscoinMainnet, INetworkType.Syscoin);
+      await utxoKeyring.setSignerNetwork(syscoinMainnet);
 
       // Create additional accounts
       await utxoKeyring.addNewAccount();
