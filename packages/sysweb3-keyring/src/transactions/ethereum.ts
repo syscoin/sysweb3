@@ -39,7 +39,7 @@ import {
   accountType,
   IGasParams,
 } from '../types';
-import { INetwork } from '@pollum-io/sysweb3-network';
+import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
 import {
   createContractUsingAbi,
   getErc20Abi,
@@ -147,11 +147,11 @@ export class EthereumTransactions implements IEthereumTransactions {
   private isUtxoNetwork(network: INetwork): boolean {
     // Generic UTXO network detection patterns:
     // 1. URL contains blockbook or trezor (most reliable)
-    // 2. Network kind is explicitly set to 'utxo'
+    // 2. Network kind is explicitly set to 'syscoin'
     const hasBlockbookUrl = !!(
       network.url?.includes('blockbook') || network.url?.includes('trezor')
     );
-    const hasUtxoKind = (network as any).kind === 'utxo';
+    const hasUtxoKind = (network as any).kind === INetworkType.Syscoin;
 
     return hasBlockbookUrl || hasUtxoKind;
   }
