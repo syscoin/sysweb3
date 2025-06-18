@@ -22,6 +22,6 @@ module.exports = {
   },
   setupFilesAfterEnv: [
     '<rootDir>/../../jest.setup.js',
-    '<rootDir>/test/setup.ts',
+    '<rootDir>/test/helpers/setup.ts',
   ],
 };

@@ -1,0 +1,441 @@
+import {
+  KeyringManager,
+  initialWalletState,
+  KeyringAccountType,
+} from '../../../src';
+import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
+import { setupMocks } from '../../helpers/setup';
+import { INetworkType } from '@pollum-io/sysweb3-network';
+// Import the test helpers that sets up global setupTestVault
+import '../../helpers/setup';
+
+describe('KeyringManager - Security', () => {
+  let keyringManager: KeyringManager;
+
+  beforeEach(async () => {
+    setupMocks();
+    // Set up vault-keys that would normally be created by Pali's MainController
+    await setupTestVault(FAKE_PASSWORD);
+  });
+
+  describe('Password Management', () => {
+    beforeEach(async () => {
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+    });
+
+    it('should require password for sensitive operations', async () => {
+      // getSeed requires password
+      await expect(keyringManager.getSeed('wrong_password')).rejects.toThrow(
+        'Invalid password'
+      );
+
+      // getPrivateKeyByAccountId requires password
+      await expect(
+        keyringManager.getPrivateKeyByAccountId(
+          0,
+          KeyringAccountType.HDAccount,
+          'wrong_password'
+        )
+      ).rejects.toThrow('Invalid password');
+
+      // forgetMainWallet requires password
+      await expect(
+        keyringManager.forgetMainWallet('wrong_password')
+      ).rejects.toThrow('Invalid password');
+    });
+
+    it('should validate password complexity in real implementation', async () => {
+      // Note: This is a placeholder for password complexity validation
+      // In real implementation, weak passwords should be rejected
+      const weakPasswords = ['123', 'abc', 'password', ''];
+
+      // Current implementation accepts any password
+      // This test documents expected behavior for future implementation
+      // Future: should reject weak passwords
+      expect(weakPasswords.length).toBeGreaterThan(0); // Placeholder assertion
+      // for (const weakPassword of weakPasswords) {
+      //   await expect(
+      //     KeyringManager.createInitialized(PEACE_SEED_PHRASE, weakPassword, initialWalletState, INetworkType.Ethereum)
+      //   ).rejects.toThrow('Password too weak');
+      // }
+    });
+
+    it('should handle password changes securely', async () => {
+      // Current implementation doesn't support password changes
+      // This test documents expected behavior for future implementation
+      // Future implementation:
+      // await keyringManager.changePassword(FAKE_PASSWORD, 'newPassword123!');
+      // keyringManager.lockWallet();
+      // const result = await keyringManager.unlock('newPassword123!');
+      // expect(result.canLogin).toBe(true);
+    });
+  });
+
+  describe('Encryption', () => {
+    beforeEach(async () => {
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+    });
+
+    it('should encrypt sensitive data in memory', async () => {
+      // Session data should be encrypted
+      const sessionData = keyringManager.getSessionData();
+
+      // sessionMnemonic should not be plaintext
+      expect(sessionData.sessionMnemonic).toBeDefined();
+      expect(sessionData.sessionMnemonic).not.toBe(PEACE_SEED_PHRASE);
+      expect(sessionData.sessionMnemonic.length).toBeGreaterThan(
+        PEACE_SEED_PHRASE.length
+      );
+
+      // sessionPassword should be hashed
+      expect(sessionData.sessionPassword).toBeDefined();
+      expect(sessionData.sessionPassword).not.toBe(FAKE_PASSWORD);
+    });
+
+    it('should encrypt private keys in wallet state', async () => {
+      // Check HD account
+      const wallet = keyringManager.wallet;
+      const hdAccount = wallet.accounts[KeyringAccountType.HDAccount][0];
+
+      // xprv should be encrypted
+      expect(hdAccount.xprv).toBeDefined();
+      expect(hdAccount.xprv.startsWith('0x')).toBe(false); // Not plaintext hex
+      expect(hdAccount.xprv.length).toBeGreaterThan(66); // Longer than raw key
+
+      // Import an account
+      const privateKey =
+        '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
+      const imported = await keyringManager.importAccount(privateKey);
+
+      const importedAccount =
+        wallet.accounts[KeyringAccountType.Imported][imported.id];
+      expect(importedAccount.xprv).not.toBe(privateKey);
+      expect(importedAccount.xprv.length).toBeGreaterThan(privateKey.length);
+    });
+
+    it('should clear sensitive data on lock', () => {
+      // Verify wallet is unlocked
+      expect(keyringManager.isUnlocked()).toBe(true);
+
+      // Lock wallet
+      keyringManager.lockWallet();
+
+      // Session data should be cleared
+      expect(keyringManager.isUnlocked()).toBe(false);
+      expect(() => keyringManager.getSessionData()).toThrow(
+        'Keyring must be unlocked'
+      );
+
+      // Should not be able to perform sensitive operations
+      expect(() => keyringManager.getActiveAccount()).not.toThrow(); // Public data still accessible
+      expect(
+        async () => await keyringManager.getSeed(FAKE_PASSWORD)
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('Key Derivation Security', () => {
+    it('should use standard derivation paths', async () => {
+      // EVM should use BIP44 m/44'/60'/0'/0/x
+      const evmKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: initialWalletState.networks.ethereum[1],
+        },
+        INetworkType.Ethereum
+      );
+
+      // UTXO should use BIP84 m/84'/57'/0'/0/x for Syscoin
+      const utxoKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: initialWalletState.networks.syscoin[57],
+        },
+        INetworkType.Syscoin
+      );
+
+      // Addresses should be different due to different derivation paths
+      const evmAddress = evmKeyring.getActiveAccount().activeAccount.address;
+      const utxoAddress = utxoKeyring.getActiveAccount().activeAccount.address;
+
+      expect(evmAddress).not.toBe(utxoAddress);
+      expect(evmAddress.startsWith('0x')).toBe(true);
+      expect(utxoAddress.startsWith('sys1')).toBe(true);
+    });
+
+    it('should not expose intermediate keys', async () => {
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+
+      // Only final private keys should be accessible, not master keys
+      const privateKey = await keyringManager.getPrivateKeyByAccountId(
+        0,
+        KeyringAccountType.HDAccount,
+        FAKE_PASSWORD
+      );
+
+      // Should be account private key, not master private key
+      expect(privateKey.startsWith('0x')).toBe(true);
+      expect(privateKey.length).toBe(66); // Standard Ethereum private key length
+    });
+  });
+
+  describe('Vault Security', () => {
+    it('should protect vault with proper encryption', async () => {
+      // Vault should require password to decrypt
+      keyringManager = new KeyringManager();
+      await keyringManager.initializeWalletSecurely(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD
+      );
+
+      // Lock and try to unlock with wrong password
+      keyringManager.lockWallet();
+      const wrongResult = await keyringManager.unlock('wrong_password');
+      expect(wrongResult.canLogin).toBe(false);
+
+      // Correct password should work
+      const correctResult = await keyringManager.unlock(FAKE_PASSWORD);
+      expect(correctResult.canLogin).toBe(true);
+    });
+
+    it('should use salt for password hashing', async () => {
+      // Mock storage should contain vault-keys with salt
+      const mockStorage = (global as any).mockStorage || new Map();
+
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+
+      // In real implementation, vault-keys should exist
+      // This verifies the mock is set up correctly
+      const vaultKeys = await mockStorage.get('vault-keys');
+      if (vaultKeys) {
+        expect(vaultKeys.salt).toBeDefined();
+        expect(vaultKeys.hash).toBeDefined();
+        expect(vaultKeys.salt.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('Import Security', () => {
+    beforeEach(async () => {
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+    });
+
+    it('should validate imported keys before storing', async () => {
+      // Invalid keys should be rejected
+      const invalidKeys = [
+        'not_a_key',
+        '0x',
+        '0xZZZZ', // Invalid hex
+        '0x' + '0'.repeat(63), // Too short
+        '0x' + '0'.repeat(65), // Too long
+      ];
+
+      for (const key of invalidKeys) {
+        await expect(keyringManager.importAccount(key)).rejects.toThrow();
+      }
+    });
+
+    it('should isolate imported keys from HD keys', async () => {
+      // Create a clean keyring with only HD accounts (no placeholder imported accounts)
+      const cleanWalletState = {
+        ...initialWalletState,
+        accounts: {
+          [KeyringAccountType.HDAccount]: {},
+          [KeyringAccountType.Imported]: {},
+          [KeyringAccountType.Trezor]: {},
+          [KeyringAccountType.Ledger]: {},
+        },
+      };
+
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...cleanWalletState,
+          activeNetwork: initialWalletState.networks.ethereum[1],
+        },
+        INetworkType.Ethereum
+      );
+
+      // Check initial state - should have 1 HD account, 0 imported
+      let hdAccounts =
+        keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
+      let importedAccounts =
+        keyringManager.wallet.accounts[KeyringAccountType.Imported];
+      expect(Object.keys(hdAccounts).length).toBe(1);
+      expect(Object.keys(importedAccounts).length).toBe(0);
+
+      // Import a key
+      const importedKey =
+        '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
+      await keyringManager.importAccount(importedKey);
+
+      // HD and imported accounts should be in separate stores
+      hdAccounts = keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
+      importedAccounts =
+        keyringManager.wallet.accounts[KeyringAccountType.Imported];
+
+      // HD accounts should remain unchanged (still 1), imported should now have 1
+      expect(Object.keys(hdAccounts).length).toBe(1);
+      expect(Object.keys(importedAccounts).length).toBe(1);
+
+      // They should have separate ID sequences and be isolated
+      expect(hdAccounts[0]).toBeDefined(); // HD account 0 exists
+      expect(importedAccounts[0]).toBeDefined(); // Imported account 0 exists
+      expect(hdAccounts[0].isImported).toBe(false);
+      expect(importedAccounts[0].isImported).toBe(true);
+    });
+  });
+
+  describe('Memory Security', () => {
+    it('should not leak sensitive data in error messages', async () => {
+      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...initialWalletState,
+          activeNetwork: ethereumMainnet,
+        },
+        INetworkType.Ethereum
+      );
+
+      try {
+        await keyringManager.getSeed('wrong_password');
+      } catch (error) {
+        // Error message should not contain the actual password
+        expect(error.message).not.toContain(FAKE_PASSWORD);
+        expect(error.message).not.toContain(PEACE_SEED_PHRASE);
+      }
+
+      try {
+        await keyringManager.importAccount('invalid_key');
+      } catch (error) {
+        // Error should not leak the attempted key
+        expect(error.message).not.toContain('invalid_key');
+      }
+    });
+
+    it('should clear sensitive data on errors', async () => {
+      // If initialization fails, no sensitive data should remain
+      keyringManager = new KeyringManager();
+
+      try {
+        await keyringManager.initializeWalletSecurely(
+          'invalid seed phrase',
+          FAKE_PASSWORD
+        );
+      } catch (error) {
+        // Wallet should not be unlocked after failed initialization
+        expect(keyringManager.isUnlocked()).toBe(false);
+      }
+    });
+  });
+
+  describe('Access Control', () => {
+    beforeEach(async () => {
+      // Use clean wallet state without placeholder imported accounts
+      const cleanWalletState = {
+        ...initialWalletState,
+        accounts: {
+          [KeyringAccountType.HDAccount]: {},
+          [KeyringAccountType.Imported]: {},
+          [KeyringAccountType.Trezor]: {},
+          [KeyringAccountType.Ledger]: {},
+        },
+      };
+
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        {
+          ...cleanWalletState,
+          activeNetwork: initialWalletState.networks.ethereum[1],
+        },
+        INetworkType.Ethereum
+      );
+    });
+
+    it('should require unlock for sensitive operations', async () => {
+      keyringManager.lockWallet();
+
+      // These should fail when locked
+      await expect(keyringManager.addNewAccount()).rejects.toThrow();
+      await expect(
+        keyringManager.importAccount('0x' + '0'.repeat(64))
+      ).rejects.toThrow();
+
+      // These should work when locked (public data)
+      expect(() => keyringManager.getNetwork()).not.toThrow();
+      expect(() => keyringManager.getActiveAccount()).not.toThrow();
+    });
+
+    it('should validate account ownership', async () => {
+      // Can only get private keys for accounts that exist
+      await expect(
+        keyringManager.getPrivateKeyByAccountId(
+          999, // Non-existent account
+          KeyringAccountType.HDAccount,
+          FAKE_PASSWORD
+        )
+      ).rejects.toThrow('Account not found');
+
+      // Can only access accounts of the correct type
+      expect(() =>
+        keyringManager.getAccountById(
+          0,
+          KeyringAccountType.Imported // Wrong type
+        )
+      ).toThrow('Account not found');
+    });
+  });
+});

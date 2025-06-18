@@ -53,7 +53,7 @@ process.env.SEED_SWALLOW_HEALTH =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon';
 
 // Mock the providers module
-jest.mock('../src/providers', () => ({
+jest.mock('../../src/providers', () => ({
   CustomJsonRpcProvider: jest.fn().mockImplementation((_signal, _url) => {
     const { ethers } = jest.requireActual('ethers');
 
@@ -62,7 +62,10 @@ jest.mock('../src/providers', () => ({
     let name = 'syscoin';
 
     if (_url) {
-      if (
+      if (_url.includes('rpc.ankr.com/eth') || _url.includes('mainnet')) {
+        chainId = 1;
+        name = 'mainnet';
+      } else if (
         _url.includes('tanenbaum') ||
         _url.includes('test') ||
         _url.includes('5700')
@@ -77,6 +80,19 @@ jest.mock('../src/providers', () => ({
         name = 'polygon';
       }
     }
+
+    // Create signer first
+    const signer = {
+      getAddress: jest
+        .fn()
+        .mockResolvedValue('0x1234567890123456789012345678901234567890'),
+      sendTransaction: jest.fn().mockResolvedValue({
+        hash: '0x1234567890123456789012345678901234567890123456789012345678901234',
+        wait: jest.fn().mockResolvedValue({ status: 1 }),
+      }),
+      connect: jest.fn().mockReturnThis(),
+      provider: null as any, // Will be set below
+    };
 
     const provider = {
       getNetwork: jest.fn().mockResolvedValue({ chainId, name }),
@@ -126,24 +142,47 @@ jest.mock('../src/providers', () => ({
         chainId: 1,
         wait: jest.fn().mockResolvedValue({ status: 1 }),
       }),
-      getSigner: jest.fn().mockReturnValue({
-        getAddress: jest
-          .fn()
-          .mockResolvedValue('0x1234567890123456789012345678901234567890'),
-        sendTransaction: jest.fn().mockResolvedValue({
-          hash: '0x1234567890123456789012345678901234567890123456789012345678901234',
-          wait: jest.fn().mockResolvedValue({ status: 1 }),
-        }),
+      getSigner: jest.fn().mockReturnValue(signer),
+      // Add missing methods that ethers.js expects
+      resolveName: jest.fn().mockImplementation((nameOrAddress) => {
+        // If it's already an address, return it; otherwise return null (no ENS resolution)
+        if (
+          nameOrAddress &&
+          nameOrAddress.startsWith('0x') &&
+          nameOrAddress.length === 42
+        ) {
+          return Promise.resolve(nameOrAddress);
+        }
+        return Promise.resolve(null);
       }),
+      lookupAddress: jest.fn().mockResolvedValue(null),
+      waitForTransaction: jest.fn().mockImplementation((hash) => {
+        return Promise.resolve({
+          hash,
+          status: 1,
+          confirmations: 1,
+          blockNumber: 12345,
+          blockHash:
+            '0x1234567890123456789012345678901234567890123456789012345678901234',
+          gasUsed: ethers.BigNumber.from('21000'),
+        });
+      }),
+      getResolver: jest.fn().mockResolvedValue(null),
+      getAvatar: jest.fn().mockResolvedValue(null),
       network: { chainId },
       _isProvider: true,
     };
+
+    // Set circular reference
+    signer.provider = provider;
+
     return provider;
   }),
   CustomL2JsonRpcProvider: jest.fn().mockImplementation((_signal, _url) => {
     // Return the same mock as CustomJsonRpcProvider for simplicity
-    const CustomJsonRpcProviderMock =
-      jest.requireMock('../src/providers').CustomJsonRpcProvider;
+    const CustomJsonRpcProviderMock = jest.requireMock(
+      '../../src/providers'
+    ).CustomJsonRpcProvider;
     return new CustomJsonRpcProviderMock(_signal, _url);
   }),
 }));
@@ -175,6 +214,21 @@ jest.mock('@pollum-io/sysweb3-core', () => ({
   },
 }));
 
+// Mock sysweb3-utils to support token operations
+jest.mock('@pollum-io/sysweb3-utils', () => {
+  const actualUtils = jest.requireActual('@pollum-io/sysweb3-utils');
+  return {
+    ...actualUtils,
+    getAsset: jest.fn().mockResolvedValue({
+      assetGuid: '123456789',
+      symbol: 'TEST',
+      decimals: 8,
+      maxSupply: 1000000,
+      totalSupply: 500000,
+    }),
+  };
+});
+
 // Mock syscoinjs utilities - only network calls, use real HDSigner for deterministic crypto
 jest.mock('syscoinjs-lib', () => {
   const actualSyscoinjs = jest.requireActual('syscoinjs-lib');
@@ -190,9 +244,7 @@ jest.mock('syscoinjs-lib', () => {
         tokens: [],
         address: 'tsys1q4v8sagt0znwaxdscrzhvu8t33n7vj8j45czpv4',
       }),
-      fetchEstimateFee: jest.fn().mockResolvedValue({
-        result: 10000,
-      }),
+      fetchEstimateFee: jest.fn().mockResolvedValue(10), // Return reasonable fee rate (10 satoshis per 1024 bytes)
       fetchBackendRawTx: jest.fn().mockResolvedValue('mockedRawTx'),
       fetchBackendUTXOS: jest.fn().mockResolvedValue([]),
       sanitizeBlockbookUTXOs: jest.fn().mockReturnValue([]),
@@ -215,6 +267,21 @@ jest.mock('syscoinjs-lib', () => {
     SyscoinJSLib: jest.fn().mockImplementation((hd, url) => ({
       blockbookURL: url || 'https://blockbook-dev.elint.services/',
       Signer: hd,
+      createTransaction: jest.fn().mockResolvedValue({
+        psbt: 'mocked_psbt_object',
+        fee: 0.0001, // 0.0001 SYS fee
+      }),
+      decodeRawTransaction: jest.fn().mockReturnValue({
+        txid: 'mocked_txid',
+        version: 1,
+        locktime: 0,
+        vin: [],
+        vout: [],
+      }),
+      assetAllocationSend: jest.fn().mockResolvedValue({
+        psbt: 'mocked_spt_psbt',
+        fee: 0.0001,
+      }),
     })),
   };
 });
@@ -222,12 +289,26 @@ jest.mock('syscoinjs-lib', () => {
 // Mock fetch to avoid network requests
 global.fetch = jest.fn((url) => {
   if (url.includes('/api/v2') && !url.includes('xpub')) {
+    // Determine coin name based on URL
+    let coinName = 'Syscoin'; // Default to mainnet
+    let chainType = 'main';
+
+    // Check if it's a testnet URL
+    if (
+      url.includes('dev') ||
+      url.includes('test') ||
+      url.includes('tanenbaum')
+    ) {
+      coinName = 'Syscoin Testnet';
+      chainType = 'test';
+    }
+
     return Promise.resolve({
       ok: true,
       json: () =>
         Promise.resolve({
-          blockbook: { coin: 'Syscoin Testnet' },
-          backend: { chain: 'test' },
+          blockbook: { coin: coinName },
+          backend: { chain: chainType },
         }),
     } as any);
   }
@@ -275,12 +356,27 @@ global.setupTestVault = async (password = 'test123') => {
   const { sysweb3Di } = jest.requireMock('@pollum-io/sysweb3-core');
   const storage = sysweb3Di.getStateStorageDb();
 
-  // Create a properly encrypted vault
+  // Check if vault-keys already exist - if so, don't recreate them (idempotent)
+  const existingVaultKeys = await storage.get('vault-keys');
+  if (existingVaultKeys && existingVaultKeys.salt && existingVaultKeys.hash) {
+    // Vault already set up, verify password matches
+    const expectedHash = createHmac('sha512', existingVaultKeys.salt)
+      .update(password)
+      .digest('hex');
+    if (expectedHash === existingVaultKeys.hash) {
+      // Same password, vault is already correctly set up
+      return;
+    }
+    // Different password - need to recreate
+  }
+
+  // Create a vault with plain mnemonic (it will be encrypted by storage)
   const CryptoJS = jest.requireActual('crypto-js');
   const mnemonic =
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-  const encryptedMnemonic = CryptoJS.AES.encrypt(mnemonic, password).toString();
-  const vault = { mnemonic: encryptedMnemonic };
+
+  // Vault should contain plain mnemonic - the storage layer handles encryption
+  const vault = { mnemonic: mnemonic };
   const encryptedVault = CryptoJS.AES.encrypt(
     JSON.stringify(vault),
     password
@@ -288,9 +384,9 @@ global.setupTestVault = async (password = 'test123') => {
 
   await storage.set('vault', encryptedVault);
 
-  // Set up vault-keys
-  const salt = randomBytes(16).toString('hex');
-  const currentSessionSalt = randomBytes(16).toString('hex');
+  // Use CONSISTENT salts for testing (not random) to prevent password validation mismatches
+  const salt = 'test-salt-12345678901234567890123456789012'; // Fixed 32-char salt
+  const currentSessionSalt = 'session-salt-1234567890123456789012345678'; // Fixed 32-char salt
   const hash = createHmac('sha512', salt).update(password).digest('hex');
 
   await storage.set('vault-keys', {
@@ -298,4 +394,18 @@ global.setupTestVault = async (password = 'test123') => {
     salt,
     currentSessionSalt,
   });
+};
+
+// Export setupMocks function for use in test files
+export const setupMocks = () => {
+  // Reset any global state
+  jest.clearAllMocks();
+
+  // Don't clear storage here - let the beforeEach/afterEach hooks handle it
+  // This prevents clearing vault-keys between keyring creation and password validation
+
+  // Reset vault data if it exists
+  if ((global as any).storedVaultData) {
+    (global as any).storedVaultData = null;
+  }
 };

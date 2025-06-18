@@ -223,10 +223,8 @@ export interface ISyscoinTransactions {
 export interface IKeyringManager {
   addCustomNetwork: (network: INetwork) => void;
   addNewAccount: (label?: string) => Promise<IKeyringAccountState>;
-  createKeyringVault: () => Promise<IKeyringAccountState>;
-  createNewSeed: () => string;
   ethereumTransaction: IEthereumTransactions;
-  forgetMainWallet: (password: string) => void;
+  forgetMainWallet: (pwd: string) => void;
   getAccountById: (
     id: number,
     accountType: KeyringAccountType
@@ -256,9 +254,9 @@ export interface IKeyringManager {
   }>;
   getPrivateKeyByAccountId: (
     id: number,
-    acountType: KeyringAccountType,
+    accountType: KeyringAccountType,
     pwd: string
-  ) => string;
+  ) => Promise<string>;
   removeNetwork: (
     chain: INetworkType,
     chainId: number,
@@ -266,28 +264,52 @@ export interface IKeyringManager {
     label: string,
     key?: string
   ) => void;
-  setSeed: (seed: string) => void;
-  updateNetworkConfig: (network: INetwork) => void;
+  updateNetworkConfig: (data: INetwork) => void;
   setStorage: (client: any) => void;
-  setWalletPassword: (password: string) => void;
   syscoinTransaction: ISyscoinTransactions;
-  isSeedValid: (seed: string) => boolean;
-  getSeed: (password: string) => Promise<string>;
+  isSeedValid: (seedPhrase: string) => boolean;
+  getSeed: (pwd: string) => Promise<string>;
   updateAccountLabel: (
     label: string,
     accountId: number,
     accountType: KeyringAccountType
   ) => void;
-  importTrezorAccount(
-    coin: string,
-    slip44: number,
-    index: string
-  ): Promise<IKeyringAccountState>;
+  importTrezorAccount: (label?: string) => Promise<IKeyringAccountState>;
   utf8Error: boolean;
   validateZprv: (
     zprv: string,
     targetNetwork?: INetwork
   ) => IValidateZprvResponse;
+  // Methods that were missing from interface
+  importAccount: (
+    privKey: string,
+    label?: string
+  ) => Promise<IKeyringAccountState>;
+  getNewChangeAddress: () => Promise<string>;
+  getChangeAddress: (id: number) => Promise<string>;
+  updateReceivingAddress: () => Promise<string>;
+  getActiveAccount: () => {
+    activeAccount: Omit<IKeyringAccountState, 'xprv'>;
+    activeAccountType: KeyringAccountType;
+  };
+  importWeb3Account: (mnemonicOrPrivKey: string) => any;
+  createNewSeed: () => string;
+  getUTXOState: () => any; // Returns modified wallet state, not IWalletState
+  importLedgerAccount: (
+    isAlreadyConnected: boolean,
+    label?: string
+  ) => Promise<IKeyringAccountState | undefined>; // Can return undefined
+  getActiveUTXOAccountState: () => any; // Returns object with xprv: undefined
+  createEthAccount: (privateKey: string) => any;
+  getAddress: (xpub: string, isChangeAddress: boolean) => Promise<string>;
+  // NEW: Secure initialization and password management
+  initializeWalletSecurely: (
+    seedPhrase: string,
+    password: string,
+    prvPassword?: string
+  ) => Promise<IKeyringAccountState>;
+  createKeyringVaultFromSession: () => Promise<IKeyringAccountState>;
+  // REMOVED: setSeed, setWalletPassword, createKeyringVault (deprecated for security)
 }
 
 export enum KeyringAccountType {

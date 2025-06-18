@@ -1,12 +1,11 @@
 import ecc from '@bitcoinerlab/secp256k1';
 import { BIP32Factory } from 'bip32';
-import { generateMnemonic, validateMnemonic, mnemonicToSeed } from 'bip39';
+import { generateMnemonic, validateMnemonic } from 'bip39';
 import BIP84 from 'bip84';
 import * as bjs from 'bitcoinjs-lib';
 import bs58check from 'bs58check';
 import crypto from 'crypto';
 import CryptoJS from 'crypto-js';
-import { hdkey } from 'ethereumjs-wallet';
 import { ethers } from 'ethers';
 import mapValues from 'lodash/mapValues';
 import omit from 'lodash/omit';
@@ -86,18 +85,12 @@ export class KeyringManager implements IKeyringManager {
   private hdMain: SyscoinHDSigner | null = null; // Main HD signer from seed
   private hdImportedByAccountId: Map<number, SyscoinHDSigner> = new Map(); // Imported zprvs
 
-  private memMnemonic: string;
-  private memPassword: string;
-  private currentSessionSalt: string;
   private sessionPassword: string;
   private sessionMnemonic: string; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
-  private sessionMainMnemonic: string; // mnemonic of the main account, does not change
-  private sessionSeed: string;
   private slip44: number | undefined; // The slip44 for this keyring instance
 
   constructor(opts?: IkeyringManagerOpts | null) {
     this.storage = sysweb3.sysweb3Di.getStateStorageDb();
-    this.currentSessionSalt = this.generateSalt();
     this.sessionPassword = '';
     this.storage.set('utf8Error', {
       hasUtf8Error: false,
@@ -131,11 +124,7 @@ export class KeyringManager implements IKeyringManager {
     }
 
     this.utf8Error = false;
-    this.memMnemonic = '';
-    this.sessionSeed = '';
     this.sessionMnemonic = '';
-    this.sessionMainMnemonic = '';
-    this.memPassword = '';
     this.initialTrezorAccountState = initialActiveTrezorAccountState;
     this.initialLedgerAccountState = initialActiveLedgerAccountState;
     this.trezorSigner = new TrezorKeyring(this.getSigner);
@@ -175,14 +164,8 @@ export class KeyringManager implements IKeyringManager {
       slip44,
     });
 
-    // Set the seed
-    keyringManager.setSeed(seed);
-
-    // Set the wallet password
-    await keyringManager.setWalletPassword(password);
-
-    // Create the keyring vault - it will use the activeNetwork and activeChain to determine account type
-    await keyringManager.createKeyringVault();
+    // Use the new secure initialization method (eliminates temporary plaintext storage)
+    await keyringManager.initializeWalletSecurely(seed, password);
 
     // Set the active account based on the wallet state (respects activeAccountId)
     try {
@@ -208,21 +191,15 @@ export class KeyringManager implements IKeyringManager {
     password: string,
     network?: INetwork
   ): Promise<IKeyringAccountState> {
-    // Set the seed
-    this.setSeed(seed);
-
     // Set the network if provided (this is crucial for proper address derivation)
     if (network) {
       await this.setSignerNetwork(network);
     }
 
-    // Set the wallet password
-    await this.setWalletPassword(password);
+    // Use the new secure initialization method (eliminates temporary plaintext storage)
+    const account = await this.initializeWalletSecurely(seed, password);
 
-    // Create the keyring vault
-    const account = await this.createKeyringVault();
-
-    // Set the created account as active
+    // Set the created account as active (this is already done in initializeWalletSecurely, but ensure it's set correctly)
     await this.setActiveAccount(account.id, this.validateAccountType(account));
 
     return account;
@@ -241,10 +218,7 @@ export class KeyringManager implements IKeyringManager {
   public isUnlocked = () => !!this.sessionPassword;
   public lockWallet = () => {
     this.sessionPassword = '';
-    this.sessionSeed = '';
     this.sessionMnemonic = '';
-    this.sessionMainMnemonic = '';
-    // Note: currentSessionSalt is kept as it's needed for password validation on next unlock
   };
 
   // Extract session data from an unlocked keyring to share with new keyrings
@@ -255,9 +229,6 @@ export class KeyringManager implements IKeyringManager {
     return {
       sessionPassword: this.sessionPassword,
       sessionMnemonic: this.sessionMnemonic,
-      sessionMainMnemonic: this.sessionMainMnemonic,
-      sessionSeed: this.sessionSeed,
-      currentSessionSalt: this.currentSessionSalt,
     };
   };
 
@@ -265,20 +236,19 @@ export class KeyringManager implements IKeyringManager {
   public setSessionData = (sessionData: {
     sessionPassword: string;
     sessionMnemonic: string;
-    sessionMainMnemonic: string;
-    sessionSeed: string;
-    currentSessionSalt: string;
   }) => {
     this.sessionPassword = sessionData.sessionPassword;
     this.sessionMnemonic = sessionData.sessionMnemonic;
-    this.sessionMainMnemonic = sessionData.sessionMainMnemonic;
-    this.sessionSeed = sessionData.sessionSeed;
-    this.currentSessionSalt = sessionData.currentSessionSalt;
   };
 
   public addNewAccount = async (
     label?: string
   ): Promise<IKeyringAccountState> => {
+    // Check if wallet is unlocked
+    if (!this.isUnlocked()) {
+      throw new Error('Wallet must be unlocked to add new accounts');
+    }
+
     // addNewAccount should only create accounts from the main seed
     // For importing accounts (including zprvs), use importAccount
     if (this.activeChain === INetworkType.Syscoin) {
@@ -289,194 +259,61 @@ export class KeyringManager implements IKeyringManager {
     }
   };
 
-  public setWalletPassword = async (pwd: string, prvPwd?: string) => {
-    if (this.sessionPassword) {
-      if (!prvPwd) {
-        throw new Error('Previous password is required to change the password');
-      }
-      const genPwd = this.encryptSHA512(prvPwd, this.currentSessionSalt);
-      if (genPwd !== this.sessionPassword) {
-        throw new Error('Previous password is not correct');
-      }
-    }
-    const salt = this.generateSalt();
-    const hash = this.encryptSHA512(pwd, salt);
-    this.memPassword = pwd; //This will be needed a bit longer on the memory for wallet creation purposes
-    this.sessionPassword = this.encryptSHA512(pwd, this.currentSessionSalt);
-
-    if (this.memMnemonic) {
-      await setEncryptedVault(
-        {
-          mnemonic: CryptoJS.AES.encrypt(this.memMnemonic, pwd).toString(),
-        },
-        this.memPassword,
-        this.slip44
-      );
-
-      this.sessionMnemonic = CryptoJS.AES.encrypt(
-        this.memMnemonic,
-        this.sessionPassword
-      ).toString();
-
-      this.sessionMainMnemonic = this.sessionMnemonic;
-
-      this.memMnemonic = '';
-    }
-    if (prvPwd) await this.updateWalletKeys(prvPwd);
-
-    this.storage.set('vault-keys', {
-      hash,
-      salt,
-      currentSessionSalt: this.currentSessionSalt,
-    });
-  };
-
-  public unlock = async (
-    password: string,
-    isForPvtKey?: boolean
-  ): Promise<{
+  public async unlock(password: string): Promise<{
     canLogin: boolean;
     wallet?: IWalletState | null;
-  }> => {
+  }> {
     try {
-      // Get vault-keys and utf8Error in parallel for efficiency
-      const [vaultKeysResult, utf8ErrorResult] = await Promise.allSettled([
-        this.storage.get('vault-keys'),
-        this.storage.get('utf8Error'),
-      ]);
+      const vaultKeys = await this.storage.get('vault-keys');
 
-      // Handle vault-keys result with retry logic only if needed
-      let vaultKeys;
-      if (
-        vaultKeysResult.status === 'fulfilled' &&
-        vaultKeysResult.value &&
-        vaultKeysResult.value.hash &&
-        vaultKeysResult.value.salt
-      ) {
-        vaultKeys = vaultKeysResult.value;
-      } else {
-        // Only retry if the first attempt failed or returned incomplete data
-        console.log(
-          `[KeyringManager] vault-keys not ready on first attempt, retrying...`
-        );
-
-        let retries = 0;
-        const maxRetries = 2; // Reduced from 3 to 2
-        const retryDelay = 150; // Reduced from 200ms to 150ms
-
-        while (retries < maxRetries) {
-          try {
-            await new Promise((resolve) => setTimeout(resolve, retryDelay));
-            vaultKeys = await this.storage.get('vault-keys');
-            if (vaultKeys && vaultKeys.hash && vaultKeys.salt) {
-              break; // Successfully got vault keys
-            }
-            console.log(
-              `[KeyringManager] vault-keys retry ${
-                retries + 1
-              }/${maxRetries} failed`
-            );
-            retries++;
-          } catch (error) {
-            console.error(
-              `[KeyringManager] vault-keys retry ${
-                retries + 1
-              }/${maxRetries} error:`,
-              error
-            );
-            retries++;
-          }
-        }
-      }
-
-      if (!vaultKeys || !vaultKeys.hash || !vaultKeys.salt) {
-        console.error('[KeyringManager] Failed to get valid vault-keys');
+      if (!vaultKeys) {
         return {
           canLogin: false,
-          wallet: null,
         };
       }
 
+      // FIRST: Validate password against stored hash
       const { hash, salt } = vaultKeys;
-      const hasUtf8Error =
-        utf8ErrorResult.status === 'fulfilled' && utf8ErrorResult.value
-          ? utf8ErrorResult.value.hasUtf8Error
-          : false;
-      const hashPassword = this.encryptSHA512(password, salt);
+      const saltedHashPassword = this.encryptSHA512(password, salt);
 
-      if (isForPvtKey) {
+      if (saltedHashPassword !== hash) {
+        // Password is wrong - return immediately
         return {
-          canLogin: hashPassword === hash,
+          canLogin: false,
         };
       }
 
-      let wallet: IWalletState | null = null;
+      // If session data missing or corrupted, recreate from vault
+      if (!this.sessionMnemonic) {
+        await this.recreateSessionFromVault(password, saltedHashPassword);
+      }
 
-      if (hashPassword === hash) {
-        this.sessionPassword = await this.recoverLastSessionPassword(password);
-
-        let needsRestore = false;
-        const hdCreated = !!this.hd;
-        // Check if we need to restore the wallet
-        if (hasUtf8Error) {
-          const sysMainnetNetwork = {
-            apiUrl: '',
-            chainId: 57,
-            currency: 'sys',
-            default: true,
-            explorer: 'https://explorer-blockbook.syscoin.org',
-            label: 'Syscoin Mainnet',
-            slip44: 57,
-            url: 'https://explorer-blockbook.syscoin.org',
-            kind: INetworkType.Syscoin,
-          };
-
-          await this.setSignerNetwork(sysMainnetNetwork);
-          needsRestore = true;
-          this.storage.set('utf8Error', { hasUtf8Error: false });
-        }
-        // Only restore once if needed
-        if (needsRestore || !hdCreated || !this.sessionMnemonic) {
-          await this.restoreWallet(hdCreated, password);
-        }
-
-        if (hasUtf8Error) {
-          wallet = this.wallet;
-        }
-
-        await this.updateWalletKeys(password);
-
-        // This ensures EVM private keys are properly derived for the default account
-        try {
-          const { activeAccountId, activeAccountType } = this.wallet;
-          await this.setActiveAccount(activeAccountId, activeAccountType);
-          console.log(
-            `[KeyringManager] Active account ${activeAccountId} initialized after unlock`
-          );
-        } catch (accountError) {
-          console.warn(
-            '[KeyringManager] Failed to initialize active account after unlock:',
-            accountError.message
-          );
-          // Don't fail the unlock process if account initialization fails
-        }
+      // Initialize active account after unlock
+      if (
+        this.wallet.activeAccountId !== undefined &&
+        this.wallet.activeAccountType
+      ) {
+        await this.setActiveAccount(
+          this.wallet.activeAccountId,
+          this.wallet.activeAccountType
+        );
+        console.log(
+          `[KeyringManager] Active account ${this.wallet.activeAccountId} initialized after unlock`
+        );
       }
 
       return {
-        canLogin: hashPassword === hash,
-        wallet,
+        canLogin: true,
       };
     } catch (error) {
       console.log('ERROR unlock', {
         error,
       });
-      this.validateAndHandleErrorByMessage(error.message);
       return {
         canLogin: false,
-        wallet: null,
       };
     }
-  };
+  }
 
   public getNewChangeAddress = async (): Promise<string> => {
     const { activeAccountType, accounts, activeAccountId } = this.wallet;
@@ -498,113 +335,6 @@ export class KeyringManager implements IKeyringManager {
     const address = await this.getAddress(xpub, false);
     this.wallet.accounts[activeAccountType][activeAccountId].address = address;
     return address;
-  };
-
-  public createKeyringVault = async (): Promise<IKeyringAccountState> => {
-    try {
-      if (!this.memPassword) {
-        throw new Error('Create a password first');
-      }
-      let { mnemonic } = await getDecryptedVault(this.memPassword, this.slip44);
-
-      if (!mnemonic) {
-        throw new Error('Mnemonic not found in vault or is empty');
-      }
-
-      // Try to detect if mnemonic is encrypted or plain text
-      // Encrypted mnemonics typically don't contain common BIP39 words
-      const isLikelyPlainMnemonic =
-        mnemonic.includes(' ') &&
-        (mnemonic.split(' ').length === 12 ||
-          mnemonic.split(' ').length === 24);
-
-      if (!isLikelyPlainMnemonic) {
-        try {
-          mnemonic = CryptoJS.AES.decrypt(mnemonic, this.memPassword).toString(
-            CryptoJS.enc.Utf8
-          );
-        } catch (decryptError) {
-          // If decryption fails, assume mnemonic is already decrypted
-          // This can happen in tests or if the storage format changes
-          console.warn(
-            'Mnemonic decryption failed, using as-is:',
-            decryptError.message
-          );
-        }
-      }
-
-      if (!mnemonic) {
-        throw new Error(
-          'Failed to decrypt mnemonic or mnemonic is empty after decryption'
-        );
-      }
-
-      // Store the seed for account creation
-      const seed = (await mnemonicToSeed(mnemonic)).toString('hex');
-      this.sessionSeed = CryptoJS.AES.encrypt(
-        seed,
-        this.sessionPassword
-      ).toString();
-
-      // Initialize wallet accounts structure if empty
-      if (!this.wallet.accounts[KeyringAccountType.HDAccount]) {
-        this.wallet.accounts[KeyringAccountType.HDAccount] = {};
-      }
-
-      // Create account 0 directly (it will be set as active anyway)
-      let rootAccount: IKeyringAccountState;
-      if (this.activeChain === INetworkType.Ethereum) {
-        // For EVM: Set up provider and create account 0 directly
-        await this.setSignerEVM(this.wallet.activeNetwork);
-        rootAccount = await this.addNewAccountToEth();
-      } else {
-        // For UTXO: Create account 0 directly
-        const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
-        const { hd } = getSyscoinSigners({ mnemonic, rpc });
-
-        this.hd = hd;
-        this.hdMain = hd; // Set as main HD signer
-
-        this.syscoinSigner = new syscoinjs.SyscoinJSLib(
-          hd,
-          this.wallet.activeNetwork.url,
-          undefined
-        );
-
-        const xpub = hd.getAccountXpub();
-        const sysAccount = this.getFormattedBackendAccount({
-          xpub,
-          id: 0,
-        });
-
-        // Preserve existing label from wallet state if it exists
-        const existingAccount =
-          this.wallet.accounts[KeyringAccountType.HDAccount][0];
-        const label = existingAccount?.label || 'Account 1';
-
-        rootAccount = this.getInitialAccountData({
-          label,
-          signer: hd,
-          sysAccount,
-          xprv: this.getEncryptedXprv(),
-        });
-      }
-
-      // Store account 0 in the wallet and set as active
-      this.wallet.accounts[KeyringAccountType.HDAccount][rootAccount.id] =
-        rootAccount;
-      this.wallet.activeAccountId = rootAccount.id;
-      this.wallet.activeAccountType = KeyringAccountType.HDAccount;
-
-      this.memPassword = '';
-      return rootAccount;
-    } catch (error) {
-      console.log('ERROR createKeyringVault', {
-        error,
-      });
-      this.validateAndHandleErrorByMessage(error.message);
-      throw error;
-    }
   };
 
   public setActiveAccount = async (
@@ -689,20 +419,29 @@ export class KeyringManager implements IKeyringManager {
     return omit(account, 'xprv');
   };
 
-  public getPrivateKeyByAccountId = (
+  public getPrivateKeyByAccountId = async (
     id: number,
-    acountType: KeyringAccountType,
+    accountType: KeyringAccountType,
     pwd: string
-  ): string => {
+  ): Promise<string> => {
     try {
-      // Validate password first
-      const genPwd = this.encryptSHA512(pwd, this.currentSessionSalt);
+      // Validate password using vault salt (same pattern as getSeed)
       if (!this.sessionPassword) {
         throw new Error('Unlock wallet first');
-      } else if (this.sessionPassword !== genPwd) {
+      }
+
+      // Get vault salt for password validation
+      const vaultKeys = await this.storage.get('vault-keys');
+      if (!vaultKeys || !vaultKeys.salt) {
+        throw new Error('Vault keys not found');
+      }
+
+      const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
+      if (this.sessionPassword !== genPwd) {
         throw new Error('Invalid password');
       }
-      const accounts = this.wallet.accounts[acountType];
+
+      const accounts = this.wallet.accounts[accountType];
 
       const account = Object.values(accounts).find(
         (account) => account.id === id
@@ -744,18 +483,26 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
-  public getEncryptedXprv = () => {
+  public getEncryptedXprv = (hd?: SyscoinHDSigner) => {
     return CryptoJS.AES.encrypt(
-      this.getSysActivePrivateKey(),
+      this.getSysActivePrivateKey(hd),
       this.sessionPassword
     ).toString();
   };
 
   public getSeed = async (pwd: string) => {
-    const genPwd = this.encryptSHA512(pwd, this.currentSessionSalt);
     if (!this.sessionPassword) {
       throw new Error('Unlock wallet first');
-    } else if (this.sessionPassword !== genPwd) {
+    }
+
+    // Get vault salt for password validation (consistent with getPrivateKeyByAccountId)
+    const vaultKeys = await this.storage.get('vault-keys');
+    if (!vaultKeys || !vaultKeys.salt) {
+      throw new Error('Vault keys not found');
+    }
+
+    const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
+    if (this.sessionPassword !== genPwd) {
       throw new Error('Invalid password');
     }
     let { mnemonic } = await getDecryptedVault(pwd, this.slip44);
@@ -837,6 +584,12 @@ export class KeyringManager implements IKeyringManager {
           [data.chainId]: data,
         },
       },
+      // If this is the active network, update it as well
+      activeNetwork:
+        this.wallet.activeNetwork.chainId === data.chainId &&
+        this.activeChain === data.kind
+          ? data
+          : this.wallet.activeNetwork,
     };
   };
 
@@ -983,33 +736,50 @@ export class KeyringManager implements IKeyringManager {
       // - EVM: All EVM networks share slip44=60, so network can change within the same keyring
 
       if (network.kind === INetworkType.Syscoin) {
-        // For UTXO networks, this should only be called during initial setup
-        // as each UTXO network has its own keyring manager
+        // Ensure the active account exists before setting up signers
+        const accountId = this.wallet.activeAccountId || 0;
+        const accountType =
+          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
+        const accounts = this.wallet.accounts[accountType];
+
+        // Check if account doesn't exist OR exists but is empty (placeholder)
+        if (!accounts[accountId] || !accounts[accountId].xpub) {
+          if (accountType === KeyringAccountType.HDAccount) {
+            await this.createUTXOAccountAtIndex(accountId);
+          } else {
+            throw new Error(
+              `Active account ${accountType}:${accountId} does not exist and cannot be created automatically. Imported and hardware accounts must be explicitly added.`
+            );
+          }
+        }
+        // Set up signers for the active account
         if (!this.hd || !this.syscoinSigner) {
-          // Initial setup - use the current wallet state (which persists per keyring)
-          // The wallet state already contains the correct activeAccountId for this keyring
-          const accountId = this.wallet.activeAccountId || 0;
-          const accountType =
-            this.wallet.activeAccountType || KeyringAccountType.HDAccount;
-
           await this.setActiveAccount(accountId, accountType);
-
           if (!this.hd) throw new Error('Error initialising HD');
         }
-        // If HD signer already exists, the active account is already set correctly
       } else if (network.kind === INetworkType.Ethereum) {
-        // For EVM, network can change within the same keyring manager (all use slip44=60)
-        // First update the provider with new network
-        await this.setSignerEVM(network);
+        // Ensure the active account exists before setting up signers
+        const accountId = this.wallet.activeAccountId || 0;
+        const accountType =
+          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
+        const accounts = this.wallet.accounts[accountType];
 
-        // Only derive accounts if none exist (first time setup)
-        if (
-          !this.wallet.accounts[KeyringAccountType.HDAccount] ||
-          Object.keys(this.wallet.accounts[KeyringAccountType.HDAccount])
-            .length === 0
-        ) {
-          await this.updateWeb3Accounts();
+        // Check if account doesn't exist OR exists but is empty (placeholder)
+        if (!accounts[accountId] || !accounts[accountId].xpub) {
+          if (accountType === KeyringAccountType.HDAccount) {
+            await this.setDerivedWeb3Accounts(
+              accountId,
+              `Account ${accountId + 1}`
+            );
+          } else {
+            throw new Error(
+              `Active account ${accountType}:${accountId} does not exist and cannot be created automatically. Imported and hardware accounts must be explicitly added.`
+            );
+          }
         }
+
+        // Set up EVM provider
+        await this.setSignerEVM(network);
       }
 
       // Update network configuration
@@ -1046,7 +816,11 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public forgetMainWallet = async (pwd: string) => {
-    const genPwd = this.encryptSHA512(pwd, this.currentSessionSalt);
+    const vaultKeys = await this.storage.get('vault-keys');
+    if (!vaultKeys || !vaultKeys.salt) {
+      throw new Error('Vault keys not found');
+    }
+    const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
     if (!this.sessionPassword) {
       throw new Error('Unlock wallet first');
     } else if (this.sessionPassword !== genPwd) {
@@ -1086,24 +860,6 @@ export class KeyringManager implements IKeyringManager {
 
   public createNewSeed = () => generateMnemonic();
 
-  public setSeed = (seedPhrase: string) => {
-    if (validateMnemonic(seedPhrase)) {
-      this.memMnemonic = seedPhrase;
-      if (this.sessionPassword) {
-        this.sessionMnemonic = CryptoJS.AES.encrypt(
-          seedPhrase,
-          this.sessionPassword
-        ).toString();
-
-        this.sessionMainMnemonic = this.sessionMnemonic;
-
-        this.memMnemonic = '';
-      }
-      return seedPhrase;
-    }
-    throw new Error('Invalid Seed');
-  };
-
   public getUTXOState = () => {
     if (this.activeChain !== INetworkType.Syscoin) {
       throw new Error('Cannot get state in a ethereum network');
@@ -1129,10 +885,15 @@ export class KeyringManager implements IKeyringManager {
       throw new Error('Active network currency is not defined');
     }
 
+    // Use getNextAccountId to filter out placeholder accounts
+    const nextIndex = this.getNextAccountId(
+      this.wallet.accounts[KeyringAccountType.Trezor]
+    );
+
     const importedAccount = await this._createTrezorAccount(
       currency,
       this.wallet.activeNetwork.slip44,
-      Object.values(this.wallet.accounts[KeyringAccountType.Trezor]).length
+      nextIndex
     );
     importedAccount.label = label ? label : `Trezor ${importedAccount.id + 1}`;
     this.wallet.accounts[KeyringAccountType.Trezor][importedAccount.id] =
@@ -1216,12 +977,15 @@ export class KeyringManager implements IKeyringManager {
 
   public logout = () => {
     this.sessionPassword = '';
-    this.sessionSeed = '';
     this.sessionMnemonic = '';
-    this.sessionMainMnemonic = '';
   };
 
   public async importAccount(privKey: string, label?: string) {
+    // Check if wallet is unlocked
+    if (!this.isUnlocked()) {
+      throw new Error('Wallet must be unlocked to import accounts');
+    }
+
     const importedAccount = await this._getPrivateKeyAccountInfos(
       privKey,
       label
@@ -1295,12 +1059,33 @@ export class KeyringManager implements IKeyringManager {
       );
 
       // For BIP84 (zprv/zpub), we need to use the correct magic bytes from zPubType
-      // Use testnet types for vprv/vpub, mainnet types for zprv/zpub
-      const isTestnet = prefix === 'vprv';
-      const pubTypes = isTestnet
+      // Determine key type: zprv = mainnet key, vprv = testnet key
+      const keyIsTestnet = prefix === 'vprv';
+
+      // Determine target network type: testnet networks typically have chainId 5700+ or slip44 1
+      const targetIsTestnet =
+        networkToValidateAgainst.chainId >= 5700 ||
+        networkToValidateAgainst.slip44 === 1;
+
+      // Cross-network validation: reject if key type doesn't match target network
+      if (keyIsTestnet && !targetIsTestnet) {
+        throw new Error(
+          `Extended private key is not compatible with ${networkToValidateAgainst.label}. ` +
+            `This appears to be a testnet key (${prefix}) but the target network is mainnet.`
+        );
+      }
+
+      if (!keyIsTestnet && targetIsTestnet) {
+        throw new Error(
+          `Extended private key is not compatible with ${networkToValidateAgainst.label}. ` +
+            `This appears to be a mainnet key (${prefix}) but the target network is testnet.`
+        );
+      }
+
+      const pubTypes = keyIsTestnet
         ? (types.zPubType as any).testnet
         : types.zPubType.mainnet;
-      const baseNetwork = isTestnet ? networks.testnet : networks.mainnet;
+      const baseNetwork = keyIsTestnet ? networks.testnet : networks.mainnet;
 
       const network = {
         ...baseNetwork,
@@ -1442,7 +1227,7 @@ export class KeyringManager implements IKeyringManager {
     }
     if (!this.syscoinSigner || !this.hd) {
       throw new Error(
-        'Wallet is not initialised yet call createKeyringVault first'
+        'Wallet is not initialised yet call initializeWalletSecurely first'
       );
     }
 
@@ -1457,26 +1242,6 @@ export class KeyringManager implements IKeyringManager {
     ) {
       this.storage.set('utf8Error', { hasUtf8Error: true });
     }
-  }
-
-  private async recoverLastSessionPassword(pwd: string) {
-    //As before locking the wallet we always keep the value of the last currentSessionSalt correctly stored in vault,
-    //we use the value in vault instead of the one present in the class to get the last correct value for sessionPassword
-    const initialVaultKeys = await this.storage.get('vault-keys');
-
-    //Here we need to validate if user has the currentSessionSalt in the vault-keys, because for Pali Users that
-    //already has accounts created in some old version this value will not be in the storage. So we need to check it
-    //and if user doesn't have we set it and if has we use the storage value
-    if (!this.currentSessionSalt || !initialVaultKeys?.currentSessionSalt) {
-      this.storage.set('vault-keys', {
-        ...initialVaultKeys,
-        currentSessionSalt: this.currentSessionSalt,
-      });
-
-      return this.encryptSHA512(pwd, this.currentSessionSalt);
-    }
-
-    return this.encryptSHA512(pwd, initialVaultKeys.currentSessionSalt);
   }
 
   private getAccountsState = () => {
@@ -1494,17 +1259,18 @@ export class KeyringManager implements IKeyringManager {
   private encryptSHA512 = (password: string, salt: string) =>
     crypto.createHmac('sha512', salt).update(password).digest('hex');
 
-  private getSysActivePrivateKey = () => {
-    if (this.hd === null) throw new Error('No HD Signer');
+  private getSysActivePrivateKey = (hd?: SyscoinHDSigner) => {
+    const hdSigner = hd || this.hd;
+    if (hdSigner === null) throw new Error('No HD Signer');
 
-    const accountIndex = this.hd.Signer.accountIndex;
+    const accountIndex = hdSigner.Signer.accountIndex;
 
     // Verify the account exists now
-    if (!this.hd.Signer.accounts.has(accountIndex)) {
+    if (!hdSigner.Signer.accounts.has(accountIndex)) {
       throw new Error(`Account at index ${accountIndex} could not be created`);
     }
 
-    return this.hd.Signer.accounts.get(accountIndex).getAccountPrivateKey();
+    return hdSigner.Signer.accounts.get(accountIndex).getAccountPrivateKey();
   };
 
   private getInitialAccountData = ({
@@ -1589,10 +1355,8 @@ export class KeyringManager implements IKeyringManager {
         'Something wrong happened. Please, try again or report it'
       );
 
-    const id =
-      Object.values(accounts[KeyringAccountType.Trezor]).length < 1
-        ? 0
-        : Object.values(accounts[KeyringAccountType.Trezor]).length;
+    // Use getNextAccountId to properly handle placeholder accounts
+    const id = this.getNextAccountId(accounts[KeyringAccountType.Trezor]);
 
     const trezorAccount = {
       ...this.initialTrezorAccountState,
@@ -1703,9 +1467,11 @@ export class KeyringManager implements IKeyringManager {
   private getFormattedBackendAccount = ({
     xpub,
     id,
+    hd,
   }: {
     id: number;
     xpub: string;
+    hd: SyscoinHDSigner;
   }): ISysAccount => {
     // Get address from existing account if it exists, otherwise derive it
     let address: string;
@@ -1715,12 +1481,11 @@ export class KeyringManager implements IKeyringManager {
       address = existingAccount.address;
     } else {
       // For new accounts, we need to derive the address
-      if (!this.hd) throw new Error('No HD Signer');
-      if (!this.hd.Signer.accounts.has(id)) {
+      if (!hd.Signer.accounts.has(id)) {
         throw new Error('Account not found');
       }
 
-      address = this.hd.Signer.accounts.get(id).getAddress(0, false, 84);
+      address = hd.Signer.accounts.get(id).getAddress(0, false, 84);
     }
 
     // Preserve existing balances if available
@@ -1769,40 +1534,54 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
-  private async addNewAccountToSyscoinChain(label?: string) {
+  // Common helper method for UTXO account creation
+  private async createUTXOAccountAtIndex(accountId: number, label?: string) {
     try {
+      const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
+
       if (!this.hdMain) {
-        await this.setActiveAccount(0, KeyringAccountType.HDAccount);
-        // Verify hdMain was initialized
-        if (!this.hdMain) {
-          throw new Error('Failed to initialize HD signer from main seed');
-        }
+        this.hdMain = await this.createHDSignerFromMainSeed(accountId, rpc);
+      } else {
+        await this.hdMain.createAccountAtIndex(accountId, 84);
       }
-
-      // Get next available account ID
-      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
-      const nextId = this.getNextAccountId(accounts);
-
-      // Create account at the specific index
-      await this.hdMain.createAccountAtIndex(nextId, 84);
 
       const xpub = this.hdMain.getAccountXpub();
       const sysAccount = this.getFormattedBackendAccount({
         xpub,
-        id: nextId,
+        id: accountId,
+        hd: this.hdMain,
       });
 
+      const encryptedXprv = this.getEncryptedXprv(this.hdMain);
+
       const accountData = this.getInitialAccountData({
-        label: label || `Account ${nextId + 1}`,
+        label: label || `Account ${accountId + 1}`,
         signer: this.hdMain,
         sysAccount,
-        xprv: this.getEncryptedXprv(),
+        xprv: encryptedXprv,
       });
 
       // Store the new account
-      this.wallet.accounts[KeyringAccountType.HDAccount][nextId] = accountData;
+      this.wallet.accounts[KeyringAccountType.HDAccount][accountId] =
+        accountData;
 
       return accountData;
+    } catch (error) {
+      console.log('ERROR createUTXOAccountAtIndex', {
+        error,
+      });
+      this.validateAndHandleErrorByMessage(error.message);
+      throw error;
+    }
+  }
+
+  private async addNewAccountToSyscoinChain(label?: string) {
+    try {
+      // Get next available account ID
+      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
+      const nextId = this.getNextAccountId(accounts);
+
+      return await this.createUTXOAccountAtIndex(nextId, label);
     } catch (error) {
       console.log('ERROR addNewAccountToSyscoinChain', {
         error,
@@ -1872,47 +1651,22 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
-  private updateWeb3Accounts = async () => {
-    try {
-      const { accounts, activeAccountId, activeAccountType } = this.wallet;
-      const hdAccounts = Object.entries(accounts[KeyringAccountType.HDAccount]);
-
-      //Account of HDAccount is always initialized as it is required to create a network
-      // Create array of promises for parallel execution
-      const hdAccountPromises = hdAccounts.map(([accountId, account]) => {
-        const id = Number(accountId);
-        const label = account.label;
-        return this.setDerivedWeb3Accounts(id, label);
-      });
-
-      // Execute all HD account updates in parallel
-      await Promise.all(hdAccountPromises);
-      return this.wallet.accounts[activeAccountType][activeAccountId];
-    } catch (error) {
-      console.log('ERROR updateWeb3Accounts', {
-        error,
-      });
-      this.validateAndHandleErrorByMessage(error.message);
-    }
-  };
-
   private setDerivedWeb3Accounts = async (id: number, label: string) => {
     try {
-      // Only update wallet account if it doesn't exist or if it's the active account (which needs fresh balance data)
-
-      const decryptedSeed = CryptoJS.AES.decrypt(
-        this.sessionSeed,
+      // Decrypt the mnemonic directly instead of using seed
+      const decryptedMnemonic = CryptoJS.AES.decrypt(
+        this.sessionMnemonic,
         this.sessionPassword
       ).toString(CryptoJS.enc.Utf8);
 
-      if (!decryptedSeed) {
+      if (!decryptedMnemonic) {
         throw new Error(
-          'Failed to decrypt session seed. Invalid password or corrupted data.'
+          'Failed to decrypt mnemonic. Invalid password or corrupted data.'
         );
       }
 
-      const seed = Buffer.from(decryptedSeed, 'hex');
-      const privateRoot = hdkey.fromMasterSeed(seed);
+      // Use ethers.js HD derivation directly from mnemonic
+      const hdNode = ethers.utils.HDNode.fromMnemonic(decryptedMnemonic);
 
       // Use dynamic path generation for ETH addresses
       const ethDerivationPath = getAddressDerivationPath(
@@ -1922,12 +1676,12 @@ export class KeyringManager implements IKeyringManager {
         false,
         id
       );
-      const derivedCurrentAccount = privateRoot.derivePath(ethDerivationPath);
 
-      const derievedWallet = derivedCurrentAccount.getWallet();
-      const address = derievedWallet.getAddressString();
-      const xprv = derievedWallet.getPrivateKeyString();
-      const xpub = derievedWallet.getPublicKeyString();
+      const derivedAccount = hdNode.derivePath(ethDerivationPath);
+
+      const address = derivedAccount.address;
+      const xprv = derivedAccount.privateKey;
+      const xpub = derivedAccount.publicKey;
 
       const basicAccountInfo = this.getBasicWeb3AccountInfo(id, label);
 
@@ -2009,269 +1763,28 @@ export class KeyringManager implements IKeyringManager {
     this.logout();
   };
 
-  // With multi-keyring architecture, chain type checking is no longer needed
-  // Each keyring is dedicated to a specific chain type
-
-  private generateSalt = () => crypto.randomBytes(16).toString('hex');
-
-  // With multi-keyring architecture, this method is no longer needed
-  // Each keyring is dedicated to a specific slip44
-
-  // ===================================== PRIVATE KEY ACCOUNTS METHODS - SIMPLE KEYRING ===================================== //
-
-  private async restoreWallet(hdCreated: boolean, pwd: string) {
-    if (!this.sessionMnemonic) {
-      const { mnemonic } = await getDecryptedVault(pwd, this.slip44);
+  private async recreateSessionFromVault(
+    password: string,
+    saltedHashPassword: string
+  ): Promise<void> {
+    try {
+      const { mnemonic } = await getDecryptedVault(password, this.slip44);
 
       if (!mnemonic) {
-        throw new Error('Mnemonic not found in vault or is empty');
+        throw new Error('Mnemonic not found in vault');
       }
 
-      let hdWalletSeed: string;
-      // Try to detect if mnemonic is encrypted or plain text
-      const isLikelyPlainMnemonic =
-        mnemonic.includes(' ') &&
-        (mnemonic.split(' ').length === 12 ||
-          mnemonic.split(' ').length === 24);
-
-      if (!isLikelyPlainMnemonic) {
-        try {
-          hdWalletSeed = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
-            CryptoJS.enc.Utf8
-          );
-        } catch (decryptError) {
-          // If decryption fails, assume mnemonic is already decrypted
-          console.warn(
-            'Mnemonic decryption failed in restoreWallet, using as-is:',
-            decryptError.message
-          );
-          hdWalletSeed = mnemonic;
-        }
-      } else {
-        hdWalletSeed = mnemonic;
-      }
-
-      if (!hdWalletSeed) {
-        throw new Error(
-          'Failed to decrypt mnemonic or mnemonic is empty after decryption'
-        );
-      }
-
-      // Always store the main mnemonic
-      this.sessionMainMnemonic = CryptoJS.AES.encrypt(
-        hdWalletSeed,
-        this.sessionPassword
-      ).toString();
-
-      this.sessionMnemonic = this.sessionMainMnemonic;
-
-      const seed = (await mnemonicToSeed(hdWalletSeed)).toString('hex');
-      this.sessionSeed = CryptoJS.AES.encrypt(
-        seed,
-        this.sessionPassword
-      ).toString();
-    }
-
-    // No HD setup needed here - it's done lazily in setActiveAccount
-    if (this.activeChain === INetworkType.Syscoin && !hdCreated) {
-      // Just ensure the active account's HD signer exists
-      await this.setActiveAccount(
-        this.wallet.activeAccountId,
-        this.wallet.activeAccountType
-      );
-    }
-  }
-
-  private guaranteeUpdatedPrivateValues(pwd: string) {
-    try {
-      // Check if session values exist before trying to decrypt
-      if (
-        !this.sessionMainMnemonic ||
-        !this.sessionMnemonic ||
-        !this.sessionSeed
-      ) {
-        // Session values not initialized, skip update
-        return;
-      }
-
-      //Here we need to decrypt the sessionMnemonic and sessionSeed values with the sessionPassword value before it changes and get updated
-      const decryptedSessionMnemonic = CryptoJS.AES.decrypt(
-        this.sessionMainMnemonic,
-        this.sessionPassword
-      ).toString(CryptoJS.enc.Utf8);
-
-      const decryptSessionSeed = CryptoJS.AES.decrypt(
-        this.sessionSeed,
-        this.sessionPassword
-      ).toString(CryptoJS.enc.Utf8);
-
-      const decryptedSessionMainMnemonic = CryptoJS.AES.decrypt(
-        this.sessionMainMnemonic,
-        this.sessionPassword
-      ).toString(CryptoJS.enc.Utf8);
-
-      // Validate decryption results
-      if (
-        !decryptedSessionMnemonic ||
-        !decryptSessionSeed ||
-        !decryptedSessionMainMnemonic
-      ) {
-        throw new Error(
-          'Failed to decrypt session data. Invalid password or corrupted data.'
-        );
-      }
-
-      //Generate a new salt
-      this.currentSessionSalt = this.generateSalt();
-
-      //Encrypt and generate a new sessionPassword to keep the values safe
-      this.sessionPassword = this.encryptSHA512(pwd, this.currentSessionSalt);
-
-      //Encrypt again the sessionSeed and sessionMnemonic after decrypt to keep it safe with the new sessionPassword value
-      this.sessionSeed = CryptoJS.AES.encrypt(
-        decryptSessionSeed,
-        this.sessionPassword
-      ).toString();
-
+      // Encrypt session data with sessionPassword hash for consistency
+      // This allows createKeyringVaultFromSession to decrypt with this.sessionPassword
+      this.sessionPassword = saltedHashPassword;
       this.sessionMnemonic = CryptoJS.AES.encrypt(
-        decryptedSessionMnemonic,
-        this.sessionPassword
+        mnemonic,
+        saltedHashPassword
       ).toString();
-
-      this.sessionMainMnemonic = CryptoJS.AES.encrypt(
-        decryptedSessionMainMnemonic,
-        this.sessionPassword
-      ).toString();
+      console.log('[KeyringManager] Session data recreated from vault');
     } catch (error) {
-      console.log('ERROR updateValuesToUpdateWalletKeys', {
-        error,
-      });
-      this.validateAndHandleErrorByMessage(error.message);
-    }
-  }
-
-  private async updateWalletKeys(pwd: string) {
-    try {
-      const vaultKeys = await this.storage.get('vault-keys');
-      let { accounts } = this.wallet;
-
-      const decryptedXprvs = Object.entries(accounts).reduce(
-        (acc, [key, value]) => {
-          const accounts = {};
-
-          Object.entries(value).forEach(([key, value]) => {
-            const decryptedXprv = CryptoJS.AES.decrypt(
-              value.xprv,
-              this.sessionPassword
-            ).toString(CryptoJS.enc.Utf8);
-
-            if (!decryptedXprv) {
-              throw new Error(
-                `Failed to decrypt private key for account ${key}. Invalid password or corrupted data.`
-              );
-            }
-
-            accounts[key] = decryptedXprv;
-          });
-
-          acc[key] = accounts;
-          return acc;
-        },
-        {}
-      );
-
-      //Update values
-      this.guaranteeUpdatedPrivateValues(pwd);
-
-      accounts = this.wallet.accounts;
-
-      for (const accountTypeKey in accounts) {
-        // Exclude 'Trezor' accounts
-        if (accountTypeKey !== KeyringAccountType.Trezor) {
-          // Iterate through each account in the current accountType
-          for (const id in accounts[accountTypeKey as KeyringAccountType]) {
-            const activeAccount =
-              accounts[accountTypeKey as KeyringAccountType][id];
-
-            let encryptNewXprv = '';
-
-            // With multi-keyring architecture, we know the type from activeChain
-            if (this.activeChain === INetworkType.Ethereum) {
-              try {
-                let { mnemonic } = await getDecryptedVault(pwd, this.slip44);
-
-                if (!mnemonic) {
-                  console.warn(
-                    'Mnemonic not found in vault, skipping Ethereum key update for account',
-                    id
-                  );
-                  continue;
-                }
-
-                // Try to detect if mnemonic is encrypted or plain text
-                const isLikelyPlainMnemonic =
-                  mnemonic.includes(' ') &&
-                  (mnemonic.split(' ').length === 12 ||
-                    mnemonic.split(' ').length === 24);
-
-                if (!isLikelyPlainMnemonic) {
-                  try {
-                    mnemonic = CryptoJS.AES.decrypt(mnemonic, pwd).toString(
-                      CryptoJS.enc.Utf8
-                    );
-                  } catch (decryptError) {
-                    // If decryption fails, assume mnemonic is already decrypted
-                    console.warn(
-                      'Mnemonic decryption failed in updateWalletKeys, using as-is:',
-                      decryptError.message
-                    );
-                  }
-                }
-
-                // Validate mnemonic before using it
-                if (!mnemonic || mnemonic.length < 10) {
-                  console.warn(
-                    'Invalid mnemonic detected, skipping Ethereum key update for account',
-                    id
-                  );
-                  continue;
-                }
-
-                const { privateKey } = ethers.Wallet.fromMnemonic(mnemonic);
-
-                encryptNewXprv = CryptoJS.AES.encrypt(
-                  privateKey,
-                  this.sessionPassword
-                ).toString();
-              } catch (mnemonicError) {
-                console.warn(
-                  'Failed to process mnemonic for Ethereum account',
-                  id,
-                  mnemonicError.message
-                );
-                continue;
-              }
-            } else {
-              encryptNewXprv = CryptoJS.AES.encrypt(
-                decryptedXprvs[accountTypeKey as KeyringAccountType][id],
-                this.sessionPassword
-              ).toString();
-            }
-
-            activeAccount.xprv = encryptNewXprv;
-          }
-        }
-      }
-      //Update new currentSessionSalt value to state to keep it equal as the created at the updateValuesToUpdateWalletKeys function
-      this.storage.set('vault-keys', {
-        ...vaultKeys,
-        currentSessionSalt: this.currentSessionSalt,
-      });
-    } catch (error) {
-      console.log('ERROR updateWalletKeys', {
-        error,
-      });
-      this.validateAndHandleErrorByMessage(error.message);
+      console.error('ERROR recreateSessionFromVault', { error });
+      throw error;
     }
   }
 
@@ -2383,10 +1896,7 @@ export class KeyringManager implements IKeyringManager {
         'Account already exists, try again with another Private Key.'
       );
 
-    const id =
-      Object.values(accounts[KeyringAccountType.Imported]).length < 1
-        ? 0
-        : Object.values(accounts[KeyringAccountType.Imported]).length;
+    const id = this.getNextAccountId(accounts[KeyringAccountType.Imported]);
 
     return {
       ...initialActiveImportedAccountState,
@@ -2414,12 +1924,12 @@ export class KeyringManager implements IKeyringManager {
     accountId: number,
     rpc: any
   ): Promise<SyscoinHDSigner> {
-    if (!this.sessionMainMnemonic) {
+    if (!this.sessionMnemonic) {
       throw new Error('Main mnemonic not available');
     }
 
     const mnemonic = CryptoJS.AES.decrypt(
-      this.sessionMainMnemonic,
+      this.sessionMnemonic,
       this.sessionPassword
     ).toString(CryptoJS.enc.Utf8);
 
@@ -2449,4 +1959,88 @@ export class KeyringManager implements IKeyringManager {
 
     return hd;
   }
+
+  // NEW: Secure initialization method that eliminates temporary plaintext storage
+  public initializeWalletSecurely = async (
+    seedPhrase: string,
+    password: string
+  ): Promise<IKeyringAccountState> => {
+    // Validate inputs first
+    if (!validateMnemonic(seedPhrase)) {
+      throw new Error('Invalid Seed');
+    }
+
+    // Calculate session password once for efficiency
+    const vaultKeys = await this.storage.get('vault-keys');
+    if (!vaultKeys || !vaultKeys.salt) {
+      throw new Error('Vault keys not found');
+    }
+    const sessionPasswordSaltedHash = this.encryptSHA512(
+      password,
+      vaultKeys.salt
+    );
+
+    // Check if already initialized with the same password (idempotent behavior)
+    if (this.sessionPassword) {
+      if (sessionPasswordSaltedHash === this.sessionPassword) {
+        // Same password - check if it's the same mnemonic to ensure full idempotency
+        try {
+          const currentMnemonic = CryptoJS.AES.decrypt(
+            this.sessionMnemonic,
+            this.sessionPassword
+          ).toString(CryptoJS.enc.Utf8);
+
+          if (currentMnemonic === seedPhrase) {
+            // Same mnemonic and password - idempotent call, return existing account
+            return await this.createKeyringVaultFromSession();
+          }
+        } catch (error) {
+          // If we can't decrypt, fall through to error
+        }
+      }
+
+      // Different password or mnemonic - this is not a simple re-initialization
+      throw new Error(
+        'Wallet already initialized with different parameters. Create a new keyring instance for different parameters.'
+      );
+    }
+
+    // Encrypt and store network-specific vault (mnemonic storage)
+    await setEncryptedVault(
+      {
+        mnemonic: seedPhrase, // Store plain mnemonic - setEncryptedVault will encrypt the entire vault
+      },
+      password,
+      this.slip44
+    );
+
+    await this.recreateSessionFromVault(password, sessionPasswordSaltedHash);
+    // Create the keyring vault directly with the encrypted session mnemonic
+    return await this.createKeyringVaultFromSession();
+  };
+
+  // Simplified createKeyringVault using existing proven methods
+  public createKeyringVaultFromSession =
+    async (): Promise<IKeyringAccountState> => {
+      try {
+        if (!this.sessionPassword || !this.sessionMnemonic) {
+          throw new Error('Wallet must be initialized first');
+        }
+
+        // Let setSignerNetwork handle everything - account creation and signer setup
+        await this.setSignerNetwork(this.wallet.activeNetwork);
+
+        // Get active account info
+        const activeAccountId = this.wallet.activeAccountId || 0;
+        const activeAccountType =
+          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
+        return this.wallet.accounts[activeAccountType][activeAccountId];
+      } catch (error) {
+        console.log('ERROR createKeyringVaultFromSession', {
+          error,
+        });
+        this.validateAndHandleErrorByMessage(error.message);
+        throw error;
+      }
+    };
 }

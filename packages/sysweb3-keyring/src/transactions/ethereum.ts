@@ -656,18 +656,9 @@ export class EthereumTransactions implements IEthereumTransactions {
     params: SimpleTransactionRequest,
     isLegacy?: boolean
   ) => {
-    const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
     const { activeAccountType, activeAccountId, accounts, activeNetwork } =
       this.getState();
     const activeAccount = accounts[activeAccountType][activeAccountId];
-
-    // Validate that we have the correct private key for the active account to prevent race conditions
-    // This is critical for transaction security during account switches
-    if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
-      throw new Error(
-        `Account state mismatch detected during transaction. Expected ${activeAccount.address} but got ${address}. Please wait for account switching to complete and try again.`
-      );
-    }
 
     const sendEVMLedgerTransaction = async () => {
       const transactionNonce = await this.getRecommendedNonce(
@@ -836,6 +827,16 @@ export class EthereumTransactions implements IEthereumTransactions {
     };
 
     const sendEVMTransaction = async () => {
+      const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
+
+      // Validate that we have the correct private key for the active account to prevent race conditions
+      // This is critical for transaction security during account switches
+      if (address.toLowerCase() !== activeAccount.address.toLowerCase()) {
+        throw new Error(
+          `Account state mismatch detected during transaction. Expected ${activeAccount.address} but got ${address}. Please wait for account switching to complete and try again.`
+        );
+      }
+
       const tx: Deferrable<ethers.providers.TransactionRequest> = params;
       const wallet = new ethers.Wallet(decryptedPrivateKey, this.web3Provider);
       try {

@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 
-import { INetworkType } from '@pollum-io/sysweb3-network';
+import { INetworkType } from '../src';
 
 dotenv.config();
 

@@ -23,7 +23,10 @@
     "release:preflight": "yarn pack ./dist --dry-run",
     "publishCode": "yarn prebuild && yarn prerelease && yarn copy && yarn release:npm",
     "type-check": "tsc --pretty --noEmit",
-    "localTest": "yarn prebuild && yarn build && yarn copy"
+    "localTest": "yarn prebuild && yarn build && yarn copy",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@bitcoinerlab/descriptors": "^2.0.1",
@@ -44,12 +47,10 @@
     "bitcoinjs-lib": "^6.1.5",
     "bs58check": "^3.0.1",
     "coinselectsyscoin": "^1.1.7",
-    "crypto-js": "^4.2.0",
-    "dotenv": "^16.3.1",
-    "eth-sig-util": "^3.0.1",
-    "ethereumjs-util": "^7.1.5",
-    "ethereumjs-wallet": "^1.0.2",
-    "ethers": "^5.6.4",
+    "crypto-js": "^4.1.1",
+    "dotenv": "^16.4.5",
+    "eth-json-rpc-filters": "^4.2.2",
+    "ethers": "^5.6.8",
     "ledger-bitcoin": "^0.2.3",
     "lodash": "^4.17.21",
     "satoshi-bitcoin": "^1.0.5",

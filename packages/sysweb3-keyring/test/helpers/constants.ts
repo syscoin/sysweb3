@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 
-import { initialNetworksState } from '../src/initial-state';
-import { IWalletState, KeyringAccountType } from '../src/types';
+import { initialNetworksState } from '../../src/initial-state';
+import { IWalletState, KeyringAccountType } from '../../src/types';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 dotenv.config();
 export const FAKE_PASSWORD = 'Asdqwe123!';
