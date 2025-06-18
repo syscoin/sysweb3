@@ -386,13 +386,11 @@ global.setupTestVault = async (password = 'test123') => {
 
   // Use CONSISTENT salts for testing (not random) to prevent password validation mismatches
   const salt = 'test-salt-12345678901234567890123456789012'; // Fixed 32-char salt
-  const currentSessionSalt = 'session-salt-1234567890123456789012345678'; // Fixed 32-char salt
   const hash = createHmac('sha512', salt).update(password).digest('hex');
 
   await storage.set('vault-keys', {
     hash,
     salt,
-    currentSessionSalt,
   });
 };
 

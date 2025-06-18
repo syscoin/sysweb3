@@ -1969,16 +1969,23 @@ export class KeyringManager implements IKeyringManager {
     if (!validateMnemonic(seedPhrase)) {
       throw new Error('Invalid Seed');
     }
-
-    // Calculate session password once for efficiency
+    let foundVaultKeys = true;
+    let salt = '';
     const vaultKeys = await this.storage.get('vault-keys');
     if (!vaultKeys || !vaultKeys.salt) {
-      throw new Error('Vault keys not found');
+      foundVaultKeys = false;
+      salt = crypto.randomBytes(16).toString('hex');
+    } else {
+      salt = vaultKeys.salt;
     }
-    const sessionPasswordSaltedHash = this.encryptSHA512(
-      password,
-      vaultKeys.salt
-    );
+    const sessionPasswordSaltedHash = this.encryptSHA512(password, salt);
+    if (!foundVaultKeys) {
+      // Store vault-keys using the storage abstraction
+      await this.storage.set('vault-keys', {
+        hash: sessionPasswordSaltedHash,
+        salt,
+      });
+    }
 
     // Check if already initialized with the same password (idempotent behavior)
     if (this.sessionPassword) {

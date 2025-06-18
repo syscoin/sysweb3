@@ -352,19 +352,45 @@ describe('KeyringManager - Initialization', () => {
       expect(seed).toBe(PEACE_SEED_PHRASE);
     });
 
-    it('should handle missing vault keys gracefully', async () => {
-      keyringManager = new KeyringManager();
+    it("should create vault keys when they don't exist", async () => {
+      // Use a keyring with proper slip44 for Syscoin to ensure consistent behavior
+      keyringManager = new KeyringManager({
+        wallet: {
+          ...initialWalletState,
+          activeNetwork: initialWalletState.networks.syscoin[57],
+        },
+        activeChain: INetworkType.Syscoin,
+      });
 
-      // Mock storage to return no vault keys
-      const mockStorage = (keyringManager as any).storage;
-      mockStorage.get = jest.fn().mockResolvedValue(null);
+      // Get the actual storage instance
+      const keyringStorage = (keyringManager as any).storage;
 
-      await expect(
-        keyringManager.initializeWalletSecurely(
-          PEACE_SEED_PHRASE,
-          FAKE_PASSWORD
-        )
-      ).rejects.toThrow('Vault keys not found');
+      // Ensure no vault-keys exist initially (clean state)
+      await keyringStorage.set('vault-keys', null);
+
+      // Should create vault-keys and initialize successfully
+      const result = await keyringManager.initializeWalletSecurely(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD
+      );
+
+      expect(result).toBeDefined();
+      expect(result.address).toBeDefined();
+
+      // Verify vault-keys were actually created by checking storage
+      const vaultKeys = await keyringStorage.get('vault-keys');
+      expect(vaultKeys).toBeDefined();
+      expect(vaultKeys.hash).toBeDefined();
+      expect(vaultKeys.salt).toBeDefined();
+      expect(typeof vaultKeys.hash).toBe('string');
+      expect(typeof vaultKeys.salt).toBe('string');
+      expect(vaultKeys.hash.length).toBeGreaterThan(0);
+      expect(vaultKeys.salt.length).toBeGreaterThan(0);
+
+      // Verify keyring is now unlocked and functional
+      expect(keyringManager.isUnlocked()).toBe(true);
+      const seed = await keyringManager.getSeed(FAKE_PASSWORD);
+      expect(seed).toBe(PEACE_SEED_PHRASE);
     });
 
     it('should re-initialize from vault when Trezor account was active', async () => {
