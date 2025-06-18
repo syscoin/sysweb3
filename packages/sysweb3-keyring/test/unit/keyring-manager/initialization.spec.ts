@@ -464,8 +464,11 @@ describe('KeyringManager - Initialization', () => {
         'Test Ledger'
       );
       expect(ledgerAccount).toBeDefined();
+      if (!ledgerAccount) {
+        throw new Error('Ledger account creation failed');
+      }
       await keyringManager.setActiveAccount(
-        ledgerAccount!.id,
+        ledgerAccount.id,
         KeyringAccountType.Ledger
       );
 
@@ -475,7 +478,7 @@ describe('KeyringManager - Initialization', () => {
         wallet: {
           ...initialWalletState,
           activeNetwork: syscoinMainnet,
-          activeAccountId: ledgerAccount!.id,
+          activeAccountId: ledgerAccount.id,
           activeAccountType: KeyringAccountType.Ledger,
           accounts: keyringManager.wallet.accounts,
         },

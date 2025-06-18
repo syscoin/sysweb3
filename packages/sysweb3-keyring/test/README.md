@@ -38,6 +38,7 @@ test/
 ### Unit Tests
 
 #### KeyringManager Core
+
 - **Initialization**: Seed management, wallet creation, secure initialization
 - **Account Management**: HD accounts, imported accounts, account switching
 - **Key Derivation**: EVM (BIP44) and UTXO (BIP84) derivation paths
@@ -45,19 +46,23 @@ test/
 - **State Management**: Persistence, lock/unlock cycles, state recovery
 
 #### Network Management
+
 - **EVM Networks**: Switching between Ethereum, Polygon, etc.
 - **Custom Networks**: Adding/removing custom RPC endpoints
 - **Multi-Keyring**: UTXO network constraints, chain type validation
 
 #### Transactions
+
 - **Ethereum**: Transaction signing, message signing, typed data, EIP-1559
 - **Syscoin**: PSBT creation, UTXO management, fee estimation
 
 #### Hardware Wallets
+
 - **Trezor**: Account import, transaction signing
 - **Ledger**: Account import, blind signing
 
 ### Integration Tests
+
 - **Import Validation**: Private key imports, zprv validation
 - **Cross-Chain**: Multi-keyring coordination
 - **End-to-End**: Complete user flows
@@ -84,6 +89,7 @@ yarn test packages/sysweb3-keyring/test/integration
 ## Test Patterns
 
 ### Setup and Teardown
+
 All tests use the `setupMocks()` helper to ensure clean state:
 
 ```typescript
@@ -93,6 +99,7 @@ beforeEach(() => {
 ```
 
 ### Creating Test Instances
+
 ```typescript
 // EVM keyring
 const keyringManager = await KeyringManager.createInitialized(
@@ -118,6 +125,7 @@ const keyringManager = await KeyringManager.createInitialized(
 ```
 
 ### Common Test Constants
+
 - `PEACE_SEED_PHRASE`: Deterministic test mnemonic
 - `FAKE_PASSWORD`: Test password
 - `SECOND_FAKE_SEED_PHRASE`: Alternative test mnemonic
@@ -125,6 +133,7 @@ const keyringManager = await KeyringManager.createInitialized(
 ## Mock Strategy
 
 The test suite uses selective mocking:
+
 - **Network calls**: Mocked to avoid external dependencies
 - **Cryptographic operations**: Use real implementations for deterministic results
 - **Storage**: In-memory mock implementation
@@ -146,4 +155,4 @@ The test suite uses selective mocking:
 - Test edge cases and error conditions
 - Avoid testing implementation details
 - Focus on behavior and public APIs
-- Keep tests simple and readable 
+- Keep tests simple and readable

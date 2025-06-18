@@ -6,8 +6,6 @@ import {
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
-// Import the test helpers that sets up global setupTestVault
-import '../../helpers/setup';
 
 describe('KeyringManager - Security', () => {
   let keyringManager: KeyringManager;

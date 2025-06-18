@@ -3,8 +3,12 @@ import { hexlify } from 'ethers/lib/utils';
 
 import { findCoin } from './coin-utils';
 // import fetch from "node-fetch";
-import { getNetworkConfig, toDecimalFromHex, INetwork } from './networks';
-import { INetworkType } from './networks';
+import {
+  getNetworkConfig,
+  toDecimalFromHex,
+  INetwork,
+  INetworkType,
+} from './networks';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
 
