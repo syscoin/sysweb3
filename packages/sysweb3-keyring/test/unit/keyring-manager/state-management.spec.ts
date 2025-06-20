@@ -116,31 +116,22 @@ describe('KeyringManager - State Management', () => {
       expect(xpub.substring(0, 2)).toEqual('0x');
     });
 
-    it('should use slip44 from options or derive from network', async () => {
-      // Test with explicit slip44
-      const keyringWithSlip44 = new KeyringManager({
+    it('should use active chain from options', async () => {
+      // Test with explicit activeChain
+      const keyringWithActiveChain = new KeyringManager({
         wallet: initialWalletState,
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
-      expect((keyringWithSlip44 as any).slip44).toBe(57);
+      expect(keyringWithActiveChain.activeChain).toBe(INetworkType.Syscoin);
 
-      // Test deriving from active network
-      const customWallet = {
-        ...initialWalletState,
-        activeNetwork: {
-          ...initialWalletState.networks.syscoin[57],
-          slip44: 57,
-        },
-      };
-
-      const keyringFromNetwork = new KeyringManager({
-        wallet: customWallet,
-        activeChain: INetworkType.Syscoin,
+      // Test with EVM
+      const keyringWithEVM = new KeyringManager({
+        wallet: initialWalletState,
+        activeChain: INetworkType.Ethereum,
       });
 
-      expect((keyringFromNetwork as any).slip44).toBe(57);
+      expect(keyringWithEVM.activeChain).toBe(INetworkType.Ethereum);
     });
   });
 
@@ -298,10 +289,7 @@ describe('KeyringManager - State Management', () => {
         INetworkType.Ethereum
       );
 
-      // Get session data
-      const sessionData = keyring1.getSessionData();
-
-      // Create new keyring and set session - use Syscoin for second keyring
+      // Create new keyring - use Syscoin for second keyring
       const keyring2 = new KeyringManager({
         wallet: {
           ...initialWalletState,
@@ -310,16 +298,16 @@ describe('KeyringManager - State Management', () => {
         activeChain: INetworkType.Syscoin,
       });
 
-      keyring2.setSessionData(sessionData);
+      // Transfer session from keyring1 to keyring2
+      keyring1.transferSessionTo(keyring2);
 
-      // Both should be unlocked
-      expect(keyring1.isUnlocked()).toBe(true);
+      // After transfer: keyring1 should be locked, keyring2 should be unlocked
+      expect(keyring1.isUnlocked()).toBe(false);
       expect(keyring2.isUnlocked()).toBe(true);
 
-      // Should be able to perform operations
-      const seed1 = await keyring1.getSeed(FAKE_PASSWORD);
+      // Should be able to perform operations with keyring2
       const seed2 = await keyring2.getSeed(FAKE_PASSWORD);
-      expect(seed1).toBe(seed2);
+      expect(seed2).toBe(PEACE_SEED_PHRASE);
     });
   });
 
@@ -413,7 +401,7 @@ describe('KeyringManager - State Management', () => {
       // Should not allow setting active account with wrong type
       await expect(
         keyringManager.setActiveAccount(0, KeyringAccountType.Imported)
-      ).rejects.toThrow('Account not set');
+      ).rejects.toThrow('Account not found');
     });
 
     it('should ensure all account types exist in wallet state', () => {

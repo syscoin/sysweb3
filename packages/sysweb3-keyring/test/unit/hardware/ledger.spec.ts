@@ -54,7 +54,7 @@ describe('Ledger Hardware Wallet', () => {
 
       expect(account).toBeDefined();
       if (account) {
-        expect(account.id).toBe(1); // First imported Ledger account gets ID 1 (placeholder at ID 0)
+        expect(account.id).toBe(0); // First imported Ledger account gets ID 0
         expect(account.label).toBe('My Ledger');
         expect(account.isLedgerWallet).toBe(true);
         expect(account.isTrezorWallet).toBe(false);
@@ -137,17 +137,17 @@ describe('Ledger Hardware Wallet', () => {
       );
 
       if (account1) {
-        expect(account1.id).toBe(1); // First real account (placeholder at 0)
-        expect(account1.label).toBe('Ledger 2'); // Label is ID + 1
+        expect(account1.id).toBe(0); // First account starts at ID 0
+        expect(account1.label).toBe('Ledger 1'); // Label is ID + 1
       }
 
       if (account2) {
-        expect(account2.id).toBe(2);
-        expect(account2.label).toBe('Ledger 3');
+        expect(account2.id).toBe(1);
+        expect(account2.label).toBe('Ledger 2');
       }
 
       if (account3) {
-        expect(account3.id).toBe(3);
+        expect(account3.id).toBe(2);
         expect(account3.label).toBe('Custom Ledger');
       }
     });
@@ -265,7 +265,7 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should switch to Ledger account', async () => {
-      await keyringManager.setActiveAccount(1, KeyringAccountType.Ledger); // Use actual imported account ID
+      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger); // Use first imported account ID
 
       const { activeAccount, activeAccountType } =
         keyringManager.getActiveAccount();
@@ -275,7 +275,7 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should get Ledger account xpub', async () => {
-      await keyringManager.setActiveAccount(1, KeyringAccountType.Ledger); // Use actual imported account ID
+      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger); // Use first imported account ID
 
       const xpub = keyringManager.getAccountXpub();
       expect(xpub).toBeDefined();
@@ -331,8 +331,8 @@ describe('Ledger Hardware Wallet', () => {
         KeyringAccountType.HDAccount
       );
 
-      // Use the account from beforeEach (which should have id 1 since it was imported first)
-      await keyringManager.setActiveAccount(1, KeyringAccountType.Ledger); // Use actual imported account from beforeEach
+      // Use the account from beforeEach (which should have id 0 since it was imported first)
+      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger); // Use first imported account from beforeEach
       expect(keyringManager.getActiveAccount().activeAccountType).toBe(
         KeyringAccountType.Ledger
       );
@@ -745,17 +745,17 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should never expose private keys for Ledger accounts', async () => {
-      await keyringManager.setActiveAccount(1, KeyringAccountType.Ledger); // Use actual imported account ID
+      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger); // Use first imported account ID
 
       const account = keyringManager.getAccountById(
-        1,
+        0,
         KeyringAccountType.Ledger
       ); // Use same ID as setActiveAccount
       expect(account).not.toHaveProperty('xprv'); // getAccountById omits xprv
 
       // Direct access to wallet state should show empty xprv for hardware wallets
       const rawAccount =
-        keyringManager.wallet.accounts[KeyringAccountType.Ledger][1]; // Use same ID
+        keyringManager.wallet.accounts[KeyringAccountType.Ledger][0]; // Use same ID
       expect(rawAccount.xprv).toBe(''); // Hardware wallets store empty string, not encrypted private key
     });
 
@@ -763,7 +763,7 @@ describe('Ledger Hardware Wallet', () => {
       // This should throw because Ledger accounts have empty xprv that fails decryption
       await expect(
         keyringManager.getPrivateKeyByAccountId(
-          1, // Use actual imported account ID
+          0, // Use first imported account ID
           KeyringAccountType.Ledger,
           FAKE_PASSWORD
         )
@@ -778,7 +778,7 @@ describe('Ledger Hardware Wallet', () => {
         keyringManager.wallet.accounts[KeyringAccountType.Ledger];
 
       expect(Object.keys(hdAccounts)).toHaveLength(1); // Initial HD account
-      expect(Object.keys(ledgerAccounts)).toHaveLength(2); // Placeholder + one imported Ledger account
+      expect(Object.keys(ledgerAccounts)).toHaveLength(1); // Placeholder + one imported Ledger account
 
       // Verify no cross-contamination of account types
       Object.values(hdAccounts).forEach((account) => {

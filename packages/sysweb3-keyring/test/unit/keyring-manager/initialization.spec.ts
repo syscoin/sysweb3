@@ -225,9 +225,8 @@ describe('KeyringManager - Initialization', () => {
 
       keyringManager.lockWallet();
 
-      expect(() => keyringManager.getSessionData()).toThrow(
-        'Keyring must be unlocked'
-      );
+      // After locking, keyring should not be unlocked
+      expect(keyringManager.isUnlocked()).toBe(false);
     });
 
     it('should restore functionality after unlock', async () => {
@@ -254,7 +253,7 @@ describe('KeyringManager - Initialization', () => {
   });
 
   describe('Session Management', () => {
-    it('should get and set session data between keyrings', async () => {
+    it('should transfer session data between keyrings', async () => {
       // Create first keyring
       const ethereumMainnet = initialWalletState.networks.ethereum[1];
       const keyring1 = await KeyringManager.createInitialized(
@@ -267,24 +266,27 @@ describe('KeyringManager - Initialization', () => {
         INetworkType.Ethereum
       );
 
-      // Get session data from first keyring
-      const sessionData = keyring1.getSessionData();
-      expect(sessionData.sessionPassword).toBeDefined();
-      expect(sessionData.sessionMnemonic).toBeDefined();
-
-      // Create second keyring and set session data
+      // Create second keyring
       const keyring2 = new KeyringManager();
-      keyring2.setSessionData(sessionData);
 
-      // Second keyring should now be unlocked with same session
-      expect(keyring2.isUnlocked()).toBe(true);
+      // Transfer session from first to second keyring
+      keyring1.transferSessionTo(keyring2);
+
+      // Both should be unlocked (first should be locked after transfer, second should be unlocked)
+      expect(keyring1.isUnlocked()).toBe(false); // Source keyring is locked after transfer
+      expect(keyring2.isUnlocked()).toBe(true); // Target keyring is unlocked
+
+      // Second keyring should be able to perform operations with transferred session
+      const seed2 = await keyring2.getSeed(FAKE_PASSWORD);
+      expect(seed2).toBe(PEACE_SEED_PHRASE);
     });
 
-    it('should throw when getting session data from locked keyring', () => {
-      keyringManager = new KeyringManager();
+    it('should throw when transferring from locked keyring', () => {
+      const keyring1 = new KeyringManager();
+      const keyring2 = new KeyringManager();
 
-      expect(() => keyringManager.getSessionData()).toThrow(
-        'Keyring must be unlocked'
+      expect(() => keyring1.transferSessionTo(keyring2)).toThrow(
+        'Source keyring must be unlocked to transfer session'
       );
     });
   });
@@ -443,7 +445,6 @@ describe('KeyringManager - Initialization', () => {
           accounts: keyringManager.wallet.accounts,
         },
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
       // Mock Trezor for new keyring
@@ -509,7 +510,6 @@ describe('KeyringManager - Initialization', () => {
           accounts: keyringManager.wallet.accounts,
         },
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
       // Mock Ledger for new keyring
@@ -564,7 +564,6 @@ describe('KeyringManager - Initialization', () => {
           accounts: keyringManager.wallet.accounts,
         },
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
       const unlockResult = await newKeyringManager.unlock(FAKE_PASSWORD);
@@ -619,7 +618,6 @@ describe('KeyringManager - Initialization', () => {
           accounts: keyringManager.wallet.accounts, // Preserve imported accounts
         },
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
       const unlockResult = await newKeyringManager.unlock(FAKE_PASSWORD);
@@ -693,7 +691,6 @@ describe('KeyringManager - Initialization', () => {
           accounts: keyringManager.wallet.accounts,
         },
         activeChain: INetworkType.Syscoin,
-        slip44: 57,
       });
 
       // Mock hardware wallet communication error

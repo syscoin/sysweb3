@@ -294,7 +294,7 @@ export interface IKeyringManager {
   };
   importWeb3Account: (mnemonicOrPrivKey: string) => any;
   createNewSeed: () => string;
-  getUTXOState: () => any; // Returns modified wallet state, not IWalletState
+  getUTXOState: () => any;
   importLedgerAccount: (
     isAlreadyConnected: boolean,
     label?: string
@@ -309,6 +309,9 @@ export interface IKeyringManager {
     prvPassword?: string
   ) => Promise<IKeyringAccountState>;
   createKeyringVaultFromSession: () => Promise<IKeyringAccountState>;
+  transferSessionTo: (targetKeyring: IKeyringManager) => void;
+  receiveSessionOwnership: (sessionPassword: any, sessionMnemonic: any) => void;
+  lockWallet: () => void;
   // REMOVED: setSeed, setWalletPassword, createKeyringVault (deprecated for security)
 }
 

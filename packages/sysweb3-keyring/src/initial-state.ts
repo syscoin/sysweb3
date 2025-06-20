@@ -137,15 +137,9 @@ export const initialWalletState: IWalletState = {
     [KeyringAccountType.HDAccount]: {
       [initialActiveHdAccountState.id]: initialActiveHdAccountState,
     },
-    [KeyringAccountType.Imported]: {
-      [initialActiveImportedAccountState.id]: initialActiveImportedAccountState,
-    },
-    [KeyringAccountType.Trezor]: {
-      [initialActiveTrezorAccountState.id]: initialActiveTrezorAccountState,
-    },
-    [KeyringAccountType.Ledger]: {
-      [initialActiveTrezorAccountState.id]: initialActiveLedgerAccountState,
-    },
+    [KeyringAccountType.Imported]: {}, // Empty - only real imported accounts
+    [KeyringAccountType.Trezor]: {}, // Empty - only when connected
+    [KeyringAccountType.Ledger]: {}, // Empty - only when connected
   },
   activeAccountId: 0,
   activeAccountType: KeyringAccountType.HDAccount,

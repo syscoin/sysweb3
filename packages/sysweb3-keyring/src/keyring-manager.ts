@@ -42,7 +42,6 @@ import {
   INetwork,
   INetworkType,
   getNetworkConfig,
-  clearRpcCaches,
 } from '@pollum-io/sysweb3-network';
 
 export interface ISysAccount {
@@ -56,7 +55,6 @@ export interface ISysAccount {
 export interface IkeyringManagerOpts {
   activeChain: INetworkType;
   wallet: IWalletState;
-  slip44?: number; // Optional slip44 for the keyring
 }
 
 export interface ISysAccountWithId extends ISysAccount {
@@ -64,6 +62,52 @@ export interface ISysAccountWithId extends ISysAccount {
 }
 
 // Dynamic ETH HD path generation - will be computed as needed
+
+/**
+ * Secure Buffer implementation for sensitive data
+ * Provides explicit memory clearing capability
+ */
+class SecureBuffer {
+  private buffer: Buffer | null;
+  private _isCleared = false;
+
+  constructor(data: string | Buffer) {
+    if (typeof data === 'string') {
+      this.buffer = Buffer.from(data, 'utf8');
+    } else {
+      this.buffer = Buffer.from(data);
+    }
+  }
+
+  get(): Buffer {
+    if (this._isCleared || !this.buffer) {
+      throw new Error('SecureBuffer has been cleared');
+    }
+    return Buffer.from(this.buffer); // Return copy
+  }
+
+  toString(): string {
+    if (this._isCleared || !this.buffer) {
+      throw new Error('SecureBuffer has been cleared');
+    }
+    return this.buffer.toString('utf8');
+  }
+
+  clear(): void {
+    if (!this._isCleared && this.buffer) {
+      // Overwrite with random data first
+      crypto.randomFillSync(this.buffer);
+      // Then fill with zeros
+      this.buffer.fill(0);
+      this.buffer = null;
+      this._isCleared = true;
+    }
+  }
+
+  isCleared(): boolean {
+    return this._isCleared;
+  }
+}
 
 export class KeyringManager implements IKeyringManager {
   public trezorSigner: TrezorKeyring;
@@ -85,13 +129,13 @@ export class KeyringManager implements IKeyringManager {
   private hdMain: SyscoinHDSigner | null = null; // Main HD signer from seed
   private hdImportedByAccountId: Map<number, SyscoinHDSigner> = new Map(); // Imported zprvs
 
-  private sessionPassword: string;
-  private sessionMnemonic: string; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
-  private slip44: number | undefined; // The slip44 for this keyring instance
+  // Secure session data - using Buffers that can be explicitly cleared
+  private sessionPassword: SecureBuffer | null = null;
+  private sessionMnemonic: SecureBuffer | null = null; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
 
   constructor(opts?: IkeyringManagerOpts | null) {
     this.storage = sysweb3.sysweb3Di.getStateStorageDb();
-    this.sessionPassword = '';
+    // Don't initialize secure buffers in constructor - they're created on unlock
     this.storage.set('utf8Error', {
       hasUtf8Error: false,
     });
@@ -99,9 +143,6 @@ export class KeyringManager implements IKeyringManager {
     if (opts) {
       // Load wallet state with migration support (async loading will happen in initialize methods)
       this.wallet = JSON.parse(JSON.stringify(opts.wallet));
-
-      // Set slip44 from options or try to derive from activeNetwork
-      this.slip44 = opts.slip44 || opts.wallet?.activeNetwork?.slip44;
 
       // Defensive: Ensure all account type objects exist for migration compatibility
       if (!this.wallet.accounts[KeyringAccountType.Imported]) {
@@ -119,12 +160,11 @@ export class KeyringManager implements IKeyringManager {
       // Create a deep copy of the initial wallet state to prevent contamination
       this.wallet = JSON.parse(JSON.stringify(initialWalletState));
       this.activeChain = INetworkType.Syscoin;
-      this.slip44 = 57; // Default to Syscoin mainnet
       this.hd = null;
     }
 
     this.utf8Error = false;
-    this.sessionMnemonic = '';
+    // sessionMnemonic is initialized as null - created on unlock
     this.initialTrezorAccountState = initialActiveTrezorAccountState;
     this.initialLedgerAccountState = initialActiveLedgerAccountState;
     this.trezorSigner = new TrezorKeyring(this.getSigner);
@@ -153,15 +193,9 @@ export class KeyringManager implements IKeyringManager {
     walletState: IWalletState,
     chainType: INetworkType
   ): Promise<KeyringManager> {
-    // Determine slip44 from wallet state
-    const slip44 =
-      walletState.activeNetwork?.slip44 ||
-      (chainType === INetworkType.Syscoin ? 57 : 60);
-
     const keyringManager = new KeyringManager({
       wallet: walletState,
       activeChain: chainType,
-      slip44,
     });
 
     // Use the new secure initialization method (eliminates temporary plaintext storage)
@@ -215,30 +249,66 @@ export class KeyringManager implements IKeyringManager {
       : KeyringAccountType.HDAccount;
   };
 
-  public isUnlocked = () => !!this.sessionPassword;
+  public isUnlocked = () =>
+    !!this.sessionPassword && !this.sessionPassword.isCleared();
   public lockWallet = () => {
-    this.sessionPassword = '';
-    this.sessionMnemonic = '';
-  };
-
-  // Extract session data from an unlocked keyring to share with new keyrings
-  public getSessionData = () => {
-    if (!this.isUnlocked()) {
-      throw new Error('Keyring must be unlocked to extract session data');
+    // Clear secure session data
+    if (this.sessionPassword) {
+      this.sessionPassword.clear();
+      this.sessionPassword = null;
     }
-    return {
-      sessionPassword: this.sessionPassword,
-      sessionMnemonic: this.sessionMnemonic,
-    };
+    if (this.sessionMnemonic) {
+      this.sessionMnemonic.clear();
+      this.sessionMnemonic = null;
+    }
+    // Clear HD signers to remove decrypted keys from memory
+    this.hd = null;
+    this.hdMain = null;
+    this.hdImportedByAccountId.clear();
+    this.syscoinSigner = undefined;
   };
 
-  // Inject session data from another unlocked keyring
-  public setSessionData = (sessionData: {
-    sessionPassword: string;
-    sessionMnemonic: string;
-  }) => {
-    this.sessionPassword = sessionData.sessionPassword;
-    this.sessionMnemonic = sessionData.sessionMnemonic;
+  // Direct secure transfer of session data to another keyring
+  public transferSessionTo = (targetKeyring: IKeyringManager): void => {
+    if (!this.isUnlocked()) {
+      throw new Error('Source keyring must be unlocked to transfer session');
+    }
+
+    // Cast to access the receiveSessionOwnership method
+    const targetKeyringImpl = targetKeyring as KeyringManager;
+
+    // Transfer ownership of our buffers to the target
+    if (!this.sessionPassword || !this.sessionMnemonic) {
+      throw new Error('Session data is missing during transfer');
+    }
+
+    targetKeyringImpl.receiveSessionOwnership(
+      this.sessionPassword,
+      this.sessionMnemonic
+    );
+
+    // Null out our references (do NOT clear buffers - target owns them now)
+    this.sessionPassword = null;
+    this.sessionMnemonic = null;
+  };
+
+  // Private method for zero-copy transfer - takes ownership of buffers
+  public receiveSessionOwnership = (
+    sessionPassword: SecureBuffer,
+    sessionMnemonic: SecureBuffer
+  ): void => {
+    // Clear any existing data first
+    if (this.sessionPassword) {
+      this.sessionPassword.clear();
+    }
+    if (this.sessionMnemonic) {
+      this.sessionMnemonic.clear();
+    }
+
+    // Take ownership of the actual SecureBuffer objects
+    // No copying - these are the original objects
+    this.sessionPassword = sessionPassword;
+    this.sessionMnemonic = sessionMnemonic;
   };
 
   public addNewAccount = async (
@@ -375,7 +445,7 @@ export class KeyringManager implements IKeyringManager {
           const account = accounts[id];
           const decryptedXprv = CryptoJS.AES.decrypt(
             account.xprv,
-            this.sessionPassword
+            this.getSessionPasswordString()
           ).toString(CryptoJS.enc.Utf8);
 
           if (!decryptedXprv) {
@@ -437,7 +507,7 @@ export class KeyringManager implements IKeyringManager {
       }
 
       const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
-      if (this.sessionPassword !== genPwd) {
+      if (this.getSessionPasswordString() !== genPwd) {
         throw new Error('Invalid password');
       }
 
@@ -452,7 +522,7 @@ export class KeyringManager implements IKeyringManager {
       }
       const decryptedPrivateKey = CryptoJS.AES.decrypt(
         account.xprv,
-        this.sessionPassword
+        this.getSessionPasswordString()
       ).toString(CryptoJS.enc.Utf8);
 
       if (!decryptedPrivateKey) {
@@ -486,7 +556,7 @@ export class KeyringManager implements IKeyringManager {
   public getEncryptedXprv = (hd?: SyscoinHDSigner) => {
     return CryptoJS.AES.encrypt(
       this.getSysActivePrivateKey(hd),
-      this.sessionPassword
+      this.getSessionPasswordString()
     ).toString();
   };
 
@@ -502,10 +572,10 @@ export class KeyringManager implements IKeyringManager {
     }
 
     const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
-    if (this.sessionPassword !== genPwd) {
+    if (this.getSessionPasswordString() !== genPwd) {
       throw new Error('Invalid password');
     }
-    let { mnemonic } = await getDecryptedVault(pwd, this.slip44);
+    let { mnemonic } = await getDecryptedVault(pwd);
 
     if (!mnemonic) {
       throw new Error('Mnemonic not found in vault or is empty');
@@ -563,9 +633,6 @@ export class KeyringManager implements IKeyringManager {
       this.wallet.activeNetwork.chainId === data.chainId &&
       this.activeChain === data.kind
     ) {
-      // Clear RPC caches when updating network configuration
-      clearRpcCaches();
-
       if (
         data.kind === INetworkType.Syscoin &&
         this.syscoinSigner?.blockbookURL
@@ -685,9 +752,6 @@ export class KeyringManager implements IKeyringManager {
     success: boolean;
     wallet?: IWalletState;
   }> => {
-    // Clear RPC caches when switching networks to ensure fresh data
-    clearRpcCaches();
-
     // With multi-keyring architecture, each keyring is dedicated to specific slip44
     if (
       INetworkType.Ethereum !== network.kind &&
@@ -823,7 +887,7 @@ export class KeyringManager implements IKeyringManager {
     const genPwd = this.encryptSHA512(pwd, vaultKeys.salt);
     if (!this.sessionPassword) {
       throw new Error('Unlock wallet first');
-    } else if (this.sessionPassword !== genPwd) {
+    } else if (this.getSessionPasswordString() !== genPwd) {
       throw new Error('Invalid password');
     }
 
@@ -976,8 +1040,7 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public logout = () => {
-    this.sessionPassword = '';
-    this.sessionMnemonic = '';
+    this.lockWallet();
   };
 
   public async importAccount(privKey: string, label?: string) {
@@ -1166,7 +1229,7 @@ export class KeyringManager implements IKeyringManager {
       try {
         decryptedPrivateKey = CryptoJS.AES.decrypt(
           xprv,
-          this.sessionPassword
+          this.getSessionPasswordString()
         ).toString(CryptoJS.enc.Utf8);
       } catch (decryptError) {
         throw new Error(
@@ -1655,8 +1718,8 @@ export class KeyringManager implements IKeyringManager {
     try {
       // Decrypt the mnemonic directly instead of using seed
       const decryptedMnemonic = CryptoJS.AES.decrypt(
-        this.sessionMnemonic,
-        this.sessionPassword
+        this.getSessionMnemonicString(),
+        this.getSessionPasswordString()
       ).toString(CryptoJS.enc.Utf8);
 
       if (!decryptedMnemonic) {
@@ -1688,7 +1751,10 @@ export class KeyringManager implements IKeyringManager {
       const createdAccount = {
         address,
         xpub,
-        xprv: CryptoJS.AES.encrypt(xprv, this.sessionPassword).toString(),
+        xprv: CryptoJS.AES.encrypt(
+          xprv,
+          this.getSessionPasswordString()
+        ).toString(),
         isImported: false,
         ...basicAccountInfo,
       };
@@ -1756,8 +1822,7 @@ export class KeyringManager implements IKeyringManager {
       {
         mnemonic: '',
       },
-      pwd,
-      this.slip44
+      pwd
     );
 
     this.logout();
@@ -1768,7 +1833,7 @@ export class KeyringManager implements IKeyringManager {
     saltedHashPassword: string
   ): Promise<void> {
     try {
-      const { mnemonic } = await getDecryptedVault(password, this.slip44);
+      const { mnemonic } = await getDecryptedVault(password);
 
       if (!mnemonic) {
         throw new Error('Mnemonic not found in vault');
@@ -1776,11 +1841,13 @@ export class KeyringManager implements IKeyringManager {
 
       // Encrypt session data with sessionPassword hash for consistency
       // This allows createKeyringVaultFromSession to decrypt with this.sessionPassword
-      this.sessionPassword = saltedHashPassword;
-      this.sessionMnemonic = CryptoJS.AES.encrypt(
+      this.sessionPassword = new SecureBuffer(saltedHashPassword);
+      // Encrypt the mnemonic with session password for consistency with the rest of the code
+      const encryptedMnemonic = CryptoJS.AES.encrypt(
         mnemonic,
         saltedHashPassword
       ).toString();
+      this.sessionMnemonic = new SecureBuffer(encryptedMnemonic);
       console.log('[KeyringManager] Session data recreated from vault');
     } catch (error) {
       console.error('ERROR recreateSessionFromVault', { error });
@@ -1905,7 +1972,10 @@ export class KeyringManager implements IKeyringManager {
       id,
       balances,
       isImported: true,
-      xprv: CryptoJS.AES.encrypt(privateKey, this.sessionPassword).toString(),
+      xprv: CryptoJS.AES.encrypt(
+        privateKey,
+        this.getSessionPasswordString()
+      ).toString(),
       xpub: publicKey,
       assets: {
         syscoin: [],
@@ -1929,8 +1999,8 @@ export class KeyringManager implements IKeyringManager {
     }
 
     const mnemonic = CryptoJS.AES.decrypt(
-      this.sessionMnemonic,
-      this.sessionPassword
+      this.getSessionMnemonicString(),
+      this.getSessionPasswordString()
     ).toString(CryptoJS.enc.Utf8);
 
     if (!mnemonic) {
@@ -1989,12 +2059,12 @@ export class KeyringManager implements IKeyringManager {
 
     // Check if already initialized with the same password (idempotent behavior)
     if (this.sessionPassword) {
-      if (sessionPasswordSaltedHash === this.sessionPassword) {
+      if (sessionPasswordSaltedHash === this.getSessionPasswordString()) {
         // Same password - check if it's the same mnemonic to ensure full idempotency
         try {
           const currentMnemonic = CryptoJS.AES.decrypt(
-            this.sessionMnemonic,
-            this.sessionPassword
+            this.getSessionMnemonicString(),
+            this.getSessionPasswordString()
           ).toString(CryptoJS.enc.Utf8);
 
           if (currentMnemonic === seedPhrase) {
@@ -2012,13 +2082,12 @@ export class KeyringManager implements IKeyringManager {
       );
     }
 
-    // Encrypt and store network-specific vault (mnemonic storage)
+    // Encrypt and store vault (mnemonic storage) - now uses single vault for all networks
     await setEncryptedVault(
       {
         mnemonic: seedPhrase, // Store plain mnemonic - setEncryptedVault will encrypt the entire vault
       },
-      password,
-      this.slip44
+      password
     );
 
     await this.recreateSessionFromVault(password, sessionPasswordSaltedHash);
@@ -2035,7 +2104,10 @@ export class KeyringManager implements IKeyringManager {
         }
 
         // Let setSignerNetwork handle everything - account creation and signer setup
-        await this.setSignerNetwork(this.wallet.activeNetwork);
+        const result = await this.setSignerNetwork(this.wallet.activeNetwork);
+        if (!result.success) {
+          throw new Error('Failed to set up signer network');
+        }
 
         // Get active account info
         const activeAccountId = this.wallet.activeAccountId || 0;
@@ -2050,4 +2122,19 @@ export class KeyringManager implements IKeyringManager {
         throw error;
       }
     };
+
+  // Helper methods for secure buffer operations
+  private getSessionPasswordString(): string {
+    if (!this.sessionPassword || this.sessionPassword.isCleared()) {
+      throw new Error('Session password not available');
+    }
+    return this.sessionPassword.toString();
+  }
+
+  private getSessionMnemonicString(): string {
+    if (!this.sessionMnemonic || this.sessionMnemonic.isCleared()) {
+      throw new Error('Session mnemonic not available');
+    }
+    return this.sessionMnemonic.toString();
+  }
 }
