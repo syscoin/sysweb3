@@ -176,6 +176,150 @@ describe('KeyringManager - Account Management', () => {
         keyringManager.getAccountById(999, KeyringAccountType.HDAccount)
       ).toThrow('Account not found');
     });
+
+    it('should generate correct network-specific addresses when switching between different slip44 networks', async () => {
+      // This test verifies the fix for the bug where cached accounts
+      // retained stale addresses from previous networks
+
+      // Step 1: Create keyring for Syscoin mainnet (slip44=57)
+      const mainnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57, // Syscoin mainnet
+      });
+      const mainnetVaultStateGetter = jest.fn(() => mainnetVaultState);
+
+      const mainnetKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        mainnetVaultStateGetter
+      );
+
+      // Get mainnet account with sys1... address
+      const mainnetAccount = mainnetKeyring.getActiveAccount().activeAccount;
+      expect(mainnetAccount.address.startsWith('sys1')).toBe(true);
+
+      // Step 2: Simulate caching this account in vault state
+      // This represents what happens when we cache vault state
+      mainnetVaultState.accounts[KeyringAccountType.HDAccount][0] = {
+        ...mainnetAccount,
+        address: mainnetAccount.address, // This will be sys1... address
+        xpub: mainnetAccount.xpub,
+        balances: { syscoin: 10, ethereum: 0 }, // Some mainnet balance
+      } as any;
+
+      // Step 3: Create keyring for Syscoin testnet (slip44=1) with SAME vault state
+      // This simulates loading cached vault state that has stale mainnet addresses
+      const testnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 5700, // Syscoin testnet
+      });
+
+      // CRITICAL: Inject the stale mainnet account into testnet vault state
+      // This represents the bug scenario where cached vault has wrong addresses
+      testnetVaultState.accounts[KeyringAccountType.HDAccount][0] = {
+        ...mainnetVaultState.accounts[KeyringAccountType.HDAccount][0],
+        // This account still has sys1... address but we're now on testnet
+      };
+
+      const testnetVaultStateGetter = jest.fn(() => testnetVaultState);
+
+      const testnetKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        testnetVaultStateGetter
+      );
+
+      // Step 4: Create/load account on testnet - this should generate fresh tsys1... address
+      // With the bug: would reuse cached sys1... address
+      // With the fix: should derive fresh tsys1... address
+      const testnetAccount = await testnetKeyring.createFirstAccount(
+        'Test Account'
+      );
+
+      // Step 5: Verify addresses are network-specific
+      expect(mainnetAccount.address.startsWith('sys1')).toBe(true);
+      expect(testnetAccount.address.startsWith('tsys1')).toBe(true);
+
+      // Step 6: Addresses should be different (different networks)
+      expect(mainnetAccount.address).not.toBe(testnetAccount.address);
+
+      // Step 7: xpub formats should also be different
+      expect(mainnetAccount.xpub.startsWith('zpub')).toBe(true); // Mainnet format
+      expect(testnetAccount.xpub.startsWith('vpub')).toBe(true); // Testnet format
+
+      // Step 8: Verify testnet account has fresh balance, not cached mainnet balance
+      expect(testnetAccount.balances.syscoin).toBe(0); // Fresh account
+      expect(testnetAccount.balances.ethereum).toBe(0);
+    });
+
+    it('should handle address generation consistently across multiple account operations', async () => {
+      // Test that all account operations use fresh derived addresses
+
+      const testnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 5700,
+      });
+
+      // Inject stale mainnet address to simulate the bug condition
+      testnetVaultState.accounts[KeyringAccountType.HDAccount][0] = {
+        id: 0,
+        label: 'Account 1',
+        address: 'sys1qbuggyaddressfromcachedmainnetstate', // Wrong network address
+        xpub: 'zpub6rSLPXDUvvuy5VEPMUTkiTYfpr7vYACJKsySDMgng1rwEU', // Wrong format
+        xprv: 'encrypted_xprv',
+        balances: { syscoin: 5, ethereum: 0 }, // Stale balance
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+      } as any;
+
+      const vaultStateGetter = jest.fn(() => testnetVaultState);
+
+      const keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        vaultStateGetter
+      );
+
+      // All these operations should use correctly derived testnet addresses
+      const firstAccount = await keyringManager.createFirstAccount();
+
+      // Update the vault state to reflect the correctly generated first account
+      // This simulates what would happen in real usage where the vault state gets updated
+      testnetVaultState.accounts[KeyringAccountType.HDAccount][0] = {
+        id: 0,
+        label: 'Account 1',
+        address: firstAccount.address, // Now has correct tsys1... address
+        xpub: firstAccount.xpub,
+        xprv: 'encrypted_xprv',
+        balances: { syscoin: 0, ethereum: 0 },
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+      } as any;
+
+      const newAccount = await keyringManager.addNewAccount('Account 2');
+      const activeAccount = keyringManager.getActiveAccount().activeAccount;
+
+      // All should have correct testnet addresses
+      expect(firstAccount.address.startsWith('tsys1')).toBe(true);
+      expect(newAccount.address.startsWith('tsys1')).toBe(true);
+      expect(activeAccount.address.startsWith('tsys1')).toBe(true);
+
+      // Should not have the buggy cached address
+      expect(firstAccount.address).not.toBe(
+        'sys1qbuggyaddressfromcachedmainnetstate'
+      );
+      expect(activeAccount.address).not.toBe(
+        'sys1qbuggyaddressfromcachedmainnetstate'
+      );
+    });
   });
 
   describe('Imported Account Management', () => {

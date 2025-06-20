@@ -292,7 +292,9 @@ export interface IKeyringManager {
     password: string,
     prvPassword?: string
   ) => Promise<IKeyringAccountState>;
-  createKeyringVaultFromSession: () => Promise<IKeyringAccountState>;
+  // NEW: Separated initialization methods
+  initializeSession: (seedPhrase: string, password: string) => Promise<void>;
+  createFirstAccount: (label?: string) => Promise<IKeyringAccountState>;
   transferSessionTo: (targetKeyring: IKeyringManager) => void;
   receiveSessionOwnership: (sessionPassword: any, sessionMnemonic: any) => void;
   lockWallet: () => void;

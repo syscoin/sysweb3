@@ -27,7 +27,6 @@ import { EthereumTransactions, SyscoinTransactions } from './transactions';
 import { TrezorKeyring } from './trezor';
 import {
   IKeyringAccountState,
-  IKeyringBalances,
   ISyscoinTransactions,
   KeyringAccountType,
   IEthereumTransactions,
@@ -44,14 +43,9 @@ import {
 
 export interface ISysAccount {
   address: string;
-  balances: IKeyringBalances;
   label?: string;
   xprv?: string;
   xpub: string;
-}
-
-export interface ISysAccountWithId extends ISysAccount {
-  id: number;
 }
 
 // Dynamic ETH HD path generation - will be computed as needed
@@ -1246,12 +1240,11 @@ export class KeyringManager implements IKeyringManager {
     sysAccount: ISysAccount;
     xprv: string;
   }) => {
-    const { balances, address, xpub } = sysAccount;
+    const { address, xpub } = sysAccount;
 
     return {
       id: signer.Signer.accountIndex,
       label: label ? label : `Account ${signer.Signer.accountIndex + 1}`,
-      balances,
       xpub,
       xprv,
       address,
@@ -1437,31 +1430,13 @@ export class KeyringManager implements IKeyringManager {
     xpub: string;
     hd: SyscoinHDSigner;
   }): ISysAccount => {
-    // Get address from existing account if it exists, otherwise derive it
-    let address: string;
-    const vault = this.getVault();
-    const existingAccount = vault.accounts[vault.activeAccount.type][id];
-    if (existingAccount && existingAccount.address) {
-      address = existingAccount.address;
-    } else {
-      // For new accounts, we need to derive the address
-      if (!hd.Signer.accounts.has(id)) {
-        throw new Error('Account not found');
-      }
-
-      address = hd.Signer.accounts.get(id).getAddress(0, false, 84);
+    if (!hd.Signer.accounts.has(id)) {
+      throw new Error('Account not found');
     }
-
-    // Preserve existing balances if available
-    const balances = existingAccount?.balances || {
-      syscoin: 0,
-      ethereum: 0,
-    };
-
+    const address = hd.Signer.accounts.get(id).getAddress(0, false, 84);
     return {
       address,
       xpub: xpub,
-      balances,
     };
   };
   private setLatestIndexesFromXPubTokens = function (tokens) {
@@ -1519,16 +1494,15 @@ export class KeyringManager implements IKeyringManager {
 
       const encryptedXprv = this.getEncryptedXprv(this.hdMain);
 
-      const accountData = this.getInitialAccountData({
-        label: label || `Account ${accountId + 1}`,
-        signer: this.hdMain,
-        sysAccount,
-        xprv: encryptedXprv,
-      });
-
-      // NOTE: Account creation should be dispatched to Redux store, not stored here
-      // Return the account data for Pali to add to store
-      return accountData;
+      return {
+        ...this.getInitialAccountData({
+          label: label || `Account ${accountId + 1}`,
+          signer: this.hdMain,
+          sysAccount,
+          xprv: encryptedXprv,
+        }),
+        balances: { syscoin: 0, ethereum: 0 },
+      } as IKeyringAccountState;
     } catch (error) {
       console.log('ERROR createUTXOAccountAtIndex', {
         error,
@@ -1743,7 +1717,7 @@ export class KeyringManager implements IKeyringManager {
       }
 
       // Encrypt session data with sessionPassword hash for consistency
-      // This allows createKeyringVaultFromSession to decrypt with this.sessionPassword
+      // This allows keyring manager to decrypt with this.sessionPassword
       this.sessionPassword = new SecureBuffer(saltedHashPassword);
       // Encrypt the mnemonic with session password for consistency with the rest of the code
       const encryptedMnemonic = CryptoJS.AES.encrypt(
@@ -1934,15 +1908,16 @@ export class KeyringManager implements IKeyringManager {
     return hd;
   }
 
-  // NEW: Secure initialization method that eliminates temporary plaintext storage
-  public initializeWalletSecurely = async (
+  // NEW: Separate session initialization from account creation
+  public initializeSession = async (
     seedPhrase: string,
     password: string
-  ): Promise<IKeyringAccountState> => {
+  ): Promise<void> => {
     // Validate inputs first
     if (!validateMnemonic(seedPhrase)) {
       throw new Error('Invalid Seed');
     }
+
     let foundVaultKeys = true;
     let salt = '';
     const vaultKeys = await this.storage.get('vault-keys');
@@ -1952,6 +1927,7 @@ export class KeyringManager implements IKeyringManager {
     } else {
       salt = vaultKeys.salt;
     }
+
     const sessionPasswordSaltedHash = this.encryptSHA512(password, salt);
     if (!foundVaultKeys) {
       // Store vault-keys using the storage abstraction
@@ -1972,8 +1948,8 @@ export class KeyringManager implements IKeyringManager {
           ).toString(CryptoJS.enc.Utf8);
 
           if (currentMnemonic === seedPhrase) {
-            // Same mnemonic and password - idempotent call, return existing account
-            return await this.createKeyringVaultFromSession();
+            // Same mnemonic and password - already initialized
+            return;
           }
         } catch (error) {
           // If we can't decrypt, fall through to error
@@ -1995,39 +1971,61 @@ export class KeyringManager implements IKeyringManager {
     );
 
     await this.recreateSessionFromVault(password, sessionPasswordSaltedHash);
-    // Create the keyring vault directly with the encrypted session mnemonic
-    return await this.createKeyringVaultFromSession();
   };
 
-  // Simplified createKeyringVault using existing proven methods
-  public createKeyringVaultFromSession =
-    async (): Promise<IKeyringAccountState> => {
-      try {
-        if (!this.sessionPassword || !this.sessionMnemonic) {
-          throw new Error('Wallet must be initialized first');
-        }
+  // NEW: Create first account without signer setup
+  public createFirstAccount = async (
+    label?: string
+  ): Promise<IKeyringAccountState> => {
+    if (!this.sessionPassword || !this.sessionMnemonic) {
+      throw new Error(
+        'Session must be initialized first. Call initializeSession.'
+      );
+    }
 
-        // Let setSignerNetwork handle everything - account creation and signer setup
-        const vault = this.getVault();
-        const result = await this.setSignerNetwork(vault.activeNetwork);
-        if (!result.success) {
-          throw new Error('Failed to set up signer network');
-        }
+    const vault = this.getVault();
+    const network = vault.activeNetwork;
 
-        // Get active account info
-        const activeAccountId = vault.activeAccount.id || 0;
-        const activeAccountType =
-          vault.activeAccount.type || KeyringAccountType.HDAccount;
-        return vault.accounts[activeAccountType][activeAccountId];
-      } catch (error) {
-        console.log('ERROR createKeyringVaultFromSession', {
-          error,
-        });
-        this.validateAndHandleErrorByMessage(error.message);
-        throw error;
+    if (network.kind === INetworkType.Syscoin) {
+      // Create UTXO account
+      const { rpc } = await this.getSignerUTXO(network);
+
+      if (!this.hdMain) {
+        this.hdMain = await this.createHDSignerFromMainSeed(0, rpc);
       }
-    };
 
+      const xpub = this.hdMain.getAccountXpub();
+      const sysAccount = this.getFormattedBackendAccount({
+        xpub,
+        id: 0,
+        hd: this.hdMain,
+      });
+
+      const encryptedXprv = this.getEncryptedXprv(this.hdMain);
+
+      return {
+        ...this.getInitialAccountData({
+          label: label || 'Account 1',
+          signer: this.hdMain,
+          sysAccount,
+          xprv: encryptedXprv,
+        }),
+        balances: { syscoin: 0, ethereum: 0 },
+      } as IKeyringAccountState;
+    } else {
+      // Create EVM account
+      return await this.setDerivedWeb3Accounts(0, label || 'Account 1');
+    }
+  };
+
+  public initializeWalletSecurely = async (
+    seedPhrase: string,
+    password: string
+  ): Promise<IKeyringAccountState> => {
+    // Use new separated approach
+    await this.initializeSession(seedPhrase, password);
+    return await this.createFirstAccount();
+  };
   // Helper methods for secure buffer operations
   private getSessionPasswordString(): string {
     if (!this.sessionPassword || this.sessionPassword.isCleared()) {
