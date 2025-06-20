@@ -221,7 +221,7 @@ export interface ISyscoinTransactions {
 }
 
 export interface IKeyringManager {
-  addCustomNetwork: (network: INetwork) => void;
+  // Core keyring functionality
   addNewAccount: (label?: string) => Promise<IKeyringAccountState>;
   ethereumTransaction: IEthereumTransactions;
   forgetMainWallet: (pwd: string) => void;
@@ -231,13 +231,11 @@ export interface IKeyringManager {
   ) => Omit<IKeyringAccountState, 'xprv'>;
   getAccountXpub: () => string;
   getEncryptedXprv: () => string;
-  getNetwork: () => INetwork;
   unlock: (
     password: string,
     isForPvtKey?: boolean
   ) => Promise<{
     canLogin: boolean;
-    wallet?: IWalletState | null;
   }>;
   isUnlocked: () => boolean;
   logout: () => void;
@@ -247,40 +245,26 @@ export interface IKeyringManager {
     accountId: number,
     accountType: KeyringAccountType
   ) => void;
+  // Simplified setSignerNetwork - only handles backend/provider setup
   setSignerNetwork: (network: INetwork) => Promise<{
     success: boolean;
-    wallet?: IWalletState;
-    activeChain?: INetworkType;
   }>;
   getPrivateKeyByAccountId: (
     id: number,
     accountType: KeyringAccountType,
     pwd: string
   ) => Promise<string>;
-  removeNetwork: (
-    chain: INetworkType,
-    chainId: number,
-    rpcUrl: string,
-    label: string,
-    key?: string
-  ) => void;
-  updateNetworkConfig: (data: INetwork) => void;
   setStorage: (client: any) => void;
   syscoinTransaction: ISyscoinTransactions;
   isSeedValid: (seedPhrase: string) => boolean;
   getSeed: (pwd: string) => Promise<string>;
-  updateAccountLabel: (
-    label: string,
-    accountId: number,
-    accountType: KeyringAccountType
-  ) => void;
   importTrezorAccount: (label?: string) => Promise<IKeyringAccountState>;
   utf8Error: boolean;
   validateZprv: (
     zprv: string,
     targetNetwork?: INetwork
   ) => IValidateZprvResponse;
-  // Methods that were missing from interface
+  // Account management
   importAccount: (
     privKey: string,
     label?: string
@@ -298,11 +282,11 @@ export interface IKeyringManager {
   importLedgerAccount: (
     isAlreadyConnected: boolean,
     label?: string
-  ) => Promise<IKeyringAccountState | undefined>; // Can return undefined
-  getActiveUTXOAccountState: () => any; // Returns object with xprv: undefined
+  ) => Promise<IKeyringAccountState | undefined>;
+  getActiveUTXOAccountState: () => any;
   createEthAccount: (privateKey: string) => any;
   getAddress: (xpub: string, isChangeAddress: boolean) => Promise<string>;
-  // NEW: Secure initialization and password management
+  // Secure initialization and password management
   initializeWalletSecurely: (
     seedPhrase: string,
     password: string,
@@ -312,7 +296,8 @@ export interface IKeyringManager {
   transferSessionTo: (targetKeyring: IKeyringManager) => void;
   receiveSessionOwnership: (sessionPassword: any, sessionMnemonic: any) => void;
   lockWallet: () => void;
-  // REMOVED: setSeed, setWalletPassword, createKeyringVault (deprecated for security)
+  // NEW: Store access for stateless keyring
+  setVaultStateGetter: (getter: () => any) => void;
 }
 
 export enum KeyringAccountType {
@@ -331,21 +316,6 @@ export type IKeyringDApp = {
 export type accountType = {
   [id: number]: IKeyringAccountState;
 };
-
-export interface IWalletState {
-  accounts: { [key in KeyringAccountType]: accountType };
-  activeAccountId: number;
-  activeAccountType: KeyringAccountType;
-  activeNetwork: INetwork;
-  networks: {
-    [INetworkType.Ethereum]: {
-      [chainId: number | string]: INetwork;
-    };
-    [INetworkType.Syscoin]: {
-      [chainId: number | string]: INetwork;
-    };
-  };
-}
 
 export type IKeyringBalances = {
   [INetworkType.Syscoin]: number;

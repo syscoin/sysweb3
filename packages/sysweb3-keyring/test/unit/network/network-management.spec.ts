@@ -1,14 +1,12 @@
-import {
-  KeyringManager,
-  initialWalletState,
-  KeyringAccountType,
-} from '../../../src';
+import { KeyringManager, KeyringAccountType } from '../../../src';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType, INetwork } from '@pollum-io/sysweb3-network';
 
 describe('Network Management', () => {
   let keyringManager: KeyringManager;
+  let mockVaultStateGetter: jest.Mock;
+  let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
@@ -18,15 +16,19 @@ describe('Network Management', () => {
 
   describe('EVM Network Switching', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state with Ethereum mainnet
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -35,12 +37,15 @@ describe('Network Management', () => {
       expect(keyringManager.getNetwork().chainId).toBe(1);
 
       // Switch to Polygon
-      const polygon = initialWalletState.networks.ethereum[137];
+      const polygon = currentVaultState.networks.ethereum[137];
       const result = await keyringManager.setSignerNetwork(polygon);
+
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = polygon;
 
       expect(result.success).toBe(true);
       expect(keyringManager.getNetwork().chainId).toBe(137);
-      expect(keyringManager.getNetwork().label).toBe('Polygon Mainnet');
+      expect(keyringManager.getNetwork().label).toBe('Polygon');
     });
 
     it('should preserve accounts when switching EVM networks', async () => {
@@ -48,8 +53,22 @@ describe('Network Management', () => {
       const account1 = await keyringManager.addNewAccount('Test Account');
       const originalAddress = account1.address;
 
+      // Update vault state to include the new account
+      currentVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+        id: 1,
+        label: 'Test Account',
+        address: account1.address,
+        xpub: account1.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
       // Switch to Polygon
-      const polygon = initialWalletState.networks.ethereum[137];
+      const polygon = currentVaultState.networks.ethereum[137];
       await keyringManager.setSignerNetwork(polygon);
 
       // Account should still exist with same address
@@ -66,24 +85,31 @@ describe('Network Management', () => {
       expect(ethereum.url).toContain('rpc.ankr.com/eth');
 
       // Switch to Mumbai testnet
-      const mumbai = initialWalletState.networks.ethereum[80001];
+      const mumbai = currentVaultState.networks.ethereum[80001];
       await keyringManager.setSignerNetwork(mumbai);
 
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = mumbai;
+
       const network = keyringManager.getNetwork();
-      expect(network.url).toContain('omniatech.io');
+      expect(network.url).toContain('rpc-mumbai.maticvigil.com');
       expect(network.chainId).toBe(80001);
     });
 
     it('should handle rapid network switching', async () => {
       const networks = [
-        initialWalletState.networks.ethereum[1], // Ethereum
-        initialWalletState.networks.ethereum[137], // Polygon
-        initialWalletState.networks.ethereum[80001], // Mumbai
+        currentVaultState.networks.ethereum[1], // Ethereum
+        currentVaultState.networks.ethereum[137], // Polygon
+        currentVaultState.networks.ethereum[80001], // Mumbai
       ];
 
       // Rapid switching
       for (const network of networks) {
         const result = await keyringManager.setSignerNetwork(network);
+
+        // Update mock vault state to simulate Redux state update
+        currentVaultState.activeNetwork = network;
+
         expect(result.success).toBe(true);
         expect(keyringManager.getNetwork().chainId).toBe(network.chainId);
       }
@@ -92,107 +118,20 @@ describe('Network Management', () => {
 
   describe('Custom Network Management', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
-    });
-
-    it('should add custom EVM network', () => {
-      const customNetwork: INetwork = {
-        chainId: 31337,
-        currency: 'ETH',
-        label: 'Local Hardhat',
-        url: 'http://localhost:8545',
-        kind: INetworkType.Ethereum,
-        explorer: '',
-        slip44: 60,
-      };
-
-      keyringManager.addCustomNetwork(customNetwork);
-
-      // Verify network was added
-      const networks = keyringManager.wallet.networks[INetworkType.Ethereum];
-      expect(networks[31337]).toBeDefined();
-      expect(networks[31337].label).toBe('Local Hardhat');
-    });
-
-    it('should reject adding custom UTXO networks', () => {
-      const customUTXO: INetwork = {
-        chainId: 99999,
-        currency: 'TSYS',
-        label: 'Custom Syscoin',
-        url: 'http://localhost:8370',
-        kind: INetworkType.Syscoin,
-        slip44: 57,
-        explorer: '',
-      };
-
-      expect(() => keyringManager.addCustomNetwork(customUTXO)).toThrow(
-        'Custom networks can only be added for EVM'
-      );
-    });
-
-    it('should remove custom network', () => {
-      // Add custom network first
-      const customNetwork: INetwork = {
-        chainId: 31337,
-        currency: 'ETH',
-        label: 'Local Hardhat',
-        url: 'http://localhost:8545',
-        kind: INetworkType.Ethereum,
-        explorer: '',
-        slip44: 60,
-
-        key: 'hardhat-local',
-      };
-
-      keyringManager.addCustomNetwork(customNetwork);
-
-      // Remove it
-      keyringManager.removeNetwork(
-        INetworkType.Ethereum,
-        31337,
-        'http://localhost:8545',
-        'Local Hardhat',
-        'hardhat-local'
-      );
-
-      // Verify it's gone
-      const networks = keyringManager.wallet.networks[INetworkType.Ethereum];
-      expect(networks[31337]).toBeUndefined();
-    });
-
-    it('should reject removing active network', async () => {
-      const customNetwork: INetwork = {
-        chainId: 31337,
-        currency: 'ETH',
-        label: 'Local Hardhat',
-        url: 'http://localhost:8545',
-        kind: INetworkType.Ethereum,
-        explorer: '',
-        slip44: 60,
-        key: 'hardhat-local',
-      };
-
-      keyringManager.addCustomNetwork(customNetwork);
-      await keyringManager.setSignerNetwork(customNetwork);
-
-      expect(() =>
-        keyringManager.removeNetwork(
-          INetworkType.Ethereum,
-          31337,
-          'http://localhost:8545',
-          'Local Hardhat',
-          'hardhat-local'
-        )
-      ).toThrow('Cannot remove active network');
     });
 
     it('should update network configuration', async () => {
@@ -204,6 +143,9 @@ describe('Network Management', () => {
 
       await keyringManager.updateNetworkConfig(updatedEthereum);
 
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = updatedEthereum;
+
       const network = keyringManager.getNetwork();
       expect(network.url).toBe('https://new-ethereum-rpc.example.com');
     });
@@ -212,15 +154,18 @@ describe('Network Management', () => {
   describe('Multi-Keyring Architecture Constraints', () => {
     it('should prevent UTXO to UTXO network switching', async () => {
       // Create Syscoin keyring
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Try to switch to Bitcoin (different UTXO network)
@@ -241,19 +186,22 @@ describe('Network Management', () => {
 
     it('should prevent EVM to UTXO chain type switching', async () => {
       // Create EVM keyring
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       // Try to switch to Syscoin
-      const syscoin = initialWalletState.networks.syscoin[57];
+      const syscoin = currentVaultState.networks.syscoin[57];
 
       await expect(keyringManager.setSignerNetwork(syscoin)).rejects.toThrow(
         'Cannot use Syscoin chain type with Ethereum network'
@@ -262,18 +210,22 @@ describe('Network Management', () => {
 
     it('should allow UTXO network RPC updates within same network', async () => {
       // Create Syscoin keyring
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Update same network with new RPC
+      const syscoinMainnet = currentVaultState.networks.syscoin[57];
       const updatedSyscoin: INetwork = {
         ...syscoinMainnet,
         url: 'https://new-syscoin-rpc.example.com',
@@ -281,78 +233,118 @@ describe('Network Management', () => {
 
       await keyringManager.updateNetworkConfig(updatedSyscoin);
 
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = updatedSyscoin;
+
       const network = keyringManager.getNetwork();
       expect(network.url).toBe('https://new-syscoin-rpc.example.com');
       expect(network.chainId).toBe(57); // Same network
     });
 
     it('should maintain separate keyring instances per UTXO network', async () => {
-      // Create Syscoin mainnet keyring
+      // Create Syscoin mainnet keyring with mainnet network setup
+      const syscoinMainnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      // Set up mainnet-specific network in vault state
+      syscoinMainnetVaultState.activeNetwork = {
+        ...syscoinMainnetVaultState.networks.syscoin[57],
+        chainId: 57,
+        label: 'Syscoin Mainnet',
+      };
+      const syscoinMainnetVaultGetter = jest.fn(() => syscoinMainnetVaultState);
+
       const syscoinKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: initialWalletState.networks.syscoin[57],
-        },
-        INetworkType.Syscoin
+        syscoinMainnetVaultGetter
       );
 
-      // Create Syscoin testnet keyring (different instance)
+      // Create Syscoin testnet keyring with testnet network setup
+      const syscoinTestnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 5700,
+      });
+      // Set up testnet-specific network in vault state
+      syscoinTestnetVaultState.activeNetwork = {
+        ...syscoinTestnetVaultState.networks.syscoin[5700],
+        chainId: 5700,
+        label: 'Syscoin Testnet',
+      };
+      const syscoinTestnetVaultGetter = jest.fn(() => syscoinTestnetVaultState);
+
       const syscoinTestnetKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: initialWalletState.networks.syscoin[5700],
-        },
-        INetworkType.Syscoin
+        syscoinTestnetVaultGetter
       );
 
-      // They should be independent
+      // They should be independent instances
       expect(syscoinKeyring.getNetwork().chainId).toBe(57);
       expect(syscoinTestnetKeyring.getNetwork().chainId).toBe(5700);
 
-      // Accounts should have different addresses (mainnet vs testnet)
+      // Accounts should be valid Syscoin addresses
       const mainnetAccount = syscoinKeyring.getActiveAccount().activeAccount;
       const testnetAccount =
         syscoinTestnetKeyring.getActiveAccount().activeAccount;
 
+      // Mainnet should use sys1 prefix, testnet should use tsys1 prefix
       expect(mainnetAccount.address.startsWith('sys1')).toBe(true);
       expect(testnetAccount.address.startsWith('tsys1')).toBe(true);
-      expect(mainnetAccount.address).not.toBe(testnetAccount.address);
+
+      // xpub formats should be different for different networks
+      // Mainnet uses zpub format, testnet uses vpub format
+      // This is correct behavior - same seed but different network encodings
+      expect(mainnetAccount.xpub.startsWith('zpub')).toBe(true); // Mainnet format
+      expect(testnetAccount.xpub.startsWith('vpub')).toBe(true); // Testnet format
+      expect(mainnetAccount.xpub).not.toBe(testnetAccount.xpub); // Different formats
     });
   });
 
   describe('Network State Synchronization', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
-    it('should persist network changes in wallet state', async () => {
-      const polygon = initialWalletState.networks.ethereum[137];
+    it('should persist network changes in vault state', async () => {
+      const polygon = currentVaultState.networks.ethereum[137];
       await keyringManager.setSignerNetwork(polygon);
 
-      const walletState = keyringManager.wallet;
-      expect(walletState.activeNetwork.chainId).toBe(137);
-      expect(walletState.activeNetwork.label).toBe('Polygon Mainnet');
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = polygon;
+
+      // Verify the network has changed
+      const currentNetwork = keyringManager.getNetwork();
+      expect(currentNetwork.chainId).toBe(137);
+      expect(currentNetwork.label).toBe('Polygon');
     });
 
     it('should clear RPC caches on network switch', async () => {
       // clearRpcCaches is already being called during network switching
-      // We can verify this by checking the console output or by checking the cache state
-      // For this test, we'll just verify that network switching works successfully
-      const polygon = initialWalletState.networks.ethereum[137];
+      // We can verify this by checking that network switching works successfully
+      const polygon = currentVaultState.networks.ethereum[137];
       const result = await keyringManager.setSignerNetwork(polygon);
+
+      // Update mock vault state to simulate Redux state update
+      currentVaultState.activeNetwork = polygon;
 
       expect(result.success).toBe(true);
       expect(keyringManager.getNetwork().chainId).toBe(137);
@@ -360,13 +352,39 @@ describe('Network Management', () => {
 
     it('should handle network switching with existing accounts', async () => {
       // Create accounts on Ethereum
-      await keyringManager.addNewAccount('Account 2');
+      const account2 = await keyringManager.addNewAccount('Account 2');
       const imported = await keyringManager.importAccount(
         '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318'
       );
 
+      // Update vault state to include these accounts
+      currentVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+        id: 1,
+        label: 'Account 2',
+        address: account2.address,
+        xpub: account2.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+      currentVaultState.accounts[KeyringAccountType.Imported][0] = {
+        id: 0,
+        label: 'Imported 1',
+        address: imported.address,
+        xpub: imported.xpub,
+        xprv: imported.xprv,
+        isImported: true,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
       // Switch network
-      const polygon = initialWalletState.networks.ethereum[137];
+      const polygon = currentVaultState.networks.ethereum[137];
       await keyringManager.setSignerNetwork(polygon);
 
       // All accounts should still exist
@@ -386,15 +404,19 @@ describe('Network Management', () => {
 
   describe('Network Error Handling', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -428,17 +450,6 @@ describe('Network Management', () => {
       await expect(
         keyringManager.updateNetworkConfig(fakeNetwork)
       ).rejects.toThrow('Network does not exist');
-    });
-
-    it('should reject removing UTXO networks', () => {
-      expect(() =>
-        keyringManager.removeNetwork(
-          INetworkType.Syscoin,
-          57,
-          'https://blockbook.syscoin.org',
-          'Syscoin Mainnet'
-        )
-      ).toThrow('Networks can only be removed for EVM');
     });
   });
 });

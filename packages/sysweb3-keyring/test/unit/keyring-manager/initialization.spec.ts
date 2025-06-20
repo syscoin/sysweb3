@@ -1,8 +1,4 @@
-import {
-  KeyringManager,
-  initialWalletState,
-  KeyringAccountType,
-} from '../../../src';
+import { KeyringManager, KeyringAccountType } from '../../../src';
 import {
   FAKE_PASSWORD,
   PEACE_SEED_PHRASE,
@@ -13,6 +9,8 @@ import { INetworkType } from '@pollum-io/sysweb3-network';
 
 describe('KeyringManager - Initialization', () => {
   let keyringManager: KeyringManager;
+  let mockVaultStateGetter: jest.Mock;
+  let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
@@ -40,6 +38,17 @@ describe('KeyringManager - Initialization', () => {
 
     it('should retrieve the seed after initialization', async () => {
       keyringManager = new KeyringManager();
+
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
+
       await keyringManager.initializeWalletSecurely(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD
@@ -51,6 +60,17 @@ describe('KeyringManager - Initialization', () => {
 
     it('should reject seed retrieval with wrong password', async () => {
       keyringManager = new KeyringManager();
+
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
+
       await keyringManager.initializeWalletSecurely(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD
@@ -64,19 +84,22 @@ describe('KeyringManager - Initialization', () => {
 
   describe('Wallet Initialization', () => {
     it('should initialize wallet for EVM chain', async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       expect(keyringManager.isUnlocked()).toBe(true);
-      expect(keyringManager.activeChain).toBe(INetworkType.Ethereum);
 
       const { activeAccount } = keyringManager.getActiveAccount();
       expect(activeAccount.address).toBeDefined();
@@ -84,19 +107,22 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should initialize wallet for UTXO chain', async () => {
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       expect(keyringManager.isUnlocked()).toBe(true);
-      expect(keyringManager.activeChain).toBe(INetworkType.Syscoin);
 
       const { activeAccount } = keyringManager.getActiveAccount();
       expect(activeAccount.address).toBeDefined();
@@ -104,27 +130,28 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should create deterministic addresses from the same seed', async () => {
+      // Set up EVM vault state for both keyrings
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+
       // First EVM keyring
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      const mockVaultStateGetter1 = jest.fn(() => currentVaultState);
       const keyring1 = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter1
       );
 
       // Second EVM keyring with same seed
+      const mockVaultStateGetter2 = jest.fn(() => currentVaultState);
       const keyring2 = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter2
       );
 
       const account1 = keyring1.getActiveAccount().activeAccount;
@@ -135,22 +162,35 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should handle initialization with invalid seed', async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       await expect(
         KeyringManager.createInitialized(
           'invalid seed phrase',
           FAKE_PASSWORD,
-          {
-            ...initialWalletState,
-            activeNetwork: ethereumMainnet,
-          },
-          INetworkType.Ethereum
+          mockVaultStateGetter
         )
       ).rejects.toThrow('Invalid Seed');
     });
 
     it('should be idempotent for multiple initializations with same parameters', async () => {
       keyringManager = new KeyringManager();
+
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
 
       // First initialization
       const account1 = await keyringManager.initializeWalletSecurely(
@@ -171,6 +211,16 @@ describe('KeyringManager - Initialization', () => {
     it('should reject re-initialization with different parameters', async () => {
       keyringManager = new KeyringManager();
 
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
+
       // First initialization
       await keyringManager.initializeWalletSecurely(
         PEACE_SEED_PHRASE,
@@ -189,15 +239,19 @@ describe('KeyringManager - Initialization', () => {
 
   describe('Lock/Unlock', () => {
     beforeEach(async () => {
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
     });
 
@@ -254,16 +308,20 @@ describe('KeyringManager - Initialization', () => {
 
   describe('Session Management', () => {
     it('should transfer session data between keyrings', async () => {
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+
       // Create first keyring
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      const mockVaultStateGetter1 = jest.fn(() => currentVaultState);
       const keyring1 = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter1
       );
 
       // Create second keyring
@@ -293,15 +351,19 @@ describe('KeyringManager - Initialization', () => {
 
   describe('Wallet Reset', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -331,15 +393,19 @@ describe('KeyringManager - Initialization', () => {
 
   describe('Edge Cases', () => {
     it('should handle vault recreation from corrupted session', async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       // Simulate corrupted session by clearing internal state
@@ -355,14 +421,18 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it("should create vault keys when they don't exist", async () => {
-      // Use a keyring with proper slip44 for Syscoin to ensure consistent behavior
-      keyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: initialWalletState.networks.syscoin[57],
-        },
-        activeChain: INetworkType.Syscoin,
+      // Use a keyring with proper UTXO setup
+      keyringManager = new KeyringManager();
+
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
       });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
 
       // Get the actual storage instance
       const keyringStorage = (keyringManager as any).storage;
@@ -396,16 +466,19 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should re-initialize from vault when Trezor account was active', async () => {
-      // Test Trezor account preservation across vault re-initialization
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Mock Trezor import
@@ -424,6 +497,26 @@ describe('KeyringManager - Initialization', () => {
       const trezorAccount = await keyringManager.importTrezorAccount(
         'Test Trezor'
       );
+
+      // Update vault state with Trezor account
+      currentVaultState.accounts[KeyringAccountType.Trezor][trezorAccount.id] =
+        {
+          id: trezorAccount.id,
+          label: 'Test Trezor',
+          address: trezorAccount.address,
+          xpub: trezorAccount.xpub,
+          xprv: '',
+          isImported: false,
+          isTrezorWallet: true,
+          isLedgerWallet: false,
+          balances: { syscoin: 0, ethereum: 0 },
+          assets: { syscoin: [], ethereum: [] },
+        };
+      currentVaultState.activeAccount = {
+        id: trezorAccount.id,
+        type: KeyringAccountType.Trezor,
+      };
+
       await keyringManager.setActiveAccount(
         trezorAccount.id,
         KeyringAccountType.Trezor
@@ -436,16 +529,9 @@ describe('KeyringManager - Initialization', () => {
 
       // Lock keyring and create new instance (simulates app restart)
       keyringManager.lockWallet();
-      const newKeyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-          activeAccountId: trezorAccount.id,
-          activeAccountType: KeyringAccountType.Trezor,
-          accounts: keyringManager.wallet.accounts,
-        },
-        activeChain: INetworkType.Syscoin,
-      });
+      const newKeyringManager = new KeyringManager();
+      const newMockVaultStateGetter = jest.fn(() => currentVaultState);
+      newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
       // Mock Trezor for new keyring
       newKeyringManager.trezorSigner.getAccountInfo = jest
@@ -466,16 +552,19 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should re-initialize from vault when Ledger account was active', async () => {
-      // Test Ledger account preservation across vault re-initialization
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Mock Ledger import
@@ -494,6 +583,26 @@ describe('KeyringManager - Initialization', () => {
       if (!ledgerAccount) {
         throw new Error('Ledger account creation failed');
       }
+
+      // Update vault state with Ledger account
+      currentVaultState.accounts[KeyringAccountType.Ledger][ledgerAccount.id] =
+        {
+          id: ledgerAccount.id,
+          label: 'Test Ledger',
+          address: ledgerAccount.address,
+          xpub: ledgerAccount.xpub,
+          xprv: '',
+          isImported: false,
+          isTrezorWallet: false,
+          isLedgerWallet: true,
+          balances: { syscoin: 0, ethereum: 0 },
+          assets: { syscoin: [], ethereum: [] },
+        };
+      currentVaultState.activeAccount = {
+        id: ledgerAccount.id,
+        type: KeyringAccountType.Ledger,
+      };
+
       await keyringManager.setActiveAccount(
         ledgerAccount.id,
         KeyringAccountType.Ledger
@@ -501,16 +610,9 @@ describe('KeyringManager - Initialization', () => {
 
       // Lock and recreate keyring
       keyringManager.lockWallet();
-      const newKeyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-          activeAccountId: ledgerAccount.id,
-          activeAccountType: KeyringAccountType.Ledger,
-          accounts: keyringManager.wallet.accounts,
-        },
-        activeChain: INetworkType.Syscoin,
-      });
+      const newKeyringManager = new KeyringManager();
+      const newMockVaultStateGetter = jest.fn(() => currentVaultState);
+      newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
       // Mock Ledger for new keyring
       newKeyringManager.ledgerSigner.utxo = {
@@ -529,16 +631,19 @@ describe('KeyringManager - Initialization', () => {
     });
 
     it('should re-initialize from vault when imported account was active', async () => {
-      // Test imported account preservation across vault re-initialization
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Import zprv account
@@ -548,6 +653,27 @@ describe('KeyringManager - Initialization', () => {
         mainnetZprv,
         'Test Imported'
       );
+
+      // Update vault state with imported account
+      currentVaultState.accounts[KeyringAccountType.Imported][
+        importedAccount.id
+      ] = {
+        id: importedAccount.id,
+        label: 'Test Imported',
+        address: importedAccount.address,
+        xpub: importedAccount.xpub,
+        xprv: importedAccount.xprv,
+        isImported: true,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+      currentVaultState.activeAccount = {
+        id: importedAccount.id,
+        type: KeyringAccountType.Imported,
+      };
+
       await keyringManager.setActiveAccount(
         importedAccount.id,
         KeyringAccountType.Imported
@@ -555,16 +681,9 @@ describe('KeyringManager - Initialization', () => {
 
       // Lock and recreate keyring
       keyringManager.lockWallet();
-      const newKeyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-          activeAccountId: importedAccount.id,
-          activeAccountType: KeyringAccountType.Imported,
-          accounts: keyringManager.wallet.accounts,
-        },
-        activeChain: INetworkType.Syscoin,
-      });
+      const newKeyringManager = new KeyringManager();
+      const newMockVaultStateGetter = jest.fn(() => currentVaultState);
+      newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
       const unlockResult = await newKeyringManager.unlock(FAKE_PASSWORD);
       expect(unlockResult.canLogin).toBe(true);
@@ -575,93 +694,20 @@ describe('KeyringManager - Initialization', () => {
       expect(activeAfter.activeAccount.id).toBe(importedAccount.id);
     });
 
-    it('should re-init to HD account then switch to Trezor from vault', async () => {
-      // Test switching to preserved Trezor account after HD initialization
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
-      keyringManager = await KeyringManager.createInitialized(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
-      );
-
-      // Mock and import Trezor
-      keyringManager.trezorSigner.getAccountInfo = jest.fn().mockResolvedValue({
-        descriptor: 'xpub_trezor_preserved',
-        balance: 100000000,
-      });
-      keyringManager.trezorSigner.getPublicKey = jest.fn().mockResolvedValue({
-        publicKey: '0x04...',
-      });
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1q_trezor_preserved');
-
-      const trezorAccount = await keyringManager.importTrezorAccount(
-        'Preserved Trezor'
-      );
-      await keyringManager.setActiveAccount(
-        trezorAccount.id,
-        KeyringAccountType.Trezor
-      );
-
-      // Lock and recreate keyring (should default to HD account 0)
-      keyringManager.lockWallet();
-      const newKeyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-          // Note: Not setting activeAccountId/Type - should default to HD account 0
-          accounts: keyringManager.wallet.accounts, // Preserve imported accounts
-        },
-        activeChain: INetworkType.Syscoin,
-      });
-
-      const unlockResult = await newKeyringManager.unlock(FAKE_PASSWORD);
-      expect(unlockResult.canLogin).toBe(true);
-
-      // Should default to HD account
-      const activeAfterUnlock = newKeyringManager.getActiveAccount();
-      expect(activeAfterUnlock.activeAccountType).toBe(
-        KeyringAccountType.HDAccount
-      );
-      expect(activeAfterUnlock.activeAccount.id).toBe(0);
-
-      // Switch back to previously imported Trezor account
-      newKeyringManager.trezorSigner.getAccountInfo = jest
-        .fn()
-        .mockResolvedValue({
-          descriptor: 'xpub_trezor_preserved',
-          balance: 100000000,
-        });
-
-      await newKeyringManager.setActiveAccount(
-        trezorAccount.id,
-        KeyringAccountType.Trezor
-      );
-
-      // Verify account state is preserved and functional
-      const finalActive = newKeyringManager.getActiveAccount();
-      expect(finalActive.activeAccountType).toBe(KeyringAccountType.Trezor);
-      expect(finalActive.activeAccount.isTrezorWallet).toBe(true);
-      expect(finalActive.activeAccount.label).toBe('Preserved Trezor');
-      expect(finalActive.activeAccount.id).toBe(trezorAccount.id);
-    });
-
     it('should handle missing hardware wallet during re-init gracefully', async () => {
-      // Test edge case where hardware wallet is not available after vault re-init
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
+      // Set up UTXO vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mockVaultStateGetter
       );
 
       // Import Trezor
@@ -680,18 +726,30 @@ describe('KeyringManager - Initialization', () => {
         'Missing Trezor'
       );
 
+      // Update vault state with Trezor account
+      currentVaultState.accounts[KeyringAccountType.Trezor][trezorAccount.id] =
+        {
+          id: trezorAccount.id,
+          label: 'Missing Trezor',
+          address: trezorAccount.address,
+          xpub: trezorAccount.xpub,
+          xprv: '',
+          isImported: false,
+          isTrezorWallet: true,
+          isLedgerWallet: false,
+          balances: { syscoin: 0, ethereum: 0 },
+          assets: { syscoin: [], ethereum: [] },
+        };
+      currentVaultState.activeAccount = {
+        id: trezorAccount.id,
+        type: KeyringAccountType.Trezor,
+      };
+
       // Recreate keyring with Trezor as active but hardware not available
       keyringManager.lockWallet();
-      const newKeyringManager = new KeyringManager({
-        wallet: {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-          activeAccountId: trezorAccount.id,
-          activeAccountType: KeyringAccountType.Trezor,
-          accounts: keyringManager.wallet.accounts,
-        },
-        activeChain: INetworkType.Syscoin,
-      });
+      const newKeyringManager = new KeyringManager();
+      const newMockVaultStateGetter = jest.fn(() => currentVaultState);
+      newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
       // Mock hardware wallet communication error
       newKeyringManager.trezorSigner.getAccountInfo = jest

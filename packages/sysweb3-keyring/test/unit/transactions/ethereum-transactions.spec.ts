@@ -1,31 +1,33 @@
 import { encrypt } from 'eth-sig-util';
 
-import {
-  KeyringManager,
-  initialWalletState,
-  KeyringAccountType,
-} from '../../../src';
+import { KeyringManager, KeyringAccountType } from '../../../src';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
 describe('Ethereum Transactions', () => {
   let keyringManager: KeyringManager;
+  let mockVaultStateGetter: jest.Mock;
+  let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
     // Set up vault-keys that would normally be created by Pali's MainController
     await setupTestVault(FAKE_PASSWORD);
 
-    const ethereumMainnet = initialWalletState.networks.ethereum[1];
+    // Set up EVM vault state
+    currentVaultState = createMockVaultState({
+      activeAccountId: 0,
+      activeAccountType: KeyringAccountType.HDAccount,
+      networkType: INetworkType.Ethereum,
+      chainId: 1,
+    });
+    mockVaultStateGetter = jest.fn(() => currentVaultState);
+
     keyringManager = await KeyringManager.createInitialized(
       PEACE_SEED_PHRASE,
       FAKE_PASSWORD,
-      {
-        ...initialWalletState,
-        activeNetwork: ethereumMainnet,
-      },
-      INetworkType.Ethereum
+      mockVaultStateGetter
     );
   });
 
@@ -310,6 +312,19 @@ describe('Ethereum Transactions', () => {
       // Add a second account
       const account2 = await keyringManager.addNewAccount();
 
+      // Update vault state with the new account (in stateless keyring, this would be done by Pali/Redux)
+      currentVaultState.accounts[KeyringAccountType.HDAccount][account2.id] = {
+        id: account2.id,
+        address: account2.address,
+        xpub: account2.xpub,
+        xprv: account2.xprv,
+        label: account2.label,
+        balances: account2.balances,
+        isImported: account2.isImported,
+        isTrezorWallet: account2.isTrezorWallet,
+        isLedgerWallet: account2.isLedgerWallet,
+      };
+
       // Sign with first account
       const signature1 =
         await keyringManager.ethereumTransaction.signPersonalMessage([
@@ -318,6 +333,10 @@ describe('Ethereum Transactions', () => {
         ]);
 
       // Switch to second account
+      currentVaultState.activeAccount = {
+        id: account2.id,
+        type: KeyringAccountType.HDAccount,
+      };
       await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
 
       // Sign with second account

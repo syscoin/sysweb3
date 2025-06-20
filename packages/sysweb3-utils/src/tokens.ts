@@ -747,7 +747,6 @@ export const getAsset = async (
       metaData?: string; // Syscoin 5 - general metadata field
       symbol: string;
       totalSupply: string;
-      updateCapabilityFlags: number;
     }
   | undefined
 > => {

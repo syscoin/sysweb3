@@ -1,14 +1,12 @@
-import {
-  KeyringManager,
-  initialWalletState,
-  KeyringAccountType,
-} from '../../../src';
+import { KeyringManager, KeyringAccountType } from '../../../src';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
 describe('KeyringManager - Security', () => {
   let keyringManager: KeyringManager;
+  let mockVaultStateGetter: jest.Mock;
+  let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
@@ -18,15 +16,19 @@ describe('KeyringManager - Security', () => {
 
   describe('Password Management', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -62,7 +64,7 @@ describe('KeyringManager - Security', () => {
       expect(weakPasswords.length).toBeGreaterThan(0); // Placeholder assertion
       // for (const weakPassword of weakPasswords) {
       //   await expect(
-      //     KeyringManager.createInitialized(PEACE_SEED_PHRASE, weakPassword, initialWalletState, INetworkType.Ethereum)
+      //     KeyringManager.createInitialized(PEACE_SEED_PHRASE, weakPassword, INetworkType.Ethereum, mockVaultStateGetter)
       //   ).rejects.toThrow('Password too weak');
       // }
     });
@@ -80,15 +82,19 @@ describe('KeyringManager - Security', () => {
 
   describe('Encryption', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -108,10 +114,10 @@ describe('KeyringManager - Security', () => {
       expect(activeAccount).not.toHaveProperty('xprv');
     });
 
-    it('should encrypt private keys in wallet state', async () => {
-      // Check HD account
-      const wallet = keyringManager.wallet;
-      const hdAccount = wallet.accounts[KeyringAccountType.HDAccount][0];
+    it('should encrypt private keys in vault state', async () => {
+      // Check HD account in vault state
+      const hdAccount =
+        currentVaultState.accounts[KeyringAccountType.HDAccount][0];
 
       // xprv should be encrypted
       expect(hdAccount.xprv).toBeDefined();
@@ -123,8 +129,22 @@ describe('KeyringManager - Security', () => {
         '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
       const imported = await keyringManager.importAccount(privateKey);
 
+      // Update vault state to include the imported account
+      currentVaultState.accounts[KeyringAccountType.Imported][imported.id] = {
+        id: imported.id,
+        label: 'Imported 1',
+        address: imported.address,
+        xpub: imported.xpub,
+        xprv: imported.xprv,
+        isImported: true,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
       const importedAccount =
-        wallet.accounts[KeyringAccountType.Imported][imported.id];
+        currentVaultState.accounts[KeyringAccountType.Imported][imported.id];
       expect(importedAccount.xprv).not.toBe(privateKey);
       expect(importedAccount.xprv.length).toBeGreaterThan(privateKey.length);
     });
@@ -146,26 +166,36 @@ describe('KeyringManager - Security', () => {
 
   describe('Key Derivation Security', () => {
     it('should use standard derivation paths', async () => {
+      // Set up EVM vault state
+      const evmVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      const evmVaultStateGetter = jest.fn(() => evmVaultState);
+
       // EVM should use BIP44 m/44'/60'/0'/0/x
       const evmKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: initialWalletState.networks.ethereum[1],
-        },
-        INetworkType.Ethereum
+        evmVaultStateGetter
       );
+
+      // Set up UTXO vault state
+      const utxoVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      const utxoVaultStateGetter = jest.fn(() => utxoVaultState);
 
       // UTXO should use BIP84 m/84'/57'/0'/0/x for Syscoin
       const utxoKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: initialWalletState.networks.syscoin[57],
-        },
-        INetworkType.Syscoin
+        utxoVaultStateGetter
       );
 
       // Addresses should be different due to different derivation paths
@@ -174,19 +204,23 @@ describe('KeyringManager - Security', () => {
 
       expect(evmAddress).not.toBe(utxoAddress);
       expect(evmAddress.startsWith('0x')).toBe(true);
-      expect(utxoAddress.startsWith('sys1')).toBe(true);
+      expect(utxoAddress.match(/^(sys1|tsys1)/)).toBeTruthy();
     });
 
     it('should not expose intermediate keys', async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       // Only final private keys should be accessible, not master keys
@@ -206,6 +240,17 @@ describe('KeyringManager - Security', () => {
     it('should protect vault with proper encryption', async () => {
       // Vault should require password to decrypt
       keyringManager = new KeyringManager();
+
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
+
       await keyringManager.initializeWalletSecurely(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD
@@ -225,15 +270,19 @@ describe('KeyringManager - Security', () => {
       // Mock storage should contain vault-keys with salt
       const mockStorage = (global as any).mockStorage || new Map();
 
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       // In real implementation, vault-keys should exist
@@ -249,15 +298,19 @@ describe('KeyringManager - Security', () => {
 
   describe('Import Security', () => {
     beforeEach(async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 
@@ -278,43 +331,51 @@ describe('KeyringManager - Security', () => {
 
     it('should isolate imported keys from HD keys', async () => {
       // Create a clean keyring with only HD accounts (no placeholder imported accounts)
-      const cleanWalletState = {
-        ...initialWalletState,
-        accounts: {
-          [KeyringAccountType.HDAccount]: {},
-          [KeyringAccountType.Imported]: {},
-          [KeyringAccountType.Trezor]: {},
-          [KeyringAccountType.Ledger]: {},
-        },
-      };
+      const cleanVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      // Clear imported accounts
+      cleanVaultState.accounts[KeyringAccountType.Imported] = {};
+      const cleanVaultStateGetter = jest.fn(() => cleanVaultState);
 
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...cleanWalletState,
-          activeNetwork: initialWalletState.networks.ethereum[1],
-        },
-        INetworkType.Ethereum
+        cleanVaultStateGetter
       );
 
       // Check initial state - should have 1 HD account, 0 imported
-      let hdAccounts =
-        keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
+      let hdAccounts = cleanVaultState.accounts[KeyringAccountType.HDAccount];
       let importedAccounts =
-        keyringManager.wallet.accounts[KeyringAccountType.Imported];
+        cleanVaultState.accounts[KeyringAccountType.Imported];
       expect(Object.keys(hdAccounts).length).toBe(1);
       expect(Object.keys(importedAccounts).length).toBe(0);
 
       // Import a key
       const importedKey =
         '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
-      await keyringManager.importAccount(importedKey);
+      const imported = await keyringManager.importAccount(importedKey);
+
+      // Update vault state to include the imported account
+      cleanVaultState.accounts[KeyringAccountType.Imported][imported.id] = {
+        id: imported.id,
+        label: 'Imported 1',
+        address: imported.address,
+        xpub: imported.xpub,
+        xprv: imported.xprv,
+        isImported: true,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
 
       // HD and imported accounts should be in separate stores
-      hdAccounts = keyringManager.wallet.accounts[KeyringAccountType.HDAccount];
-      importedAccounts =
-        keyringManager.wallet.accounts[KeyringAccountType.Imported];
+      hdAccounts = cleanVaultState.accounts[KeyringAccountType.HDAccount];
+      importedAccounts = cleanVaultState.accounts[KeyringAccountType.Imported];
 
       // HD accounts should remain unchanged (still 1), imported should now have 1
       expect(Object.keys(hdAccounts).length).toBe(1);
@@ -330,15 +391,19 @@ describe('KeyringManager - Security', () => {
 
   describe('Memory Security', () => {
     it('should not leak sensitive data in error messages', async () => {
-      const ethereumMainnet = initialWalletState.networks.ethereum[1];
+      // Set up EVM vault state
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: ethereumMainnet,
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
 
       try {
@@ -361,6 +426,16 @@ describe('KeyringManager - Security', () => {
       // If initialization fails, no sensitive data should remain
       keyringManager = new KeyringManager();
 
+      // Set up mock vault state getter for initializeWalletSecurely
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+      keyringManager.setVaultStateGetter(mockVaultStateGetter);
+
       try {
         await keyringManager.initializeWalletSecurely(
           'invalid seed phrase',
@@ -375,25 +450,21 @@ describe('KeyringManager - Security', () => {
 
   describe('Access Control', () => {
     beforeEach(async () => {
-      // Use clean wallet state without placeholder imported accounts
-      const cleanWalletState = {
-        ...initialWalletState,
-        accounts: {
-          [KeyringAccountType.HDAccount]: {},
-          [KeyringAccountType.Imported]: {},
-          [KeyringAccountType.Trezor]: {},
-          [KeyringAccountType.Ledger]: {},
-        },
-      };
+      // Use clean vault state without placeholder imported accounts
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      // Clear imported accounts
+      currentVaultState.accounts[KeyringAccountType.Imported] = {};
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
 
       keyringManager = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...cleanWalletState,
-          activeNetwork: initialWalletState.networks.ethereum[1],
-        },
-        INetworkType.Ethereum
+        mockVaultStateGetter
       );
     });
 

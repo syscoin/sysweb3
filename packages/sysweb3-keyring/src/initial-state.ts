@@ -1,8 +1,4 @@
-import {
-  IKeyringAccountState,
-  IWalletState,
-  KeyringAccountType,
-} from './types';
+import { IKeyringAccountState } from './types';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
 export const initialActiveHdAccountState: IKeyringAccountState = {
@@ -129,29 +125,5 @@ export const initialNetworksState = {
       slip44: 60,
       kind: INetworkType.Ethereum,
     },
-  },
-};
-
-export const initialWalletState: IWalletState = {
-  accounts: {
-    [KeyringAccountType.HDAccount]: {
-      [initialActiveHdAccountState.id]: initialActiveHdAccountState,
-    },
-    [KeyringAccountType.Imported]: {}, // Empty - only real imported accounts
-    [KeyringAccountType.Trezor]: {}, // Empty - only when connected
-    [KeyringAccountType.Ledger]: {}, // Empty - only when connected
-  },
-  activeAccountId: 0,
-  activeAccountType: KeyringAccountType.HDAccount,
-  networks: initialNetworksState,
-  activeNetwork: {
-    chainId: 57,
-    label: 'Syscoin Mainnet',
-    url: 'https://explorer-blockbook.syscoin.org',
-    explorer: 'https://explorer-blockbook.syscoin.org',
-    default: true,
-    currency: 'sys',
-    slip44: 57,
-    kind: INetworkType.Syscoin,
   },
 };

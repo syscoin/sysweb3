@@ -1,31 +1,33 @@
 import * as sjs from 'syscoinjs-lib';
 
-import {
-  KeyringManager,
-  initialWalletState,
-  KeyringAccountType,
-} from '../../../src';
+import { KeyringManager, KeyringAccountType } from '../../../src';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
 describe('Syscoin Transactions', () => {
   let keyringManager: KeyringManager;
+  let mockVaultStateGetter: jest.Mock;
+  let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
     // Set up vault-keys that would normally be created by Pali's MainController
     await setupTestVault(FAKE_PASSWORD);
 
-    const syscoinTestnet = initialWalletState.networks.syscoin[5700];
+    // Set up UTXO testnet vault state
+    currentVaultState = createMockVaultState({
+      activeAccountId: 0,
+      activeAccountType: KeyringAccountType.HDAccount,
+      networkType: INetworkType.Syscoin,
+      chainId: 5700,
+    });
+    mockVaultStateGetter = jest.fn(() => currentVaultState);
+
     keyringManager = await KeyringManager.createInitialized(
       PEACE_SEED_PHRASE,
       FAKE_PASSWORD,
-      {
-        ...initialWalletState,
-        activeNetwork: syscoinTestnet,
-      },
-      INetworkType.Syscoin
+      mockVaultStateGetter
     );
   });
 
@@ -486,12 +488,29 @@ describe('Syscoin Transactions', () => {
   describe('Multiple Account Support', () => {
     it('should sign transactions from different accounts', async () => {
       // Add a second account
-      await keyringManager.addNewAccount('Account 2');
+      const account2 = await keyringManager.addNewAccount('Account 2');
+
+      // Update vault state with the new account (in stateless keyring, this would be done by Pali/Redux)
+      currentVaultState.accounts[KeyringAccountType.HDAccount][account2.id] = {
+        id: account2.id,
+        address: account2.address,
+        xpub: account2.xpub,
+        xprv: account2.xprv,
+        label: account2.label,
+        balances: account2.balances,
+        isImported: account2.isImported,
+        isTrezorWallet: account2.isTrezorWallet,
+        isLedgerWallet: account2.isLedgerWallet,
+      };
 
       // Get change address for account 1
       const changeAddress1 = await keyringManager.getChangeAddress(0);
 
       // Switch to account 2
+      currentVaultState.activeAccount = {
+        id: account2.id,
+        type: KeyringAccountType.HDAccount,
+      };
       await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
 
       // Get change address for account 2
@@ -506,23 +525,27 @@ describe('Syscoin Transactions', () => {
 
   describe('Network Compatibility', () => {
     it('should work with mainnet configuration', async () => {
+      // Set up mainnet vault state
+      const mainnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      const mainnetVaultStateGetter = jest.fn(() => mainnetVaultState);
+
       // Create mainnet keyring
-      const syscoinMainnet = initialWalletState.networks.syscoin[57];
       const mainnetKeyring = await KeyringManager.createInitialized(
         PEACE_SEED_PHRASE,
         FAKE_PASSWORD,
-        {
-          ...initialWalletState,
-          activeNetwork: syscoinMainnet,
-        },
-        INetworkType.Syscoin
+        mainnetVaultStateGetter
       );
 
       const address = mainnetKeyring.getActiveAccount().activeAccount.address;
       expect(address.startsWith('sys1')).toBe(true); // Mainnet prefix
 
       const fee = await mainnetKeyring.syscoinTransaction.getRecommendedFee(
-        syscoinMainnet.url
+        mainnetKeyring.getNetwork().url
       );
       expect(fee).toBeGreaterThan(0);
     });

@@ -59,8 +59,8 @@ import {
 const L2_NETWORK_CHAIN_IDS = [324, 300];
 
 export class EthereumTransactions implements IEthereumTransactions {
-  public web3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
-  public contentScriptWeb3Provider:
+  private _web3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
+  private _contentScriptWeb3Provider:
     | CustomJsonRpcProvider
     | CustomL2JsonRpcProvider;
   public trezorSigner: TrezorKeyring;
@@ -114,33 +114,44 @@ export class EthereumTransactions implements IEthereumTransactions {
     this.getDecryptedPrivateKey = getDecryptedPrivateKey;
     this.abortController = new AbortController();
 
-    // Check if current network is a UTXO network to avoid creating web3 providers for blockbook URLs
-    const currentNetwork = this.getNetwork();
-    const isUtxoNetwork = this.isUtxoNetwork(currentNetwork);
-
-    if (isUtxoNetwork) {
-      // For UTXO networks, don't create web3 providers at all since they won't be used
-      console.log(
-        '[EthereumTransactions] Skipping web3Provider creation for UTXO network:',
-        currentNetwork.url
-      );
-      // Don't set this.web3Provider or this.contentScriptWeb3Provider for UTXO networks
-    } else {
-      // For EVM networks, create normal providers
-      this.web3Provider = new CustomJsonRpcProvider(
-        this.abortController.signal,
-        currentNetwork.url
-      );
-      this.contentScriptWeb3Provider = new CustomJsonRpcProvider(
-        this.abortController.signal,
-        currentNetwork.url
-      );
-    }
+    // NOTE: Defer network access until vault state getter is initialized
+    // The web3Provider will be created lazily when first accessed via getters
 
     this.getSigner = getSigner;
     this.getState = getState;
     this.trezorSigner = new TrezorKeyring(this.getSigner);
     this.ledgerSigner = ledgerSigner;
+  }
+
+  // Getter that automatically ensures providers are initialized when accessed
+  public get web3Provider(): CustomJsonRpcProvider | CustomL2JsonRpcProvider {
+    this.ensureProvidersInitialized();
+    return this._web3Provider;
+  }
+
+  public get contentScriptWeb3Provider():
+    | CustomJsonRpcProvider
+    | CustomL2JsonRpcProvider {
+    this.ensureProvidersInitialized();
+    return this._contentScriptWeb3Provider;
+  }
+
+  // Helper method to ensure providers are initialized when first needed
+  private ensureProvidersInitialized() {
+    if (!this._web3Provider) {
+      // Providers not initialized yet, initialize them now
+      try {
+        const currentNetwork = this.getNetwork();
+        this.setWeb3Provider(currentNetwork);
+      } catch (error) {
+        // If vault state not available yet, providers will be initialized later
+        // when setWeb3Provider is called explicitly
+        console.log(
+          '[EthereumTransactions] Deferring provider initialization:',
+          error.message
+        );
+      }
+    }
   }
 
   // Helper method to detect UTXO networks
@@ -1871,8 +1882,9 @@ export class EthereumTransactions implements IEthereumTransactions {
         '[EthereumTransactions] setWeb3Provider: Skipping web3Provider creation for UTXO network:',
         network.url
       );
-      // Don't update this.web3Provider or this.contentScriptWeb3Provider for UTXO networks
-      // They should remain undefined/unset for UTXO networks
+      // Clear any existing providers for UTXO networks
+      this._web3Provider = undefined as any;
+      this._contentScriptWeb3Provider = undefined as any;
     } else {
       // For EVM networks, create normal providers
       const isL2Network = L2_NETWORK_CHAIN_IDS.includes(network.chainId);
@@ -1881,11 +1893,11 @@ export class EthereumTransactions implements IEthereumTransactions {
         ? CustomL2JsonRpcProvider
         : CustomJsonRpcProvider;
 
-      this.web3Provider = new CurrentProvider(
+      this._web3Provider = new CurrentProvider(
         this.abortController.signal,
         network.url
       );
-      this.contentScriptWeb3Provider = new CurrentProvider(
+      this._contentScriptWeb3Provider = new CurrentProvider(
         this.abortController.signal,
         network.url
       );

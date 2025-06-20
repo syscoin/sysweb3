@@ -15,7 +15,6 @@ import {
   initialActiveImportedAccountState,
   initialActiveLedgerAccountState,
   initialActiveTrezorAccountState,
-  initialWalletState,
 } from './initial-state';
 import { LedgerKeyring } from './ledger';
 import {
@@ -30,7 +29,6 @@ import {
   IKeyringAccountState,
   IKeyringBalances,
   ISyscoinTransactions,
-  IWalletState,
   KeyringAccountType,
   IEthereumTransactions,
   IKeyringManager,
@@ -50,11 +48,6 @@ export interface ISysAccount {
   label?: string;
   xprv?: string;
   xpub: string;
-}
-
-export interface IkeyringManagerOpts {
-  activeChain: INetworkType;
-  wallet: IWalletState;
 }
 
 export interface ISysAccountWithId extends ISysAccount {
@@ -112,18 +105,40 @@ class SecureBuffer {
 export class KeyringManager implements IKeyringManager {
   public trezorSigner: TrezorKeyring;
   public ledgerSigner: LedgerKeyring;
-  public activeChain: INetworkType;
+  // NOTE: activeChain removed - now derived from vault.activeNetwork.kind
   public initialTrezorAccountState: IKeyringAccountState;
   public initialLedgerAccountState: IKeyringAccountState;
   public utf8Error: boolean;
   //transactions objects
   public ethereumTransaction: IEthereumTransactions;
   public syscoinTransaction: ISyscoinTransactions;
-  wallet: IWalletState; //todo change this name, we will use wallets for another const -> Maybe for defaultInitialState / defaultStartState;
   private storage: any; //todo type
   //local variables
   private hd: SyscoinHDSigner | null;
   private syscoinSigner: SyscoinMainSigner | undefined;
+
+  // Store getter function for accessing Redux state
+  private getVaultState: (() => any) | null = null;
+
+  // Method to inject store getter from Pali side
+  public setVaultStateGetter = (getter: () => any) => {
+    this.getVaultState = getter;
+  };
+
+  // Helper method to get current vault state
+  private getVault = () => {
+    if (!this.getVaultState) {
+      throw new Error(
+        'Vault state getter not initialized. Call setVaultStateGetter first.'
+      );
+    }
+    return this.getVaultState();
+  };
+
+  // Helper to get active chain from vault state (replaces this.activeChain)
+  private getActiveChain = (): INetworkType => {
+    return this.getVault().activeNetwork.kind;
+  };
 
   // NEW: Separate HD signers for main seed vs imported
   private hdMain: SyscoinHDSigner | null = null; // Main HD signer from seed
@@ -133,35 +148,15 @@ export class KeyringManager implements IKeyringManager {
   private sessionPassword: SecureBuffer | null = null;
   private sessionMnemonic: SecureBuffer | null = null; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
 
-  constructor(opts?: IkeyringManagerOpts | null) {
+  constructor() {
     this.storage = sysweb3.sysweb3Di.getStateStorageDb();
     // Don't initialize secure buffers in constructor - they're created on unlock
     this.storage.set('utf8Error', {
       hasUtf8Error: false,
     });
 
-    if (opts) {
-      // Load wallet state with migration support (async loading will happen in initialize methods)
-      this.wallet = JSON.parse(JSON.stringify(opts.wallet));
-
-      // Defensive: Ensure all account type objects exist for migration compatibility
-      if (!this.wallet.accounts[KeyringAccountType.Imported]) {
-        this.wallet.accounts[KeyringAccountType.Imported] = {};
-      }
-      if (!this.wallet.accounts[KeyringAccountType.Trezor]) {
-        this.wallet.accounts[KeyringAccountType.Trezor] = {};
-      }
-      if (!this.wallet.accounts[KeyringAccountType.Ledger]) {
-        this.wallet.accounts[KeyringAccountType.Ledger] = {};
-      }
-      this.activeChain = opts.activeChain;
-      this.hd = null;
-    } else {
-      // Create a deep copy of the initial wallet state to prevent contamination
-      this.wallet = JSON.parse(JSON.stringify(initialWalletState));
-      this.activeChain = INetworkType.Syscoin;
-      this.hd = null;
-    }
+    // NOTE: activeChain is now derived from vault state, not stored locally
+    this.hd = null;
 
     this.utf8Error = false;
     // sessionMnemonic is initialized as null - created on unlock
@@ -190,28 +185,28 @@ export class KeyringManager implements IKeyringManager {
   public static async createInitialized(
     seed: string,
     password: string,
-    walletState: IWalletState,
-    chainType: INetworkType
+    vaultStateGetter: () => any
   ): Promise<KeyringManager> {
-    const keyringManager = new KeyringManager({
-      wallet: walletState,
-      activeChain: chainType,
-    });
+    const keyringManager = new KeyringManager();
+
+    // Set the vault state getter
+    keyringManager.setVaultStateGetter(vaultStateGetter);
 
     // Use the new secure initialization method (eliminates temporary plaintext storage)
     await keyringManager.initializeWalletSecurely(seed, password);
 
-    // Set the active account based on the wallet state (respects activeAccountId)
+    // Set the active account based on the vault state
     try {
+      const vaultState = keyringManager.getVault();
       await keyringManager.setActiveAccount(
-        keyringManager.wallet.activeAccountId,
-        keyringManager.wallet.activeAccountType
+        vaultState.activeAccount.id,
+        vaultState.activeAccount.type
       );
     } catch (error) {
       // If the specified active account doesn't exist, that's fine
       // The vault creation already set account 0 as active
       console.warn(
-        `[KeyringManager] Could not set active account ${keyringManager.wallet.activeAccountId}, using account 0:`,
+        `[KeyringManager] Could not set active account, using account 0:`,
         error.message
       );
     }
@@ -321,7 +316,7 @@ export class KeyringManager implements IKeyringManager {
 
     // addNewAccount should only create accounts from the main seed
     // For importing accounts (including zprvs), use importAccount
-    if (this.activeChain === INetworkType.Syscoin) {
+    if (this.getActiveChain() === INetworkType.Syscoin) {
       return await this.addNewAccountToSyscoinChain(label);
     } else {
       // EVM chainType
@@ -331,7 +326,6 @@ export class KeyringManager implements IKeyringManager {
 
   public async unlock(password: string): Promise<{
     canLogin: boolean;
-    wallet?: IWalletState | null;
   }> {
     try {
       const vaultKeys = await this.storage.get('vault-keys');
@@ -359,16 +353,14 @@ export class KeyringManager implements IKeyringManager {
       }
 
       // Initialize active account after unlock
-      if (
-        this.wallet.activeAccountId !== undefined &&
-        this.wallet.activeAccountType
-      ) {
+      const vault = this.getVault();
+      if (vault.activeAccount?.id !== undefined && vault.activeAccount?.type) {
         await this.setActiveAccount(
-          this.wallet.activeAccountId,
-          this.wallet.activeAccountType
+          vault.activeAccount.id,
+          vault.activeAccount.type
         );
         console.log(
-          `[KeyringManager] Active account ${this.wallet.activeAccountId} initialized after unlock`
+          `[KeyringManager] Active account ${vault.activeAccount.id} initialized after unlock`
         );
       }
 
@@ -386,24 +378,28 @@ export class KeyringManager implements IKeyringManager {
   }
 
   public getNewChangeAddress = async (): Promise<string> => {
-    const { activeAccountType, accounts, activeAccountId } = this.wallet;
-    const { xpub } = accounts[activeAccountType][activeAccountId];
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const { xpub } = accounts[activeAccount.type][activeAccount.id];
     return await this.getAddress(xpub, true); // Don't skip increment - get next unused
   };
 
   public getChangeAddress = async (id: number): Promise<string> => {
-    const { activeAccountType, accounts } = this.wallet;
-    const { xpub } = accounts[activeAccountType][id];
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const { xpub } = accounts[activeAccount.type][id];
 
     return await this.getAddress(xpub, true);
   };
 
   public updateReceivingAddress = async (): Promise<string> => {
-    const { activeAccountType, accounts, activeAccountId } = this.wallet;
-    const { xpub } = accounts[activeAccountType][activeAccountId];
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const { xpub } = accounts[activeAccount.type][activeAccount.id];
 
     const address = await this.getAddress(xpub, false);
-    this.wallet.accounts[activeAccountType][activeAccountId].address = address;
+    // NOTE: Address updates should be dispatched to Redux store, not updated here
+    // The calling code should handle the Redux dispatch
     return address;
   };
 
@@ -411,24 +407,24 @@ export class KeyringManager implements IKeyringManager {
     id: number,
     accountType: KeyringAccountType
   ) => {
-    const accounts = this.wallet.accounts[accountType];
+    const vault = this.getVault();
+    const accounts = vault.accounts[accountType];
     if (!accounts[id]) throw new Error('Account not found');
     if (!accounts[id].xpub) throw new Error('Account not set');
 
-    this.wallet = {
-      ...this.wallet,
-      activeAccountId: id,
-      activeAccountType: accountType,
-    };
+    // NOTE: Active account changes should be dispatched to Redux store
+    // The calling code should handle the Redux dispatch
+    // No local state update needed in stateless keyring
 
     // Handle UTXO-specific logic
-    if (this.activeChain === INetworkType.Syscoin) {
+    if (this.getActiveChain() === INetworkType.Syscoin) {
       let hdSigner: SyscoinHDSigner | null = null;
 
       if (accountType === KeyringAccountType.HDAccount) {
         // For HD accounts, use the main HD signer
         if (!this.hdMain) {
-          const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
+          const vault = this.getVault();
+          const { rpc } = await this.getSignerUTXO(vault.activeNetwork);
           this.hdMain = await this.createHDSignerFromMainSeed(id, rpc);
           // Account is already set by createAccountAtIndex, no need to set again
         } else {
@@ -454,7 +450,8 @@ export class KeyringManager implements IKeyringManager {
 
           if (this.isZprv(decryptedXprv)) {
             // It's a zprv, create HD signer from it
-            const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
+            const vault = this.getVault();
+            const { rpc } = await this.getSignerUTXO(vault.activeNetwork);
             hdSigner = await this.createHDSignerFromZprv(decryptedXprv, rpc);
             this.hdImportedByAccountId.set(id, hdSigner);
           } else {
@@ -465,9 +462,10 @@ export class KeyringManager implements IKeyringManager {
 
       if (hdSigner) {
         this.hd = hdSigner;
+        const vault = this.getVault();
         this.syscoinSigner = new syscoinjs.SyscoinJSLib(
           hdSigner,
-          this.wallet.activeNetwork.url,
+          vault.activeNetwork.url,
           undefined
         );
       }
@@ -478,15 +476,16 @@ export class KeyringManager implements IKeyringManager {
     id: number,
     accountType: KeyringAccountType
   ): Omit<IKeyringAccountState, 'xprv'> => {
-    const accounts = Object.values(this.wallet.accounts[accountType]);
+    const vault = this.getVault();
+    const accounts = vault.accounts[accountType];
 
-    const account = accounts.find((account) => account.id === id);
+    const account = accounts[id];
 
     if (!account) {
       throw new Error('Account not found');
     }
 
-    return omit(account, 'xprv');
+    return omit(account as IKeyringAccountState, 'xprv');
   };
 
   public getPrivateKeyByAccountId = async (
@@ -511,17 +510,15 @@ export class KeyringManager implements IKeyringManager {
         throw new Error('Invalid password');
       }
 
-      const accounts = this.wallet.accounts[accountType];
-
-      const account = Object.values(accounts).find(
-        (account) => account.id === id
-      );
-
+      const vault = this.getVault();
+      const account = vault.accounts[accountType][id];
       if (!account) {
         throw new Error('Account not found');
       }
+
+      // Decrypt the stored private key (works for both HD and imported accounts)
       const decryptedPrivateKey = CryptoJS.AES.decrypt(
-        account.xprv,
+        (account as IKeyringAccountState).xprv,
         this.getSessionPasswordString()
       ).toString(CryptoJS.enc.Utf8);
 
@@ -545,10 +542,16 @@ export class KeyringManager implements IKeyringManager {
     activeAccount: Omit<IKeyringAccountState, 'xprv'>;
     activeAccountType: KeyringAccountType;
   } => {
-    const { accounts, activeAccountId, activeAccountType } = this.wallet;
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const activeAccountId = activeAccount.id;
+    const activeAccountType = activeAccount.type;
 
     return {
-      activeAccount: omit(accounts[activeAccountType][activeAccountId], 'xprv'),
+      activeAccount: omit(
+        accounts[activeAccountType][activeAccountId] as IKeyringAccountState,
+        'xprv'
+      ),
       activeAccountType,
     };
   };
@@ -617,21 +620,27 @@ export class KeyringManager implements IKeyringManager {
       throw new Error('Invalid chain type');
     }
 
+    // Get current network state from vault (stateless)
+    const vault = this.getVault();
+
     // For UTXO networks, only allow updating the same network (e.g., changing RPC URL)
     if (data.kind === INetworkType.Syscoin) {
-      if (data.chainId !== this.wallet.activeNetwork.chainId) {
+      if (data.chainId !== vault.activeNetwork.chainId) {
         throw new Error(
           'Cannot change UTXO network. Each UTXO network has its own keyring instance.'
         );
       }
     }
 
-    if (!this.wallet.networks[data.kind][data.chainId]) {
+    if (!vault.networks[data.kind][data.chainId]) {
       throw new Error('Network does not exist');
     }
+
+    // Only update providers/signers if this is the active network
+    // NOTE: Network state updates should be handled by Pali/Redux
     if (
-      this.wallet.activeNetwork.chainId === data.chainId &&
-      this.activeChain === data.kind
+      vault.activeNetwork.chainId === data.chainId &&
+      this.getActiveChain() === data.kind
     ) {
       if (
         data.kind === INetworkType.Syscoin &&
@@ -642,107 +651,6 @@ export class KeyringManager implements IKeyringManager {
         this.ethereumTransaction.setWeb3Provider(data);
       }
     }
-    this.wallet = {
-      ...this.wallet,
-      networks: {
-        ...this.wallet.networks,
-        [data.kind]: {
-          ...this.wallet.networks[data.kind],
-          [data.chainId]: data,
-        },
-      },
-      // If this is the active network, update it as well
-      activeNetwork:
-        this.wallet.activeNetwork.chainId === data.chainId &&
-        this.activeChain === data.kind
-          ? data
-          : this.wallet.activeNetwork,
-    };
-  };
-
-  public addCustomNetwork = (network: INetwork) => {
-    // Only EVM networks can be added dynamically
-    if (network.kind !== INetworkType.Ethereum) {
-      throw new Error(
-        'Custom networks can only be added for EVM. UTXO networks require separate keyring instances.'
-      );
-    }
-
-    const networkIdentifier = network.key ? network.key : network.chainId;
-
-    this.wallet = {
-      ...this.wallet,
-      networks: {
-        ...this.wallet.networks,
-        [network.kind]: {
-          ...this.wallet.networks[network.kind],
-          [networkIdentifier]: network,
-        },
-      },
-    };
-  };
-
-  public removeNetwork = (
-    chain: INetworkType,
-    chainId: number,
-    rpcUrl: string,
-    label: string,
-    key?: string
-  ) => {
-    // Only EVM networks can be removed dynamically
-    if (chain !== INetworkType.Ethereum) {
-      throw new Error(
-        'Networks can only be removed for EVM. UTXO networks have dedicated keyrings.'
-      );
-    }
-
-    const validateIfKeyExists =
-      key &&
-      this.wallet.activeNetwork.key &&
-      this.wallet.activeNetwork.key === key;
-
-    //TODO: test failure case to validate rollback;
-    if (
-      this.activeChain === chain &&
-      this.wallet.activeNetwork.chainId === chainId &&
-      this.wallet.activeNetwork.url === rpcUrl &&
-      this.wallet.activeNetwork.label === label &&
-      validateIfKeyExists
-    ) {
-      throw new Error('Cannot remove active network');
-    }
-
-    const updatedNetworks = Object.entries(this.wallet.networks[chain]).reduce(
-      (result, [index, networkValue]) => {
-        const networkTyped = networkValue as INetwork;
-
-        if (key && networkTyped.key === key) {
-          return result; // Skip the network with the provided key
-        }
-
-        if (
-          networkTyped.url === rpcUrl &&
-          networkTyped.chainId === chainId &&
-          networkTyped.label === label
-        ) {
-          return result; // Skip the network that matches the criteria
-        }
-
-        return { ...result, [index]: networkValue }; // Keep the network in the updated object
-      },
-      {}
-    );
-
-    // Replace the networks object for the chain with the updated object
-    this.wallet = {
-      ...this.wallet,
-      networks: {
-        ...this.wallet.networks,
-        [chain]: {
-          ...updatedNetworks,
-        },
-      },
-    };
   };
 
   public setSignerNetwork = async (
@@ -750,7 +658,6 @@ export class KeyringManager implements IKeyringManager {
   ): Promise<{
     activeChain?: INetworkType;
     success: boolean;
-    wallet?: IWalletState;
   }> => {
     // With multi-keyring architecture, each keyring is dedicated to specific slip44
     if (
@@ -763,24 +670,22 @@ export class KeyringManager implements IKeyringManager {
     // Validate network/chain type compatibility
     if (
       network.kind === INetworkType.Ethereum &&
-      this.activeChain === INetworkType.Syscoin
+      this.getActiveChain() === INetworkType.Syscoin
     ) {
       throw new Error('Cannot use Ethereum chain type with Syscoin network');
     }
     if (
       network.kind === INetworkType.Syscoin &&
-      this.activeChain === INetworkType.Ethereum
+      this.getActiveChain() === INetworkType.Ethereum
     ) {
       throw new Error('Cannot use Syscoin chain type with Ethereum network');
     }
 
     // CRITICAL: Prevent UTXO-to-UTXO network switching within same keyring
     // Each UTXO network should have its own KeyringManager instance based on slip44
-    if (
-      this.activeChain === INetworkType.Syscoin &&
-      this.wallet.activeNetwork
-    ) {
-      const currentSlip44 = this.wallet.activeNetwork.slip44;
+    const vault = this.getVault();
+    if (this.getActiveChain() === INetworkType.Syscoin && vault.activeNetwork) {
+      const currentSlip44 = vault.activeNetwork.slip44;
       const newSlip44 = network.slip44;
 
       if (currentSlip44 !== newSlip44) {
@@ -792,8 +697,6 @@ export class KeyringManager implements IKeyringManager {
       }
     }
 
-    const networkChain = network.kind;
-
     try {
       // With multi-keyring architecture:
       // - UTXO: Each keyring is dedicated to one network (slip44), so this is only called during initialization
@@ -801,10 +704,10 @@ export class KeyringManager implements IKeyringManager {
 
       if (network.kind === INetworkType.Syscoin) {
         // Ensure the active account exists before setting up signers
-        const accountId = this.wallet.activeAccountId || 0;
+        const accountId = vault.activeAccount.id || 0;
         const accountType =
-          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
-        const accounts = this.wallet.accounts[accountType];
+          vault.activeAccount.type || KeyringAccountType.HDAccount;
+        const accounts = vault.accounts[accountType];
 
         // Check if account doesn't exist OR exists but is empty (placeholder)
         if (!accounts[accountId] || !accounts[accountId].xpub) {
@@ -823,10 +726,10 @@ export class KeyringManager implements IKeyringManager {
         }
       } else if (network.kind === INetworkType.Ethereum) {
         // Ensure the active account exists before setting up signers
-        const accountId = this.wallet.activeAccountId || 0;
+        const accountId = vault.activeAccount.id || 0;
         const accountType =
-          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
-        const accounts = this.wallet.accounts[accountType];
+          vault.activeAccount.type || KeyringAccountType.HDAccount;
+        const accounts = vault.accounts[accountType];
 
         // Check if account doesn't exist OR exists but is empty (placeholder)
         if (!accounts[accountId] || !accounts[accountId].xpub) {
@@ -846,25 +749,8 @@ export class KeyringManager implements IKeyringManager {
         await this.setSignerEVM(network);
       }
 
-      // Update network configuration
-      this.wallet = {
-        ...this.wallet,
-        networks: {
-          ...this.wallet.networks,
-          [networkChain]: {
-            ...this.wallet.networks[networkChain],
-            [network.chainId]: network,
-          },
-        },
-        activeNetwork: network,
-      };
-
-      this.activeChain = networkChain;
-
       return {
         success: true,
-        wallet: this.wallet,
-        activeChain: this.activeChain,
       };
     } catch (err) {
       console.log('ERROR setSignerNetwork', {
@@ -915,8 +801,9 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public getAccountXpub = (): string => {
-    const { activeAccountId, activeAccountType } = this.wallet;
-    const account = this.wallet.accounts[activeAccountType][activeAccountId];
+    const vault = this.getVault();
+    const { activeAccount } = vault;
+    const account = vault.accounts[activeAccount.type][activeAccount.id];
     return account.xpub;
   };
 
@@ -925,16 +812,17 @@ export class KeyringManager implements IKeyringManager {
   public createNewSeed = () => generateMnemonic();
 
   public getUTXOState = () => {
-    if (this.activeChain !== INetworkType.Syscoin) {
+    const vault = this.getVault();
+    if (vault.activeNetwork.kind !== INetworkType.Syscoin) {
       throw new Error('Cannot get state in a ethereum network');
     }
 
-    const utxOAccounts = mapValues(this.wallet.accounts.HDAccount, (value) =>
+    const utxOAccounts = mapValues(vault.accounts.HDAccount, (value) =>
       omit(value, 'xprv')
     );
 
     return {
-      ...this.wallet,
+      ...vault,
       accounts: {
         [KeyringAccountType.HDAccount]: utxOAccounts,
         [KeyringAccountType.Imported]: {},
@@ -944,24 +832,27 @@ export class KeyringManager implements IKeyringManager {
   };
 
   public async importTrezorAccount(label?: string) {
-    const currency = this.wallet.activeNetwork.currency;
+    const vault = this.getVault();
+    const currency = vault.activeNetwork.currency;
     if (!currency) {
       throw new Error('Active network currency is not defined');
     }
 
     // Use getNextAccountId to filter out placeholder accounts
     const nextIndex = this.getNextAccountId(
-      this.wallet.accounts[KeyringAccountType.Trezor]
+      vault.accounts[KeyringAccountType.Trezor]
     );
 
     const importedAccount = await this._createTrezorAccount(
       currency,
-      this.wallet.activeNetwork.slip44,
+      vault.activeNetwork.slip44,
       nextIndex
     );
     importedAccount.label = label ? label : `Trezor ${importedAccount.id + 1}`;
-    this.wallet.accounts[KeyringAccountType.Trezor][importedAccount.id] =
-      importedAccount;
+
+    // NOTE: Account creation should be dispatched to Redux store, not updated here
+    // The calling code should handle the Redux dispatch
+    // Return the created account for Pali to add to store
     return importedAccount;
   }
 
@@ -975,22 +866,24 @@ export class KeyringManager implements IKeyringManager {
         : await this.ledgerSigner.connectToLedgerDevice();
 
       if (connectionResponse) {
-        const currency = this.wallet.activeNetwork.currency;
+        const vault = this.getVault();
+        const currency = vault.activeNetwork.currency;
         if (!currency) {
           throw new Error('Active network currency is not defined');
         }
 
         const importedAccount = await this._createLedgerAccount(
           currency,
-          this.wallet.activeNetwork.slip44,
-          Object.values(this.wallet.accounts[KeyringAccountType.Ledger]).length
+          vault.activeNetwork.slip44,
+          Object.values(vault.accounts[KeyringAccountType.Ledger]).length
         );
         importedAccount.label = label
           ? label
           : `Ledger ${importedAccount.id + 1}`;
-        this.wallet.accounts[KeyringAccountType.Ledger][importedAccount.id] =
-          importedAccount;
 
+        // NOTE: Account creation should be dispatched to Redux store, not updated here
+        // The calling code should handle the Redux dispatch
+        // Return the created account for Pali to add to store
         return importedAccount;
       }
     } catch (error) {
@@ -999,12 +892,16 @@ export class KeyringManager implements IKeyringManager {
     }
   }
 
-  public getActiveUTXOAccountState = () => ({
-    ...this.wallet.accounts.HDAccount[this.wallet.activeAccountId],
-    xprv: undefined,
-  });
+  public getActiveUTXOAccountState = () => {
+    const vault = this.getVault();
+    const { activeAccount } = vault;
+    return {
+      ...vault.accounts.HDAccount[activeAccount.id],
+      xprv: undefined,
+    };
+  };
 
-  public getNetwork = () => this.wallet.activeNetwork;
+  public getNetwork = () => this.getVault().activeNetwork;
 
   public createEthAccount = (privateKey: string) =>
     new ethers.Wallet(privateKey);
@@ -1054,23 +951,16 @@ export class KeyringManager implements IKeyringManager {
       label
     );
 
-    this.wallet.accounts[KeyringAccountType.Imported][importedAccount.id] =
-      importedAccount;
-
+    // NOTE: Account creation should be dispatched to Redux store, not updated here
+    // The calling code should handle the Redux dispatch
+    // Return the created account for Pali to add to store
     return importedAccount;
   }
 
-  public updateAccountLabel = (
-    label: string,
-    accountId: number,
-    accountType: KeyringAccountType
-  ) => {
-    this.wallet.accounts[accountType][accountId].label = label;
-  };
-
   public validateZprv(zprv: string, targetNetwork?: INetwork) {
     // Use the active network if targetNetwork is not provided
-    const networkToValidateAgainst = targetNetwork || this.wallet.activeNetwork;
+    const networkToValidateAgainst =
+      targetNetwork || this.getVault().activeNetwork;
 
     if (!networkToValidateAgainst) {
       throw new Error('No network available for validation');
@@ -1207,7 +1097,10 @@ export class KeyringManager implements IKeyringManager {
     decryptedPrivateKey: string;
   } => {
     try {
-      const { accounts, activeAccountId, activeAccountType } = this.wallet;
+      const vault = this.getVault();
+      const { accounts, activeAccount } = vault;
+      const activeAccountId = activeAccount.id;
+      const activeAccountType = activeAccount.type;
       if (!this.sessionPassword)
         throw new Error('Wallet is locked cant proceed with transaction');
 
@@ -1245,7 +1138,7 @@ export class KeyringManager implements IKeyringManager {
 
       // For EVM accounts, validate that the derived address matches the stored address
       // This helps catch account switching race conditions early
-      if (this.activeChain === INetworkType.Ethereum) {
+      if (this.getActiveChain() === INetworkType.Ethereum) {
         try {
           const derivedWallet = new ethers.Wallet(decryptedPrivateKey);
           if (derivedWallet.address.toLowerCase() !== address.toLowerCase()) {
@@ -1265,12 +1158,13 @@ export class KeyringManager implements IKeyringManager {
         decryptedPrivateKey,
       };
     } catch (error) {
+      const vaultForLogging = this.getVault();
       console.error('ERROR getDecryptedPrivateKey', {
         error: error.message,
-        activeChain: this.activeChain,
-        wallet: {
-          activeAccountId: this.wallet?.activeAccountId,
-          activeAccountType: this.wallet?.activeAccountType,
+        activeChain: this.getActiveChain(),
+        vault: {
+          activeAccountId: vaultForLogging?.activeAccount?.id,
+          activeAccountType: vaultForLogging?.activeAccount?.type,
         },
       });
       this.validateAndHandleErrorByMessage(error.message);
@@ -1285,7 +1179,7 @@ export class KeyringManager implements IKeyringManager {
     if (!this.sessionPassword) {
       throw new Error('Wallet is locked cant proceed with transaction');
     }
-    if (this.activeChain !== INetworkType.Syscoin) {
+    if (this.getActiveChain() !== INetworkType.Syscoin) {
       throw new Error('Switch to UTXO chain');
     }
     if (!this.syscoinSigner || !this.hd) {
@@ -1308,9 +1202,14 @@ export class KeyringManager implements IKeyringManager {
   }
 
   private getAccountsState = () => {
-    const { activeAccountId, accounts, activeAccountType, activeNetwork } =
-      this.wallet;
-    return { activeAccountId, accounts, activeAccountType, activeNetwork };
+    const vault = this.getVault();
+    const { accounts, activeAccount, activeNetwork } = vault;
+    return {
+      activeAccountId: activeAccount.id,
+      accounts,
+      activeAccountType: activeAccount.type,
+      activeNetwork,
+    };
   };
 
   /**
@@ -1368,7 +1267,8 @@ export class KeyringManager implements IKeyringManager {
     index: number,
     label?: string
   ) {
-    const { accounts, activeNetwork } = this.wallet;
+    const vault = this.getVault();
+    const { accounts, activeNetwork } = vault;
     let xpub, balance;
     try {
       const { descriptor, balance: _balance } =
@@ -1448,7 +1348,8 @@ export class KeyringManager implements IKeyringManager {
     index: number,
     label?: string
   ) {
-    const { accounts, activeNetwork } = this.wallet;
+    const vault = this.getVault();
+    const { accounts, activeNetwork } = vault;
     let xpub;
     let address = '';
     if (isEvmCoin(coin, slip44)) {
@@ -1538,8 +1439,8 @@ export class KeyringManager implements IKeyringManager {
   }): ISysAccount => {
     // Get address from existing account if it exists, otherwise derive it
     let address: string;
-    const existingAccount =
-      this.wallet.accounts[this.wallet.activeAccountType][id];
+    const vault = this.getVault();
+    const existingAccount = vault.accounts[vault.activeAccount.type][id];
     if (existingAccount && existingAccount.address) {
       address = existingAccount.address;
     } else {
@@ -1600,7 +1501,8 @@ export class KeyringManager implements IKeyringManager {
   // Common helper method for UTXO account creation
   private async createUTXOAccountAtIndex(accountId: number, label?: string) {
     try {
-      const { rpc } = await this.getSignerUTXO(this.wallet.activeNetwork);
+      const vault = this.getVault();
+      const { rpc } = await this.getSignerUTXO(vault.activeNetwork);
 
       if (!this.hdMain) {
         this.hdMain = await this.createHDSignerFromMainSeed(accountId, rpc);
@@ -1624,10 +1526,8 @@ export class KeyringManager implements IKeyringManager {
         xprv: encryptedXprv,
       });
 
-      // Store the new account
-      this.wallet.accounts[KeyringAccountType.HDAccount][accountId] =
-        accountData;
-
+      // NOTE: Account creation should be dispatched to Redux store, not stored here
+      // Return the account data for Pali to add to store
       return accountData;
     } catch (error) {
       console.log('ERROR createUTXOAccountAtIndex', {
@@ -1641,7 +1541,8 @@ export class KeyringManager implements IKeyringManager {
   private async addNewAccountToSyscoinChain(label?: string) {
     try {
       // Get next available account ID
-      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
+      const vault = this.getVault();
+      const accounts = vault.accounts[KeyringAccountType.HDAccount];
       const nextId = this.getNextAccountId(accounts);
 
       return await this.createUTXOAccountAtIndex(nextId, label);
@@ -1657,16 +1558,14 @@ export class KeyringManager implements IKeyringManager {
   private async addNewAccountToEth(label?: string) {
     try {
       // Get next available account ID
-      const accounts = this.wallet.accounts[KeyringAccountType.HDAccount];
+      const vault = this.getVault();
+      const accounts = vault.accounts[KeyringAccountType.HDAccount];
       const nextId = this.getNextAccountId(accounts);
 
-      await this.setDerivedWeb3Accounts(
+      const newAccount = await this.setDerivedWeb3Accounts(
         nextId,
         label || `Account ${nextId + 1}`
       );
-
-      const newAccount =
-        this.wallet.accounts[KeyringAccountType.HDAccount][nextId];
 
       return newAccount;
     } catch (error) {
@@ -1683,7 +1582,7 @@ export class KeyringManager implements IKeyringManager {
     const existingIds = Object.values(accounts)
       .filter((account: any) => {
         // Only count accounts that have been properly initialized
-        // Placeholder accounts from initialWalletState have empty addresses/xprv/xpub
+        // Placeholder accounts have empty addresses/xprv/xpub
         return account && account.address && account.xpub;
       })
       .map((account: any) => account.id)
@@ -1698,8 +1597,8 @@ export class KeyringManager implements IKeyringManager {
 
   private getBasicWeb3AccountInfo = (id: number, label?: string) => {
     // Preserve existing balances if available
-    const existingAccount =
-      this.wallet.accounts[this.wallet.activeAccountType]?.[id];
+    const vault = this.getVault();
+    const existingAccount = vault.accounts[vault.activeAccount.type]?.[id];
     const balances = existingAccount?.balances || {
       syscoin: 0,
       ethereum: 0,
@@ -1714,7 +1613,10 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
-  private setDerivedWeb3Accounts = async (id: number, label: string) => {
+  private setDerivedWeb3Accounts = async (
+    id: number,
+    label: string
+  ): Promise<IKeyringAccountState> => {
     try {
       // Decrypt the mnemonic directly instead of using seed
       const decryptedMnemonic = CryptoJS.AES.decrypt(
@@ -1759,12 +1661,15 @@ export class KeyringManager implements IKeyringManager {
         ...basicAccountInfo,
       };
 
-      this.wallet.accounts[KeyringAccountType.HDAccount][id] = createdAccount;
+      // NOTE: Account creation should be dispatched to Redux store, not stored here
+      // Return the account data for Pali to add to store
+      return createdAccount;
     } catch (error) {
       console.log('ERROR setDerivedWeb3Accounts', {
         error,
       });
       this.validateAndHandleErrorByMessage(error.message);
+      throw error;
     }
   };
 
@@ -1816,8 +1721,6 @@ export class KeyringManager implements IKeyringManager {
   };
 
   private clearTemporaryLocalKeys = async (pwd: string) => {
-    this.wallet = JSON.parse(JSON.stringify(initialWalletState));
-
     await setEncryptedVault(
       {
         mnemonic: '',
@@ -1856,7 +1759,8 @@ export class KeyringManager implements IKeyringManager {
   }
 
   private async _getPrivateKeyAccountInfos(privKey: string, label?: string) {
-    const { accounts } = this.wallet;
+    const vault = this.getVault();
+    const { accounts } = vault;
     let importedAccountValue: {
       address: string;
       privateKey: string;
@@ -1869,7 +1773,7 @@ export class KeyringManager implements IKeyringManager {
     };
 
     // Try to validate as extended private key first, regardless of prefix
-    const networkToUse = this.wallet.activeNetwork;
+    const networkToUse = vault.activeNetwork;
     const zprvValidation = this.validateZprv(privKey, networkToUse);
 
     if (zprvValidation.isValid) {
@@ -2104,16 +2008,17 @@ export class KeyringManager implements IKeyringManager {
         }
 
         // Let setSignerNetwork handle everything - account creation and signer setup
-        const result = await this.setSignerNetwork(this.wallet.activeNetwork);
+        const vault = this.getVault();
+        const result = await this.setSignerNetwork(vault.activeNetwork);
         if (!result.success) {
           throw new Error('Failed to set up signer network');
         }
 
         // Get active account info
-        const activeAccountId = this.wallet.activeAccountId || 0;
+        const activeAccountId = vault.activeAccount.id || 0;
         const activeAccountType =
-          this.wallet.activeAccountType || KeyringAccountType.HDAccount;
-        return this.wallet.accounts[activeAccountType][activeAccountId];
+          vault.activeAccount.type || KeyringAccountType.HDAccount;
+        return vault.accounts[activeAccountType][activeAccountId];
       } catch (error) {
         console.log('ERROR createKeyringVaultFromSession', {
           error,

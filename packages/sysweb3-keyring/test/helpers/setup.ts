@@ -2,9 +2,19 @@
 import { randomBytes, createHmac } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
 
-// Extend global type to include setupTestVault
+import { KeyringAccountType } from '../../src';
+import { INetworkType } from '@pollum-io/sysweb3-network';
+
+// Extend global type to include setupTestVault and mockVaultState utilities
 declare global {
   function setupTestVault(password?: string): Promise<void>;
+  function createMockVaultState(options?: {
+    activeAccountId?: number;
+    activeAccountType?: KeyringAccountType;
+    networkType?: INetworkType;
+    chainId?: number;
+  }): any;
+  const mockVaultState: any;
 }
 
 // Polyfill for TextEncoder/TextDecoder in Node.js environment
@@ -352,7 +362,7 @@ afterEach(() => {
 });
 
 // Helper function to set up a basic vault for tests
-global.setupTestVault = async (password = 'test123') => {
+global.setupTestVault = async (password = 'Asdqwe123!') => {
   const { sysweb3Di } = jest.requireMock('@pollum-io/sysweb3-core');
   const storage = sysweb3Di.getStateStorageDb();
 
@@ -393,6 +403,243 @@ global.setupTestVault = async (password = 'test123') => {
     salt,
   });
 };
+
+// Create mock vault state utility function
+global.createMockVaultState = (options = {}) => {
+  const {
+    activeAccountId = 0,
+    activeAccountType = KeyringAccountType.HDAccount,
+    networkType = INetworkType.Syscoin,
+    chainId,
+  } = options;
+
+  // Derive real addresses from the test seed phrase for consistency
+  const testSeedPhrase =
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+  const testPassword = 'Asdqwe123!'; // Must match FAKE_PASSWORD from constants
+
+  let address, xpub, xprv;
+  if (networkType === INetworkType.Ethereum) {
+    // Derive real EVM address from test seed
+    const { ethers } = jest.requireActual('ethers');
+    const { getAddressDerivationPath } = jest.requireActual(
+      '../../src/utils/derivation-paths'
+    );
+
+    const hdNode = ethers.utils.HDNode.fromMnemonic(testSeedPhrase);
+    const ethDerivationPath = getAddressDerivationPath(
+      'eth',
+      60,
+      0,
+      false,
+      activeAccountId
+    );
+    const derivedAccount = hdNode.derivePath(ethDerivationPath);
+
+    address = derivedAccount.address;
+    xpub = derivedAccount.publicKey;
+
+    // Encrypt the private key like the real vault does
+    const CryptoJS = jest.requireActual('crypto-js');
+    const crypto = jest.requireActual('crypto');
+    const salt = 'test-salt-12345678901234567890123456789012';
+    const sessionPassword = crypto
+      .createHmac('sha512', salt)
+      .update(testPassword)
+      .digest('hex');
+    xprv = CryptoJS.AES.encrypt(
+      derivedAccount.privateKey,
+      sessionPassword
+    ).toString();
+  } else {
+    // For UTXO, use syscoinjs to derive real xpub and address from test seed
+    const { getSyscoinSigners } = jest.requireActual('../../src/signers');
+    const { getNetworkConfig } = jest.requireActual(
+      '@pollum-io/sysweb3-network'
+    );
+    const CryptoJS = jest.requireActual('crypto-js');
+    const crypto = jest.requireActual('crypto');
+
+    try {
+      // Determine slip44 and currency based on chainId
+      const slip44 = chainId === 57 ? 57 : 1; // mainnet = 57, testnet = 1
+      const currency = chainId === 57 ? 'SYS' : 'TSYS';
+
+      // Get network config for proper syscoin parameters
+      const coinName = chainId === 57 ? 'Syscoin' : 'Syscoin Testnet';
+      const networkConfig = getNetworkConfig(slip44, coinName);
+
+      // Create mock RPC config for syscoinjs
+      const mockRpc = {
+        formattedNetwork: {
+          url:
+            chainId === 57
+              ? 'https://blockbook.elint.services/'
+              : 'https://blockbook-dev.elint.services/',
+          slip44,
+          currency,
+          chainId,
+        },
+        networkConfig,
+      };
+
+      // Use syscoinjs to create HD signer with proper network parameters
+      const { hd } = getSyscoinSigners({
+        mnemonic: testSeedPhrase,
+        rpc: mockRpc,
+      });
+
+      // Create account at the specified index (synchronous)
+      hd.createAccount(84);
+      hd.setAccountIndex(activeAccountId);
+
+      // Get the real xpub and address from syscoinjs
+      xpub = hd.getAccountXpub();
+      address = hd.createAddress(0, false, 84); // receiving address at index 0
+    } catch (error) {
+      // Fallback to known working addresses if syscoinjs derivation fails
+      console.warn(
+        'Syscoinjs derivation failed, using fallback addresses:',
+        error.message
+      );
+      if (chainId === 57) {
+        // Use a known mainnet address format
+        address = 'sys1q4kk5wqjwdzxh6zt7hpfj3zwrhv5v5v5ht8fqv8';
+        xpub =
+          'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wgmUn9Q5Vgg2KHJD5YQJpFHxhtQQh3yJiRMLrYjfF5VGN1yPYxkQWxgd6YWBvYcB';
+      } else {
+        // Use a known testnet address format
+        address = 'tsys1qhkd3x4r8p5w2e5n9v3h8j2m4b6c9z7f5g3h2k7';
+        xpub =
+          'tpubDDJC8T2bGJkQs6Qu7xRELGF9KNKpfF8nTy6tGNT7BudJw32VhJ7HkF7yGG7LfQ6SFGgM4V4MYWGCE7h4K7JbE7QGJFSD9P5a6f1vNMrDbqZ';
+      }
+    }
+
+    // Encrypt a mock private key
+    const salt = 'test-salt-12345678901234567890123456789012';
+    const sessionPassword = crypto
+      .createHmac('sha512', salt)
+      .update(testPassword)
+      .digest('hex');
+    const mockPrivateKey =
+      'L1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+    xprv = CryptoJS.AES.encrypt(mockPrivateKey, sessionPassword).toString();
+  }
+
+  // Create mock networks structure
+  const networks = {
+    syscoin: {
+      57: {
+        chainId: 57,
+        currency: 'SYS',
+        label: 'Syscoin Mainnet',
+        url: 'https://blockbook.elint.services/',
+        kind: INetworkType.Syscoin,
+        explorer: 'https://explorer.syscoin.org/',
+        slip44: 57,
+      },
+      5700: {
+        chainId: 5700,
+        currency: 'TSYS',
+        label: 'Syscoin Testnet',
+        url: 'https://blockbook-dev.elint.services/',
+        kind: INetworkType.Syscoin,
+        explorer: 'https://explorer-testnet.syscoin.org/',
+        slip44: 1,
+      },
+    },
+    ethereum: {
+      1: {
+        chainId: 1,
+        currency: 'ETH',
+        label: 'Ethereum Mainnet',
+        url: 'https://rpc.ankr.com/eth',
+        kind: INetworkType.Ethereum,
+        explorer: 'https://etherscan.io/',
+        slip44: 60,
+      },
+      137: {
+        chainId: 137,
+        currency: 'MATIC',
+        label: 'Polygon',
+        url: 'https://polygon-rpc.com',
+        kind: INetworkType.Ethereum,
+        explorer: 'https://polygonscan.com/',
+        slip44: 60,
+      },
+      80001: {
+        chainId: 80001,
+        currency: 'MATIC',
+        label: 'Mumbai',
+        url: 'https://rpc-mumbai.maticvigil.com',
+        kind: INetworkType.Ethereum,
+        explorer: 'https://mumbai.polygonscan.com/',
+        slip44: 60,
+      },
+    },
+  };
+
+  // Determine the network based on type and chainId
+  let activeNetwork;
+  if (networkType === INetworkType.Syscoin) {
+    const syscoinChainId = chainId || 57; // Default to mainnet
+    activeNetwork = networks.syscoin[syscoinChainId];
+  } else if (networkType === INetworkType.Ethereum) {
+    const ethChainId = chainId || 1; // Default to Ethereum mainnet
+    activeNetwork = networks.ethereum[ethChainId];
+  } else {
+    throw new Error(`Unsupported network type: ${networkType}`);
+  }
+
+  if (!activeNetwork) {
+    throw new Error(
+      `Network not found for type ${networkType} and chainId ${chainId}`
+    );
+  }
+
+  // Create mock accounts structure with real derived data and encrypted xprv
+  const accounts = {
+    [KeyringAccountType.HDAccount]: {
+      0: {
+        id: 0,
+        address,
+        xpub,
+        xprv, // Now includes encrypted private key like real vault
+        label: 'Account 1',
+        balances: { syscoin: 0, ethereum: 0 },
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        assets: { syscoin: [], ethereum: [] },
+      },
+    },
+    [KeyringAccountType.Imported]: {},
+    [KeyringAccountType.Trezor]: {},
+    [KeyringAccountType.Ledger]: {},
+  };
+
+  return {
+    activeAccount: { id: activeAccountId, type: activeAccountType },
+    accounts,
+    activeNetwork,
+    networks,
+    // Add other vault state properties as needed
+    autoLockTimer: 10,
+    hasEncryptedVault: true,
+    isAccountMenuActive: false,
+    isNetworkChanging: false,
+    isPollingNetwork: false,
+    isUnlocked: false,
+    lastLogin: null,
+    utf8Error: false,
+  };
+};
+
+// Default mock vault state (for backward compatibility) - Ethereum mainnet by default
+(global as any).mockVaultState = global.createMockVaultState({
+  networkType: INetworkType.Ethereum,
+  chainId: 1,
+});
 
 // Export setupMocks function for use in test files
 export const setupMocks = () => {
