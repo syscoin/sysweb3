@@ -10,6 +10,7 @@ import {
 } from 'web3-core';
 
 import { LedgerKeyring } from './ledger';
+import { SyscoinHDSigner } from './signers';
 import { TrezorKeyring } from './trezor';
 import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
 import { ITxid } from '@pollum-io/sysweb3-utils';
@@ -230,7 +231,7 @@ export interface IKeyringManager {
     accountType: KeyringAccountType
   ) => Omit<IKeyringAccountState, 'xprv'>;
   getAccountXpub: () => string;
-  getEncryptedXprv: () => string;
+  getEncryptedXprv: (hd: SyscoinHDSigner) => string;
   unlock: (
     password: string,
     isForPvtKey?: boolean
@@ -241,11 +242,6 @@ export interface IKeyringManager {
   logout: () => void;
   ledgerSigner: LedgerKeyring;
   trezorSigner: TrezorKeyring;
-  setActiveAccount: (
-    accountId: number,
-    accountType: KeyringAccountType
-  ) => void;
-  // Simplified setSignerNetwork - only handles backend/provider setup
   setSignerNetwork: (network: INetwork) => Promise<{
     success: boolean;
   }>;

@@ -53,7 +53,10 @@ const newAccount = await keyringManager.addNewAccount('My Account');
 await keyringManager.setActiveAccount(accountId, KeyringAccountType.HDAccount);
 
 // Import account from private key
-const importedAccount = await keyringManager.importAccount(privateKey, 'Imported Account');
+const importedAccount = await keyringManager.importAccount(
+  privateKey,
+  'Imported Account'
+);
 ```
 
 ### Network Management
@@ -72,19 +75,20 @@ const network = keyringManager.getNetwork();
 
 ```javascript
 // Estimate transaction fee
-const feeEstimate = await keyringManager.syscoinTransaction.getEstimateSysTransactionFee({
-  txOptions: {},
-  amount: 1.0,
-  receivingAddress: 'sys1q...',
-  feeRate: 0.00001,
-  token: null
-});
+const feeEstimate =
+  await keyringManager.syscoinTransaction.getEstimateSysTransactionFee({
+    txOptions: {},
+    amount: 1.0,
+    receivingAddress: 'sys1q...',
+    feeRate: 0.00001,
+    token: null,
+  });
 
 // Sign PSBT
 const signedPsbt = await keyringManager.syscoinTransaction.signPSBT({
   psbt: psbtData,
   isTrezor: false,
-  isLedger: false
+  isLedger: false,
 });
 
 // Get addresses
@@ -100,13 +104,13 @@ const txHash = await keyringManager.ethereumTransaction.sendTransaction({
   to: '0x...',
   value: '1000000000000000000', // 1 ETH in wei
   gasLimit: '21000',
-  gasPrice: '20000000000' // 20 gwei
+  gasPrice: '20000000000', // 20 gwei
 });
 
 // Sign message
 const signature = await keyringManager.ethereumTransaction.signPersonalMessage([
   '0x48656c6c6f', // "Hello" in hex
-  accountAddress
+  accountAddress,
 ]);
 ```
 
@@ -114,10 +118,15 @@ const signature = await keyringManager.ethereumTransaction.signPersonalMessage([
 
 ```javascript
 // Import Trezor account
-const trezorAccount = await keyringManager.importTrezorAccount('Trezor Account');
+const trezorAccount = await keyringManager.importTrezorAccount(
+  'Trezor Account'
+);
 
 // Import Ledger account
-const ledgerAccount = await keyringManager.importLedgerAccount(false, 'Ledger Account');
+const ledgerAccount = await keyringManager.importLedgerAccount(
+  false,
+  'Ledger Account'
+);
 ```
 
 ### State Management Integration
@@ -128,11 +137,17 @@ The KeyringManager requires a `vaultStateGetter` function that returns the curre
 // Example with Redux
 const vaultStateGetter = () => ({
   accounts: {
-    [KeyringAccountType.HDAccount]: { /* account data */ },
-    [KeyringAccountType.Imported]: { /* imported accounts */ }
+    [KeyringAccountType.HDAccount]: {
+      /* account data */
+    },
+    [KeyringAccountType.Imported]: {
+      /* imported accounts */
+    },
   },
   activeAccount: { id: 0, type: KeyringAccountType.HDAccount },
-  activeNetwork: { /* network config */ },
+  activeNetwork: {
+    /* network config */
+  },
   // ... other vault state
 });
 

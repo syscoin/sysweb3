@@ -206,7 +206,7 @@ describe('Ledger Hardware Wallet', () => {
         type: KeyringAccountType.Ledger,
       };
 
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger);
+      // Account switch is handled by vault state update
 
       const { activeAccount, activeAccountType } =
         keyringManager.getActiveAccount();
@@ -222,7 +222,7 @@ describe('Ledger Hardware Wallet', () => {
         type: KeyringAccountType.Ledger,
       };
 
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger);
+      // Account switch is handled by vault state update
 
       const xpub = keyringManager.getAccountXpub();
       expect(xpub).toBeDefined();
@@ -254,7 +254,7 @@ describe('Ledger Hardware Wallet', () => {
         id: 0,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
+      // Account switch is handled by vault state update
       expect(keyringManager.getActiveAccount().activeAccountType).toBe(
         KeyringAccountType.HDAccount
       );
@@ -264,7 +264,7 @@ describe('Ledger Hardware Wallet', () => {
         id: 0,
         type: KeyringAccountType.Ledger,
       };
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Ledger);
+      // Account switch is handled by vault state update
       expect(keyringManager.getActiveAccount().activeAccountType).toBe(
         KeyringAccountType.Ledger
       );
@@ -310,10 +310,7 @@ describe('Ledger Hardware Wallet', () => {
           type: KeyringAccountType.Ledger,
         };
 
-        await keyringManager.setActiveAccount(
-          account.id,
-          KeyringAccountType.Ledger
-        );
+        // Account switch is handled by vault state update
       }
 
       // Mock Ledger UTXO client for transaction signing
@@ -440,10 +437,7 @@ describe('Ledger Hardware Wallet', () => {
           type: KeyringAccountType.Ledger,
         };
 
-        await evmKeyring.setActiveAccount(
-          evmAccount.id,
-          KeyringAccountType.Ledger
-        );
+        // Account switch is handled by vault state update
       }
 
       // Test that Ledger signing is called - expect it to fail at serialization but verify Ledger was called

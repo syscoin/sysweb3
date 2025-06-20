@@ -517,10 +517,7 @@ describe('KeyringManager - Initialization', () => {
         type: KeyringAccountType.Trezor,
       };
 
-      await keyringManager.setActiveAccount(
-        trezorAccount.id,
-        KeyringAccountType.Trezor
-      );
+      // Account switch is handled by vault state update
 
       // Verify Trezor is active
       const activeBefore = keyringManager.getActiveAccount();
@@ -603,10 +600,7 @@ describe('KeyringManager - Initialization', () => {
         type: KeyringAccountType.Ledger,
       };
 
-      await keyringManager.setActiveAccount(
-        ledgerAccount.id,
-        KeyringAccountType.Ledger
-      );
+      // Account switch is handled by vault state update
 
       // Lock and recreate keyring
       keyringManager.lockWallet();
@@ -674,10 +668,7 @@ describe('KeyringManager - Initialization', () => {
         type: KeyringAccountType.Imported,
       };
 
-      await keyringManager.setActiveAccount(
-        importedAccount.id,
-        KeyringAccountType.Imported
-      );
+      // Account switch is handled by vault state update
 
       // Lock and recreate keyring
       keyringManager.lockWallet();

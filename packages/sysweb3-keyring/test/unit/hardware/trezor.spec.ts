@@ -232,7 +232,7 @@ describe('Trezor Hardware Wallet', () => {
         type: KeyringAccountType.Trezor,
       };
 
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Trezor);
+      // Account switch is handled by vault state update
 
       const { activeAccount, activeAccountType } =
         keyringManager.getActiveAccount();
@@ -248,7 +248,7 @@ describe('Trezor Hardware Wallet', () => {
         type: KeyringAccountType.Trezor,
       };
 
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Trezor);
+      // Account switch is handled by vault state update
 
       const xpub = keyringManager.getAccountXpub();
       expect(xpub).toBeDefined();
@@ -299,7 +299,7 @@ describe('Trezor Hardware Wallet', () => {
         id: 0,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
+      // Account switch is handled by vault state update
       expect(keyringManager.getActiveAccount().activeAccountType).toBe(
         KeyringAccountType.HDAccount
       );
@@ -308,7 +308,7 @@ describe('Trezor Hardware Wallet', () => {
         id: 0,
         type: KeyringAccountType.Trezor,
       };
-      await keyringManager.setActiveAccount(0, KeyringAccountType.Trezor);
+      // Account switch is handled by vault state update
       expect(keyringManager.getActiveAccount().activeAccountType).toBe(
         KeyringAccountType.Trezor
       );
@@ -317,10 +317,7 @@ describe('Trezor Hardware Wallet', () => {
         id: trezor2Account.id,
         type: KeyringAccountType.Trezor,
       };
-      await keyringManager.setActiveAccount(
-        trezor2Account.id,
-        KeyringAccountType.Trezor
-      );
+      // Account switch is handled by vault state update
       expect(keyringManager.getActiveAccount().activeAccount.label).toBe(
         'Trezor 2'
       );
@@ -370,11 +367,6 @@ describe('Trezor Hardware Wallet', () => {
           id: account.id,
           type: KeyringAccountType.Trezor,
         };
-
-        await keyringManager.setActiveAccount(
-          account.id,
-          KeyringAccountType.Trezor
-        );
       }
     });
 
@@ -489,10 +481,7 @@ describe('Trezor Hardware Wallet', () => {
           type: KeyringAccountType.Trezor,
         };
 
-        await evmKeyring.setActiveAccount(
-          evmAccount.id,
-          KeyringAccountType.Trezor
-        );
+        // Account switch is handled by vault state update
       }
 
       // Test EVM transaction signing
@@ -606,10 +595,7 @@ describe('Trezor Hardware Wallet', () => {
           type: KeyringAccountType.Trezor,
         };
 
-        await keyringManager.setActiveAccount(
-          account.id,
-          KeyringAccountType.Trezor
-        );
+        // Account switch is handled by vault state update
       }
 
       // Mock Trezor disconnection during signing
@@ -724,10 +710,7 @@ describe('Trezor Hardware Wallet', () => {
           type: KeyringAccountType.Trezor,
         };
 
-        await keyringManager.setActiveAccount(
-          account.id,
-          KeyringAccountType.Trezor
-        );
+        // Account switch is handled by vault state update
 
         // Lock and unlock to test re-initialization
         keyringManager.lockWallet();

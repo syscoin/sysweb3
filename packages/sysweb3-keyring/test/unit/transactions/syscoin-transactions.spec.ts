@@ -511,7 +511,6 @@ describe('Syscoin Transactions', () => {
         id: account2.id,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
 
       // Get change address for account 2
       const changeAddress2 = await keyringManager.getChangeAddress(1);

@@ -461,12 +461,12 @@ global.createMockVaultState = (options = {}) => {
     const crypto = jest.requireActual('crypto');
 
     try {
-      // Determine slip44 and currency based on chainId
+      // Determine slip44 and coin name based on chainId
       const slip44 = chainId === 57 ? 57 : 1; // mainnet = 57, testnet = 1
       const currency = chainId === 57 ? 'SYS' : 'TSYS';
+      const coinName = chainId === 57 ? 'Syscoin' : 'Syscoin Testnet'; // Use full coin names from coins.ts
 
       // Get network config for proper syscoin parameters
-      const coinName = chainId === 57 ? 'Syscoin' : 'Syscoin Testnet';
       const networkConfig = getNetworkConfig(slip44, coinName);
 
       // Create mock RPC config for syscoinjs

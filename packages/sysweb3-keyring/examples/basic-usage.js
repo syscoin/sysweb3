@@ -10,7 +10,7 @@ let vaultState = {
     [KeyringAccountType.HDAccount]: {},
     [KeyringAccountType.Imported]: {},
     [KeyringAccountType.Trezor]: {},
-    [KeyringAccountType.Ledger]: {}
+    [KeyringAccountType.Ledger]: {},
   },
   activeAccount: { id: 0, type: KeyringAccountType.HDAccount },
   activeNetwork: {
@@ -19,7 +19,7 @@ let vaultState = {
     kind: 'syscoin',
     label: 'Syscoin Mainnet',
     url: 'https://blockbook.syscoin.org/',
-    slip44: 57
+    slip44: 57,
   },
   // ... other vault properties
 };
@@ -34,7 +34,8 @@ const updateVaultState = (updates) => {
 
 async function example() {
   try {
-    const seedPhrase = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    const seedPhrase =
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
     const password = 'secure-password';
 
     // 1. Initialize KeyringManager
@@ -47,16 +48,16 @@ async function example() {
 
     // 2. Create the initial account (this would be added to your state)
     const initialAccount = await keyringManager.createKeyringVaultFromSession();
-    
+
     // Update your state with the new account
     updateVaultState({
       accounts: {
         ...vaultState.accounts,
         [KeyringAccountType.HDAccount]: {
           ...vaultState.accounts[KeyringAccountType.HDAccount],
-          [initialAccount.id]: initialAccount
-        }
-      }
+          [initialAccount.id]: initialAccount,
+        },
+      },
     });
 
     console.log('Initial account created:', initialAccount.address);
@@ -64,27 +65,30 @@ async function example() {
     // 3. Create additional accounts
     console.log('Creating additional account...');
     const newAccount = await keyringManager.addNewAccount('My Second Account');
-    
+
     // Update state with new account
     updateVaultState({
       accounts: {
         ...vaultState.accounts,
         [KeyringAccountType.HDAccount]: {
           ...vaultState.accounts[KeyringAccountType.HDAccount],
-          [newAccount.id]: newAccount
-        }
-      }
+          [newAccount.id]: newAccount,
+        },
+      },
     });
 
     console.log('New account created:', newAccount.address);
 
     // 4. Switch active account
     console.log('Switching to new account...');
-    await keyringManager.setActiveAccount(newAccount.id, KeyringAccountType.HDAccount);
-    
+    await keyringManager.setActiveAccount(
+      newAccount.id,
+      KeyringAccountType.HDAccount
+    );
+
     // Update state with new active account
     updateVaultState({
-      activeAccount: { id: newAccount.id, type: KeyringAccountType.HDAccount }
+      activeAccount: { id: newAccount.id, type: KeyringAccountType.HDAccount },
     });
 
     console.log('Active account switched to:', newAccount.address);
@@ -102,16 +106,20 @@ async function example() {
 
     // 7. Transaction fee estimation example
     try {
-      const feeEstimate = await keyringManager.syscoinTransaction.getEstimateSysTransactionFee({
-        txOptions: {},
-        amount: 0.1,
-        receivingAddress: 'sys1qexample...',
-        feeRate: 0.00001,
-        token: null
-      });
+      const feeEstimate =
+        await keyringManager.syscoinTransaction.getEstimateSysTransactionFee({
+          txOptions: {},
+          amount: 0.1,
+          receivingAddress: 'sys1qexample...',
+          feeRate: 0.00001,
+          token: null,
+        });
       console.log('Fee estimate:', feeEstimate.fee);
     } catch (error) {
-      console.log('Fee estimation failed (expected in example):', error.message);
+      console.log(
+        'Fee estimation failed (expected in example):',
+        error.message
+      );
     }
 
     // 8. Lock the keyring
@@ -123,7 +131,6 @@ async function example() {
     console.log('Unlocking keyring...');
     await keyringManager.unlock(password);
     console.log('Keyring unlocked:', keyringManager.isUnlocked());
-
   } catch (error) {
     console.error('Example failed:', error);
   }

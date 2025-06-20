@@ -111,31 +111,28 @@ describe('KeyringManager - Account Management', () => {
         assets: { syscoin: [], ethereum: [] },
       };
 
-      // Switch to account 1
+      // Switch to account 1 (only update vault state - no setActiveAccount needed)
       currentVaultState.activeAccount = {
         id: 1,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
       let active = keyringManager.getActiveAccount();
       expect(active.activeAccount.id).toBe(1);
       expect(active.activeAccountType).toBe(KeyringAccountType.HDAccount);
 
-      // Switch to account 2
+      // Switch to account 2 (only update vault state)
       currentVaultState.activeAccount = {
         id: 2,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(2, KeyringAccountType.HDAccount);
       active = keyringManager.getActiveAccount();
       expect(active.activeAccount.id).toBe(2);
 
-      // Switch back to account 0
+      // Switch back to account 0 (only update vault state)
       currentVaultState.activeAccount = {
         id: 0,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
       active = keyringManager.getActiveAccount();
       expect(active.activeAccount.id).toBe(0);
     });
@@ -512,26 +509,21 @@ describe('KeyringManager - Account Management', () => {
           assets: { syscoin: [], ethereum: [] },
         };
 
-        // Switch to imported account
+        // Switch to imported account (only update vault state)
         currentVaultState.activeAccount = {
           id: imported.id,
           type: KeyringAccountType.Imported,
         };
-        await keyringManager.setActiveAccount(
-          imported.id,
-          KeyringAccountType.Imported
-        );
         let active = keyringManager.getActiveAccount();
         expect(active.activeAccount.id).toBe(imported.id);
         expect(active.activeAccountType).toBe(KeyringAccountType.Imported);
         expect(active.activeAccount.address).toBe(imported.address);
 
-        // Switch back to HD account
+        // Switch back to HD account (only update vault state)
         currentVaultState.activeAccount = {
           id: 0,
           type: KeyringAccountType.HDAccount,
         };
-        await keyringManager.setActiveAccount(0, KeyringAccountType.HDAccount);
         active = keyringManager.getActiveAccount();
         expect(active.activeAccount.id).toBe(0);
         expect(active.activeAccountType).toBe(KeyringAccountType.HDAccount);
@@ -591,7 +583,6 @@ describe('KeyringManager - Account Management', () => {
 
       for (const { id, type, label } of switches) {
         currentVaultState.activeAccount = { id, type };
-        await keyringManager.setActiveAccount(id, type);
         const active = keyringManager.getActiveAccount();
         expect(active.activeAccount.id).toBe(id);
         expect(active.activeAccountType).toBe(type);
@@ -687,15 +678,11 @@ describe('KeyringManager - Account Management', () => {
         assets: { syscoin: [], ethereum: [] },
       };
 
-      // Switch to imported account
+      // Switch to imported account (only update vault state)
       currentVaultState.activeAccount = {
         id: imported.id,
         type: KeyringAccountType.Imported,
       };
-      await keyringManager.setActiveAccount(
-        imported.id,
-        KeyringAccountType.Imported
-      );
 
       // Lock and unlock
       keyringManager.lockWallet();
@@ -722,16 +709,16 @@ describe('KeyringManager - Account Management', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle invalid account type when switching', async () => {
-      await expect(
-        keyringManager.setActiveAccount(0, 'INVALID_TYPE' as any)
-      ).rejects.toThrow();
+    it('should handle invalid account type when getting account', async () => {
+      expect(() =>
+        keyringManager.getAccountById(0, 'INVALID_TYPE' as any)
+      ).toThrow();
     });
 
-    it('should handle switching to non-existent account', async () => {
-      await expect(
-        keyringManager.setActiveAccount(999, KeyringAccountType.HDAccount)
-      ).rejects.toThrow('Account not found');
+    it('should handle getting non-existent account', async () => {
+      expect(() =>
+        keyringManager.getAccountById(999, KeyringAccountType.HDAccount)
+      ).toThrow('Account not found');
     });
 
     it('should reject import of invalid private key', async () => {

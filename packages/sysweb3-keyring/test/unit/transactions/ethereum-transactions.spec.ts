@@ -337,7 +337,6 @@ describe('Ethereum Transactions', () => {
         id: account2.id,
         type: KeyringAccountType.HDAccount,
       };
-      await keyringManager.setActiveAccount(1, KeyringAccountType.HDAccount);
 
       // Sign with second account
       const signature2 =
