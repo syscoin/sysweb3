@@ -480,7 +480,7 @@ describe('KeyringManager - Account Management', () => {
         expect(imported.isImported).toBe(true);
         expect(imported.address.startsWith('sys1')).toBe(true);
         expect(imported.id).toBe(0);
-        expect(imported.label).toBe('Imported 1');
+        expect(imported.label).toBe('Syscoin Mainnet Imported 1');
       });
 
       it('should validate zprv before import', async () => {
@@ -732,6 +732,238 @@ describe('KeyringManager - Account Management', () => {
       // by checking that first account gets ID 0
       const account = keyringManager.getActiveAccount().activeAccount;
       expect(account.id).toBe(0);
+    });
+
+    it('should fill gaps in account IDs when accounts are removed', async () => {
+      // Create multiple accounts to simulate a scenario where some are removed
+      const account1 = await keyringManager.addNewAccount('Account 1');
+      expect(account1.id).toBe(1);
+
+      // Update vault state to include account1
+      currentVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+        id: 1,
+        label: 'Account 1',
+        address: account1.address,
+        xpub: account1.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      const account2 = await keyringManager.addNewAccount('Account 2');
+      expect(account2.id).toBe(2);
+
+      // Update vault state to include account2
+      currentVaultState.accounts[KeyringAccountType.HDAccount][2] = {
+        id: 2,
+        label: 'Account 2',
+        address: account2.address,
+        xpub: account2.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      const account3 = await keyringManager.addNewAccount('Account 3');
+      expect(account3.id).toBe(3);
+
+      // Update vault state to include account3
+      currentVaultState.accounts[KeyringAccountType.HDAccount][3] = {
+        id: 3,
+        label: 'Account 3',
+        address: account3.address,
+        xpub: account3.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // Simulate account deletion by removing account with ID 1 from vault state
+      // (In real usage, this would be done by the removeAccount controller method)
+      delete currentVaultState.accounts[KeyringAccountType.HDAccount][1];
+
+      // Now when we create a new account, it should fill the gap at ID 1
+      const newAccount = await keyringManager.addNewAccount('New Account');
+      expect(newAccount.id).toBe(1); // Should reuse the deleted account's ID
+
+      // Update vault state to include the new account
+      currentVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+        id: 1,
+        label: 'New Account',
+        address: newAccount.address,
+        xpub: newAccount.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // At this point we have accounts: [0, 1, 2, 3] - no gaps
+      // Next account should get the next sequential ID
+      const anotherAccount = await keyringManager.addNewAccount(
+        'Another Account'
+      );
+      expect(anotherAccount.id).toBe(4); // Should continue sequence after 3
+
+      // Update vault state to include anotherAccount
+      currentVaultState.accounts[KeyringAccountType.HDAccount][4] = {
+        id: 4,
+        label: 'Another Account',
+        address: anotherAccount.address,
+        xpub: anotherAccount.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // Simulate removing the middle account (ID 2)
+      delete currentVaultState.accounts[KeyringAccountType.HDAccount][2];
+
+      // Now we have accounts: [0, 1, 3, 4] - gap at ID 2
+      // Next account should fill that gap
+      const gapFillerAccount = await keyringManager.addNewAccount('Gap Filler');
+      expect(gapFillerAccount.id).toBe(2); // Should reuse ID 2
+    });
+  });
+
+  describe('Account Label Consistency', () => {
+    it('should create EVM accounts with generic labels regardless of network', async () => {
+      // Test that EVM accounts always get generic "Account N" labels
+      // regardless of which specific EVM network they're created on
+
+      // Set up NEVM Testnet vault state
+      const nevmTestnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Ethereum,
+        chainId: 5700, // Syscoin NEVM Testnet
+      });
+      const nevmTestnetVaultGetter = jest.fn(() => nevmTestnetVaultState);
+
+      // Create keyring on NEVM Testnet
+      const nevmKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        nevmTestnetVaultGetter
+      );
+
+      // Create accounts on NEVM Testnet
+      const account1 = nevmKeyring.getActiveAccount().activeAccount;
+      const account2 = await nevmKeyring.addNewAccount();
+
+      // Update vault state to include account2 BEFORE creating account3
+      nevmTestnetVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+        id: 1,
+        label: account2.label,
+        address: account2.address,
+        xpub: account2.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      const account3 = await nevmKeyring.addNewAccount();
+
+      // Update vault state to include account3
+      nevmTestnetVaultState.accounts[KeyringAccountType.HDAccount][2] = {
+        id: 2,
+        label: account3.label,
+        address: account3.address,
+        xpub: account3.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // BUG TEST: EVM accounts should have generic labels, not network-specific ones
+      expect(account1.label).toBe('Account 1'); // Should be generic
+      expect(account2.label).toBe('Account 2'); // Should be generic
+      expect(account3.label).toBe('Account 3'); // Should be generic
+
+      // These should NOT happen (network-specific labels for EVM accounts)
+      expect(account1.label).not.toContain('NEVM');
+      expect(account1.label).not.toContain('Testnet');
+      expect(account2.label).not.toContain('NEVM');
+      expect(account2.label).not.toContain('Testnet');
+      expect(account3.label).not.toContain('NEVM');
+      expect(account3.label).not.toContain('Testnet');
+
+      // Verify accounts work across EVM networks (same slip44=60)
+      expect(account1.address.startsWith('0x')).toBe(true);
+      expect(account2.address.startsWith('0x')).toBe(true);
+      expect(account3.address.startsWith('0x')).toBe(true);
+    });
+
+    it('should create UTXO accounts with network-specific labels', async () => {
+      // Test the keyring manager's actual label generation logic
+
+      // Set up empty Syscoin Testnet vault state (no pre-existing accounts)
+      const sysTestnetVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 5700, // Syscoin UTXO Testnet
+      });
+
+      // Clear pre-existing accounts to let keyring manager create them
+      sysTestnetVaultState.accounts[KeyringAccountType.HDAccount] = {};
+
+      const sysTestnetVaultGetter = jest.fn(() => sysTestnetVaultState);
+
+      // Create keyring - this should call createFirstAccount internally
+      const sysKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        sysTestnetVaultGetter
+      );
+
+      // The first account should be created by keyring manager's createFirstAccount method
+      const firstAccount = await sysKeyring.createFirstAccount();
+
+      // Add to vault state so addNewAccount can find existing accounts for ID calculation
+      sysTestnetVaultState.accounts[KeyringAccountType.HDAccount][0] = {
+        id: 0,
+        label: firstAccount.label,
+        address: firstAccount.address,
+        xpub: firstAccount.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: false,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // Create second account using addNewAccount
+      const secondAccount = await sysKeyring.addNewAccount();
+
+      // Test that the keyring manager generates network-specific labels for UTXO accounts
+      expect(firstAccount.label).toContain('SYS'); // Should be "SYS-T 1" for testnet
+      expect(secondAccount.label).toContain('SYS'); // Should be "SYS-T 2" for testnet
+
+      // Verify accounts are UTXO format
+      expect(firstAccount.address.startsWith('tsys1')).toBe(true); // Testnet format
+      expect(secondAccount.address.startsWith('tsys1')).toBe(true); // Testnet format
     });
   });
 });

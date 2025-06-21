@@ -558,6 +558,24 @@ global.createMockVaultState = (options = {}) => {
         explorer: 'https://etherscan.io/',
         slip44: 60,
       },
+      57: {
+        chainId: 57,
+        currency: 'SYS',
+        label: 'Syscoin NEVM',
+        url: 'https://rpc.syscoin.org',
+        kind: INetworkType.Ethereum,
+        explorer: 'https://explorer.syscoin.org/',
+        slip44: 60,
+      },
+      5700: {
+        chainId: 5700,
+        currency: 'TSYS',
+        label: 'Syscoin NEVM Testnet',
+        url: 'https://rpc.tanenbaum.io',
+        kind: INetworkType.Ethereum,
+        explorer: 'https://explorer.tanenbaum.io/',
+        slip44: 60,
+      },
       137: {
         chainId: 137,
         currency: 'MATIC',
@@ -597,7 +615,7 @@ global.createMockVaultState = (options = {}) => {
     );
   }
 
-  // Create mock accounts structure with real derived data and encrypted xprv
+  // Create mock accounts structure with generic labels - tests should verify what keyring manager actually produces
   const accounts = {
     [KeyringAccountType.HDAccount]: {
       0: {
@@ -605,7 +623,7 @@ global.createMockVaultState = (options = {}) => {
         address,
         xpub,
         xprv, // Now includes encrypted private key like real vault
-        label: 'Account 1',
+        label: `Account 1`, // Generic label - tests should expect what keyring manager actually creates
         balances: { syscoin: 0, ethereum: 0 },
         isImported: false,
         isTrezorWallet: false,

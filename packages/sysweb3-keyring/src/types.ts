@@ -329,12 +329,6 @@ export interface IWeb3Account extends IKeyringAccountState {
   ) => Promise<SignedTransaction>;
 }
 
-type IsBitcoinBased = {
-  isBitcoinBased?: boolean;
-};
-
-type IOriginNetwork = INetwork & IsBitcoinBased;
-
 interface INetworkParams {
   bech32: string;
   bip32: {
@@ -363,7 +357,6 @@ export interface IKeyringAccountState {
   isLedgerWallet: boolean;
   isTrezorWallet: boolean;
   label: string;
-  originNetwork?: IOriginNetwork;
   xprv: string;
   xpub: string;
 }

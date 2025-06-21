@@ -1136,7 +1136,7 @@ export class KeyringManager implements IKeyringManager {
 
     return {
       id: signer.Signer.accountIndex,
-      label: label ? label : `Account ${signer.Signer.accountIndex + 1}`,
+      label: label || `Account ${signer.Signer.accountIndex + 1}`,
       xpub,
       xprv,
       address,
@@ -1153,7 +1153,7 @@ export class KeyringManager implements IKeyringManager {
     label?: string
   ) {
     const vault = this.getVault();
-    const { accounts, activeNetwork } = vault;
+    const { accounts } = vault;
     let xpub, balance;
     try {
       const { descriptor, balance: _balance } =
@@ -1213,7 +1213,6 @@ export class KeyringManager implements IKeyringManager {
         ethereum: 0,
       },
       address,
-      originNetwork: { ...activeNetwork, isBitcoinBased: !isEVM },
       label: label ? label : `Trezor ${id + 1}`,
       id,
       xprv: '',
@@ -1234,7 +1233,7 @@ export class KeyringManager implements IKeyringManager {
     label?: string
   ) {
     const vault = this.getVault();
-    const { accounts, activeNetwork } = vault;
+    const { accounts } = vault;
     let xpub;
     let address = '';
     if (isEvmCoin(coin, slip44)) {
@@ -1289,17 +1288,12 @@ export class KeyringManager implements IKeyringManager {
         ? 0
         : Object.values(accounts[KeyringAccountType.Ledger]).length;
 
-    const isEVM = isEvmCoin(coin, slip44);
     const currentBalances = { syscoin: 0, ethereum: 0 };
 
     const ledgerAccount = {
       ...this.initialLedgerAccountState,
       balances: currentBalances,
       address,
-      originNetwork: {
-        ...activeNetwork,
-        isBitcoinBased: !isEVM,
-      },
       label: label ? label : `Ledger ${id + 1}`,
       id,
       xprv: '',
@@ -1374,9 +1368,14 @@ export class KeyringManager implements IKeyringManager {
 
       const encryptedXprv = this.getEncryptedXprv(freshHDSigner);
 
+      // Generate network-aware label if none provided
+      const vault = this.getVault();
+      const network = vault.activeNetwork;
+      const defaultLabel = this.generateNetworkAwareLabel(accountId, network);
+
       return {
         ...this.getInitialAccountData({
-          label: label || `Account ${accountId + 1}`,
+          label: label || defaultLabel,
           signer: freshHDSigner,
           sysAccount,
           xprv: encryptedXprv,
@@ -1416,9 +1415,12 @@ export class KeyringManager implements IKeyringManager {
       const accounts = vault.accounts[KeyringAccountType.HDAccount];
       const nextId = this.getNextAccountId(accounts);
 
+      // EVM accounts should use generic labels since they work across all EVM networks
+      const defaultLabel = `Account ${nextId + 1}`;
+
       const newAccount = await this.setDerivedWeb3Accounts(
         nextId,
-        label || `Account ${nextId + 1}`
+        label || defaultLabel
       );
 
       return newAccount;
@@ -1431,7 +1433,7 @@ export class KeyringManager implements IKeyringManager {
     }
   }
 
-  // Helper method to get next available account ID
+  // Helper method to get next available account ID - fills gaps when accounts are deleted
   private getNextAccountId(accounts: any): number {
     const existingIds = Object.values(accounts)
       .filter((account: any) => {
@@ -1440,13 +1442,23 @@ export class KeyringManager implements IKeyringManager {
         return account && account.address && account.xpub;
       })
       .map((account: any) => account.id)
-      .filter((id) => !isNaN(id));
+      .filter((id) => !isNaN(id))
+      .sort((a, b) => a - b); // Sort to find gaps efficiently
 
     if (existingIds.length === 0) {
       return 0;
     }
 
-    return Math.max(...existingIds) + 1;
+    // Find the first gap in the sequence
+    for (let i = 0; i < existingIds.length; i++) {
+      if (existingIds[i] !== i) {
+        // Found a gap at position i
+        return i;
+      }
+    }
+
+    // No gaps found, return next sequential ID
+    return existingIds.length;
   }
 
   private getBasicWeb3AccountInfo = (id: number, label?: string) => {
@@ -1656,10 +1668,22 @@ export class KeyringManager implements IKeyringManager {
 
     const id = this.getNextAccountId(accounts[KeyringAccountType.Imported]);
 
+    // Generate appropriate label based on account type
+    const network = vault.activeNetwork;
+    let defaultLabel: string;
+    if (zprvValidation.isValid) {
+      // UTXO imported account - use network-aware label
+      const networkPrefix = network.label;
+      defaultLabel = label || `${networkPrefix} Imported ${id + 1}`;
+    } else {
+      // EVM imported account - use generic label
+      defaultLabel = label || `Imported ${id + 1}`;
+    }
+
     return {
       ...initialActiveImportedAccountState,
       address,
-      label: label ? label : `Imported ${id + 1}`,
+      label: defaultLabel,
       id,
       balances,
       isImported: true,
@@ -1884,6 +1908,9 @@ export class KeyringManager implements IKeyringManager {
     const network = vault.activeNetwork;
 
     if (network.kind === INetworkType.Syscoin) {
+      // UTXO accounts get network-aware labels since each network has separate keyrings
+      const defaultLabel = label || this.generateNetworkAwareLabel(0, network);
+
       // Create UTXO account using on-demand signer
       const freshHDSigner = this.createOnDemandUTXOSigner(0);
 
@@ -1895,7 +1922,7 @@ export class KeyringManager implements IKeyringManager {
 
       return {
         ...this.getInitialAccountData({
-          label: label || 'Account 1',
+          label: defaultLabel,
           signer: freshHDSigner,
           sysAccount,
           xprv: encryptedXprv,
@@ -1903,8 +1930,9 @@ export class KeyringManager implements IKeyringManager {
         balances: { syscoin: 0, ethereum: 0 },
       } as IKeyringAccountState;
     } else {
-      // Create EVM account
-      return await this.setDerivedWeb3Accounts(0, label || 'Account 1');
+      // EVM accounts get generic labels since they work across all EVM networks
+      const defaultLabel = label || 'Account 1';
+      return await this.setDerivedWeb3Accounts(0, defaultLabel);
     }
   };
 
@@ -1929,5 +1957,66 @@ export class KeyringManager implements IKeyringManager {
       throw new Error('Session mnemonic not available');
     }
     return this.sessionMnemonic.toString();
+  }
+
+  private generateNetworkAwareLabel(
+    accountId: number,
+    network: INetwork
+  ): string {
+    // Generate concise network-specific labels using actual network config
+    const { label, chainId, kind } = network;
+
+    // Create a shortened network identifier based on actual network configurations
+    let networkPrefix = '';
+
+    if (kind === INetworkType.Syscoin) {
+      // UTXO networks (slip44 = 57 for mainnet, 1 for testnet)
+      if (chainId === 57) {
+        networkPrefix = 'SYS'; // Syscoin UTXO Mainnet
+      } else if (chainId === 5700) {
+        networkPrefix = 'SYS-T'; // Syscoin UTXO Testnet (slip44=1)
+      } else {
+        // Other UTXO networks - use first word from label
+        const firstWord = label.split(' ')[0];
+        networkPrefix =
+          firstWord.length > 6 ? firstWord.substring(0, 6) : firstWord;
+      }
+    } else {
+      // EVM networks (all use slip44=60)
+      if (chainId === 1) {
+        networkPrefix = 'ETH'; // Ethereum Mainnet
+      } else if (chainId === 11155111) {
+        networkPrefix = 'ETH-T'; // Ethereum Sepolia Testnet
+      } else if (chainId === 137) {
+        networkPrefix = 'POLY'; // Polygon Mainnet
+      } else if (chainId === 80001) {
+        networkPrefix = 'POLY-T'; // Polygon Mumbai Testnet
+      } else if (chainId === 57) {
+        networkPrefix = 'NEVM'; // Syscoin NEVM Mainnet
+      } else if (chainId === 5700) {
+        networkPrefix = 'NEVM-T'; // Syscoin NEVM Testnet
+      } else if (chainId === 570) {
+        networkPrefix = 'ROLLUX'; // Rollux Mainnet
+      } else if (chainId === 57000) {
+        networkPrefix = 'ROLLUX-T'; // Rollux Testnet
+      } else {
+        // Other EVM networks - extract meaningful prefix from label
+        const firstWord = label.split(' ')[0];
+        if (
+          firstWord.toLowerCase().includes('testnet') ||
+          firstWord.toLowerCase().includes('test')
+        ) {
+          const baseWord = label.split(' ')[0];
+          networkPrefix = `${baseWord.substring(0, 4).toUpperCase()}-T`;
+        } else {
+          networkPrefix =
+            firstWord.length > 6
+              ? firstWord.substring(0, 6).toUpperCase()
+              : firstWord.toUpperCase();
+        }
+      }
+    }
+
+    return `${networkPrefix} ${accountId + 1}`;
   }
 }
