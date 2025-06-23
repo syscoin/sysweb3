@@ -518,6 +518,9 @@ export class KeyringManager implements IKeyringManager {
 
     // For UTXO networks, only allow updating the same network (e.g., changing RPC URL)
     if (data.kind === INetworkType.Syscoin) {
+      if (!vault.activeNetwork) {
+        throw new Error('No active network configured');
+      }
       if (data.chainId !== vault.activeNetwork.chainId) {
         throw new Error(
           'Cannot change UTXO network. Each UTXO network has its own keyring instance.'
@@ -532,7 +535,7 @@ export class KeyringManager implements IKeyringManager {
     // Only update providers/signers if this is the active network
     // NOTE: Network state updates should be handled by Pali/Redux
     if (
-      vault.activeNetwork.chainId === data.chainId &&
+      vault.activeNetwork?.chainId === data.chainId &&
       this.getActiveChain() === data.kind
     ) {
       if (data.kind === INetworkType.Syscoin) {

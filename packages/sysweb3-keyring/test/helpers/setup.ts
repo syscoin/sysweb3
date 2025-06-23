@@ -641,15 +641,8 @@ global.createMockVaultState = (options = {}) => {
     accounts,
     activeNetwork,
     networks,
-    // Add other vault state properties as needed
-    autoLockTimer: 10,
-    hasEncryptedVault: true,
-    isAccountMenuActive: false,
-    isNetworkChanging: false,
-    isPollingNetwork: false,
     isUnlocked: false,
     lastLogin: null,
-    utf8Error: false,
   };
 };
 
