@@ -112,7 +112,7 @@ describe('KeyringManager - State Management', () => {
 
       // Should throw error when trying to access vault without getter
       expect(() => keyringManager.getNetwork()).toThrow(
-        'Vault state getter not initialized'
+        'Vault state getter not configured. Call setVaultStateGetter() first.'
       );
     });
   });

@@ -211,7 +211,7 @@ jest.mock('@pollum-io/sysweb3-core', () => ({
         mockStorage.set(key, value);
         return Promise.resolve();
       }),
-      remove: jest.fn((key: string) => {
+      deleteItem: jest.fn((key: string) => {
         mockStorage.delete(key);
         return Promise.resolve();
       }),

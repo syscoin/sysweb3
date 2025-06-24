@@ -101,7 +101,7 @@ export class KeyringManager implements IKeyringManager {
   //transactions objects
   public ethereumTransaction: IEthereumTransactions;
   public syscoinTransaction: ISyscoinTransactions;
-  private storage: any; //todo type
+  private storage: any; // Should be IKeyValueDb but import issue - provides deleteItem(), get(), set(), setClient(), setPrefix()
 
   // Store getter function for accessing Redux state
   private getVaultState: (() => any) | null = null;
@@ -115,10 +115,32 @@ export class KeyringManager implements IKeyringManager {
   private getVault = () => {
     if (!this.getVaultState) {
       throw new Error(
-        'Vault state getter not initialized. Call setVaultStateGetter first.'
+        'Vault state getter not configured. Call setVaultStateGetter() first.'
       );
     }
-    return this.getVaultState();
+
+    const vault = this.getVaultState();
+
+    // DEFENSIVE CHECK: Ensure vault state is properly structured
+    if (!vault) {
+      throw new Error(
+        'Vault state is undefined. Ensure Redux store is properly initialized with vault state.'
+      );
+    }
+
+    if (!vault.activeNetwork) {
+      throw new Error(
+        'Vault state is missing activeNetwork. Ensure vault state is properly initialized before keyring operations.'
+      );
+    }
+
+    if (!vault.activeAccount) {
+      throw new Error(
+        'Vault state is missing activeAccount. Ensure vault state is properly initialized before keyring operations.'
+      );
+    }
+
+    return vault;
   };
 
   // Helper to get active chain from vault state (replaces this.activeChain)
@@ -1523,6 +1545,7 @@ export class KeyringManager implements IKeyringManager {
   };
 
   private clearTemporaryLocalKeys = async (pwd: string) => {
+    // Clear the vault completely (set empty mnemonic)
     await setEncryptedVault(
       {
         mnemonic: '',
@@ -1530,6 +1553,10 @@ export class KeyringManager implements IKeyringManager {
       pwd
     );
 
+    // Remove vault-keys from storage so no vault exists at all
+    await this.storage.deleteItem('vault-keys');
+
+    console.log('[KeyringManager] Temporary local keys cleared');
     this.logout();
   };
 
