@@ -67,54 +67,86 @@ const getEthChainId = async (
     return { chainId: cached.chainId };
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_chainId',
-      params: [],
-      id: 1,
-    }),
-  });
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-  // Check the status code of the HTTP response
-  if (!response.ok) {
-    switch (response.status) {
-      case 429:
-        throw new Error(
-          'Error 429: Too many requests. Please slow down your request rate.'
-        );
-      case 503:
-        throw new Error(
-          'Error 503: Service Unavailable. The server is currently unable to handle the request.'
-        );
-      default:
-        throw new Error(
-          `Error ${response.status}: An error occurred while fetching the chain ID.`
-        );
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_chainId',
+        params: [],
+        id: 1,
+      }),
+      signal: controller.signal,
+    });
+
+    // Check the status code of the HTTP response
+    if (!response.ok) {
+      switch (response.status) {
+        case 429:
+          throw new Error(
+            'Error 429: Too many requests. Please slow down your request rate.'
+          );
+        case 503:
+          throw new Error(
+            'Error 503: Service Unavailable. The server is currently unable to handle the request.'
+          );
+        default:
+          throw new Error(
+            `Error ${response.status}: An error occurred while fetching the chain ID.`
+          );
+      }
     }
+
+    const data = await response.json();
+
+    // If the request was successful, the chain ID will be in data.result.
+    // Otherwise, there will be an error message in data.error.
+    if (data.error) {
+      throw new Error(`Error getting chain ID: ${data.error.message}`);
+    }
+
+    const chainId = Number(data.result);
+
+    // Cache the result
+    ethChainIdCache.set(url, {
+      chainId,
+      timestamp: Date.now(),
+    });
+
+    return { chainId };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(
+        'RPC request timeout: The server took too long to respond'
+      );
+    }
+
+    // Handle network/CORS errors
+    if (
+      error instanceof TypeError &&
+      error.message.includes('Failed to fetch')
+    ) {
+      throw new Error(
+        'Network error: Unable to connect to RPC endpoint. Please check the URL and ensure CORS is enabled.'
+      );
+    }
+
+    // Re-throw if it's already a proper Error with a message
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error(`Failed to connect to RPC: ${String(error)}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await response.json();
-
-  // If the request was successful, the chain ID will be in data.result.
-  // Otherwise, there will be an error message in data.error.
-  if (data.error) {
-    throw new Error(`Error getting chain ID: ${data.error.message}`);
-  }
-
-  const chainId = Number(data.result);
-
-  // Cache the result
-  ethChainIdCache.set(url, {
-    chainId,
-    timestamp: Date.now(),
-  });
-
-  return { chainId };
 };
 
 /** eth rpc */
@@ -157,7 +189,11 @@ export const validateEthRpc = async (
       valid,
     };
   } catch (error) {
-    throw new Error(error);
+    // Properly handle error objects
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   }
 };
 
@@ -221,29 +257,78 @@ export const validateSysRpc = async (
     }
 
     const formatURL = `${url.endsWith('/') ? url.slice(0, -1) : url}/api/v2`;
-    const response = await (await fetch(formatURL)).json();
-    const {
-      blockbook: { coin },
-      backend: { chain },
-    } = response;
 
-    const valid = Boolean(response && coin);
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    const result = {
-      valid,
-      coin,
-      chain,
-    };
+    try {
+      const response = await fetch(formatURL, {
+        signal: controller.signal,
+      });
 
-    // Cache the result
-    blockbookValidationCache.set(url, {
-      result,
-      timestamp: Date.now(),
-    });
+      if (!response.ok) {
+        throw new Error(`Failed to validate UTXO RPC: HTTP ${response.status}`);
+      }
 
-    return result;
+      const data = await response.json();
+
+      if (!data || !data.blockbook || !data.backend) {
+        throw new Error('Invalid response format from UTXO RPC');
+      }
+
+      const {
+        blockbook: { coin },
+        backend: { chain },
+      } = data;
+
+      const valid = Boolean(data && coin);
+
+      const result = {
+        valid,
+        coin,
+        chain,
+      };
+
+      // Cache the result
+      blockbookValidationCache.set(url, {
+        result,
+        timestamp: Date.now(),
+      });
+
+      return result;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error(
+          'UTXO RPC request timeout: The server took too long to respond'
+        );
+      }
+
+      // Handle network/CORS errors
+      if (
+        error instanceof TypeError &&
+        error.message.includes('Failed to fetch')
+      ) {
+        throw new Error(
+          'Network error: Unable to connect to UTXO RPC endpoint. Please check the URL and ensure the service is accessible.'
+        );
+      }
+
+      // Re-throw if it's already a proper Error with a message
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      throw new Error(`Failed to connect to UTXO RPC: ${String(error)}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   } catch (error) {
-    throw new Error(error);
+    // Properly handle error objects
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   }
 };
 
@@ -293,7 +378,11 @@ export const getSysRpc = async (data: any) => {
 
     return { rpc, coin, chain };
   } catch (error) {
-    throw new Error(error);
+    // Properly handle error objects
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(String(error));
   }
 };
 /** end */
