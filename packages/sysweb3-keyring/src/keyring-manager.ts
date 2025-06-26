@@ -527,48 +527,6 @@ export class KeyringManager implements IKeyringManager {
     return mnemonic;
   };
 
-  public updateNetworkConfig = async (data: INetwork) => {
-    if (
-      data.kind !== INetworkType.Syscoin &&
-      data.kind !== INetworkType.Ethereum
-    ) {
-      throw new Error('Invalid chain type');
-    }
-
-    // Get current network state from vault (stateless)
-    const vault = this.getVault();
-
-    // For UTXO networks, only allow updating the same network (e.g., changing RPC URL)
-    if (data.kind === INetworkType.Syscoin) {
-      if (!vault.activeNetwork) {
-        throw new Error('No active network configured');
-      }
-      if (data.chainId !== vault.activeNetwork.chainId) {
-        throw new Error(
-          'Cannot change UTXO network. Each UTXO network has its own keyring instance.'
-        );
-      }
-    }
-
-    if (!vault.networks[data.kind][data.chainId]) {
-      throw new Error('Network does not exist');
-    }
-
-    // Only update providers/signers if this is the active network
-    // NOTE: Network state updates should be handled by Pali/Redux
-    if (
-      vault.activeNetwork?.chainId === data.chainId &&
-      this.getActiveChain() === data.kind
-    ) {
-      if (data.kind === INetworkType.Syscoin) {
-        // NOTE: No need to update persistent signer - fresh signers created on-demand with new URL
-        // The new network URL will be used when getSigner() creates fresh signers
-      } else {
-        this.ethereumTransaction.setWeb3Provider(data);
-      }
-    }
-  };
-
   public setSignerNetwork = async (
     network: INetwork
   ): Promise<{

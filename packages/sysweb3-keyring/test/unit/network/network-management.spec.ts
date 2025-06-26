@@ -116,41 +116,6 @@ describe('Network Management', () => {
     });
   });
 
-  describe('Custom Network Management', () => {
-    beforeEach(async () => {
-      // Set up EVM vault state
-      currentVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Ethereum,
-        chainId: 1,
-      });
-      mockVaultStateGetter = jest.fn(() => currentVaultState);
-
-      keyringManager = await KeyringManager.createInitialized(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        mockVaultStateGetter
-      );
-    });
-
-    it('should update network configuration', async () => {
-      const ethereum = keyringManager.getNetwork();
-      const updatedEthereum: INetwork = {
-        ...ethereum,
-        url: 'https://new-ethereum-rpc.example.com',
-      };
-
-      await keyringManager.updateNetworkConfig(updatedEthereum);
-
-      // Update mock vault state to simulate Redux state update
-      currentVaultState.activeNetwork = updatedEthereum;
-
-      const network = keyringManager.getNetwork();
-      expect(network.url).toBe('https://new-ethereum-rpc.example.com');
-    });
-  });
-
   describe('Multi-Keyring Architecture Constraints', () => {
     it('should prevent UTXO to UTXO network switching', async () => {
       // Create Syscoin keyring
@@ -206,39 +171,6 @@ describe('Network Management', () => {
       await expect(keyringManager.setSignerNetwork(syscoin)).rejects.toThrow(
         'Cannot use Syscoin chain type with Ethereum network'
       );
-    });
-
-    it('should allow UTXO network RPC updates within same network', async () => {
-      // Create Syscoin keyring
-      currentVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Syscoin,
-        chainId: 57,
-      });
-      mockVaultStateGetter = jest.fn(() => currentVaultState);
-
-      keyringManager = await KeyringManager.createInitialized(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        mockVaultStateGetter
-      );
-
-      // Update same network with new RPC
-      const syscoinMainnet = currentVaultState.networks.syscoin[57];
-      const updatedSyscoin: INetwork = {
-        ...syscoinMainnet,
-        url: 'https://new-syscoin-rpc.example.com',
-      };
-
-      await keyringManager.updateNetworkConfig(updatedSyscoin);
-
-      // Update mock vault state to simulate Redux state update
-      currentVaultState.activeNetwork = updatedSyscoin;
-
-      const network = keyringManager.getNetwork();
-      expect(network.url).toBe('https://new-syscoin-rpc.example.com');
-      expect(network.chainId).toBe(57); // Same network
     });
 
     it('should maintain separate keyring instances per UTXO network', async () => {
@@ -434,22 +366,6 @@ describe('Network Management', () => {
       await expect(
         keyringManager.setSignerNetwork(invalidNetwork)
       ).rejects.toThrow('Unsupported chain');
-    });
-
-    it('should handle network update for non-existent network', async () => {
-      const fakeNetwork: INetwork = {
-        chainId: 99999,
-        currency: 'FAKE',
-        label: 'Fake Network',
-        url: 'http://fake',
-        kind: INetworkType.Ethereum,
-        explorer: '',
-        slip44: 60,
-      };
-
-      await expect(
-        keyringManager.updateNetworkConfig(fakeNetwork)
-      ).rejects.toThrow('Network does not exist');
     });
   });
 });

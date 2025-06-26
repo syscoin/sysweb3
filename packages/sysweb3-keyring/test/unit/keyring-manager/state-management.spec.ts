@@ -131,29 +131,6 @@ describe('KeyringManager - State Management', () => {
       );
     });
 
-    it('should handle network configuration updates', async () => {
-      const initialNetwork = keyringManager.getNetwork();
-
-      // Update network configuration
-      const updatedNetwork: INetwork = {
-        ...initialNetwork,
-        url: 'https://new-rpc.example.com',
-        label: 'Updated Ethereum',
-      };
-
-      // In stateless architecture, updateNetworkConfig updates signers but doesn't change vault state
-      // Vault state changes would be handled by Pali dispatching to Redux
-      await keyringManager.updateNetworkConfig(updatedNetwork);
-
-      // Network from vault state should remain unchanged (since we didn't update mock vault state)
-      const network = keyringManager.getNetwork();
-      expect(network.url).toBe(initialNetwork.url); // Should remain unchanged
-      expect(network.label).toBe(initialNetwork.label); // Should remain unchanged
-
-      // But the method should complete successfully without error
-      expect(network).toBeDefined();
-    });
-
     it('should create accounts and return data for Redux dispatch', async () => {
       const privateKey =
         '0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318';
