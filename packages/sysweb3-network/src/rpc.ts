@@ -386,3 +386,116 @@ export const getSysRpc = async (data: any) => {
   }
 };
 /** end */
+
+/**
+ * Batch validation for EVM RPC endpoints - checks chainId and blockNumber in one request
+ * This is more efficient than making separate calls and helps avoid rate limiting
+ *
+ * @param url - The RPC endpoint URL
+ * @param expectedChainId - Optional expected chainId to validate against
+ * @param timeout - Request timeout in milliseconds
+ * @returns Success status, chainId if successful, and error message if failed
+ */
+export const validateRpcBatch = async (
+  url: string,
+  expectedChainId?: number,
+  timeout = 5000
+): Promise<{
+  success: boolean;
+  chainId?: number;
+  error?: string;
+}> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([
+        {
+          jsonrpc: '2.0',
+          method: 'eth_chainId',
+          params: [],
+          id: 1,
+        },
+        {
+          jsonrpc: '2.0',
+          method: 'eth_blockNumber',
+          params: [],
+          id: 2,
+        },
+      ]),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `RPC returned ${response.status}`,
+      };
+    }
+
+    const data = await response.json();
+
+    // Check if we got a valid batch response
+    if (!Array.isArray(data) || data.length !== 2) {
+      return {
+        success: false,
+        error: 'Invalid batch response format',
+      };
+    }
+
+    const chainIdResult = data.find((r) => r.id === 1);
+    const blockNumberResult = data.find((r) => r.id === 2);
+
+    if (!chainIdResult?.result || chainIdResult.error) {
+      return {
+        success: false,
+        error: chainIdResult?.error?.message || 'Failed to get chainId',
+      };
+    }
+
+    if (!blockNumberResult?.result || blockNumberResult.error) {
+      return {
+        success: false,
+        error:
+          blockNumberResult?.error?.message || 'Failed to get block number',
+      };
+    }
+
+    const chainId = parseInt(chainIdResult.result, 16);
+
+    // If expectedChainId is provided, validate it matches
+    if (expectedChainId !== undefined && chainId !== expectedChainId) {
+      return {
+        success: false,
+        chainId,
+        error: `Chain ID mismatch: expected ${expectedChainId}, got ${chainId}`,
+      };
+    }
+
+    return {
+      success: true,
+      chainId,
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error.name === 'AbortError') {
+      return {
+        success: false,
+        error: 'Request timeout',
+      };
+    }
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+};

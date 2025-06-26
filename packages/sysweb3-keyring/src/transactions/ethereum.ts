@@ -1852,7 +1852,7 @@ export class EthereumTransactions implements IEthereumTransactions {
 
       return roundedBalance;
     } catch (error) {
-      return 0;
+      throw error;
     }
   };
 

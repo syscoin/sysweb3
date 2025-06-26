@@ -179,6 +179,7 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
         params,
         id: this.currentId,
       }),
+      signal: this.signal,
     };
 
     const result = await this.throttledRequest(() =>
