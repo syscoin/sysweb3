@@ -9,7 +9,6 @@ import { handleStatusCodeError } from './errorUtils';
 import { checkError } from './utils';
 
 class BaseProvider extends ethers.providers.JsonRpcProvider {
-  private timeoutCounter = 0;
   private isPossibleGetChainId = true;
   private cooldownTime = 120 * 1000;
   private rateLimit = 30;
@@ -54,18 +53,13 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
     if (!this.canMakeRequest()) {
       return this.cooldown();
     }
-    return new Promise<T>((resolve, reject) => {
-      setTimeout(() => {
-        requestFn()
-          .then((result) => resolve(result))
-          .catch((error) => {
-            if (error.name === 'AbortError') {
-              console.log('Aborted request', error);
-              return;
-            }
-            reject(error);
-          });
-      }, this.timeoutCounter);
+    // Execute request immediately without timeout delay
+    return requestFn().catch((error) => {
+      if (error.name === 'AbortError') {
+        console.log('Aborted request', error);
+        return Promise.reject(error);
+      }
+      throw error;
     });
   };
   private canMakeRequest = () => {
@@ -160,11 +154,6 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
     if (!this.isPossibleGetChainId && method === 'eth_chainId') {
       return this.currentChainId;
     }
-    const canResetValidationValues = !this.serverHasAnError;
-
-    if (canResetValidationValues) {
-      this.timeoutCounter = 0;
-    }
 
     const headers = {
       'Content-Type': 'application/json',
@@ -203,7 +192,6 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
           }
           switch (response.status) {
             case 200:
-              if (this.timeoutCounter > 3000) this.timeoutCounter -= 100;
               return response.json();
             default:
               throw {
