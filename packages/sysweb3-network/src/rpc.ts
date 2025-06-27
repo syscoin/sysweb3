@@ -150,9 +150,9 @@ const getEthChainId = async (
     }
 
     // Check minimum latency requirement
-    if (latency < minLatency) {
+    if (latency > minLatency) {
       throw new Error(
-        `RPC response too fast (${latency}ms). Minimum ${minLatency}ms required for quality assurance. This might indicate a mock or unreliable RPC endpoint.`
+        `RPC response too slow (${latency}ms). Maximum ${minLatency}ms required for quality assurance. This might indicate a mock or unreliable RPC endpoint.`
       );
     }
 
