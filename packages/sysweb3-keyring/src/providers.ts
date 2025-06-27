@@ -1,6 +1,4 @@
 import { Networkish } from '@ethersproject/networks';
-import { deepCopy } from '@ethersproject/properties';
-import { fetchJson } from '@ethersproject/web';
 import { BigNumber, ethers, logger } from 'ethers';
 import { ConnectionInfo, Logger, shallowCopy } from 'ethers/lib/utils';
 import { Provider } from 'zksync-ethers';
@@ -227,124 +225,68 @@ class BaseProvider extends ethers.providers.JsonRpcProvider {
     return result;
   };
 
-  async sendBatch(method: string, params: Array<any>) {
-    const request = {
-      method: method,
-      params: params,
-      id: this._nextId++,
+  async sendBatch(method: string, params: Array<any[]>): Promise<any[]> {
+    // Create batch request array
+    const requests = params.map((param, index) => ({
       jsonrpc: '2.0',
+      id: this.currentId + index,
+      method,
+      params: param,
+    }));
+
+    this.currentId += requests.length;
+
+    const headers = {
+      'Content-Type': 'application/json',
     };
 
-    if (this._pendingBatch == null) {
-      this._pendingBatch = [];
-    }
+    const options: RequestInit = {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requests),
+      signal: this.signal,
+    };
 
-    const inflightRequest: any = { request, resolve: null, reject: null };
+    const results = await this.throttledRequest(() =>
+      fetch(this.connection.url, options)
+        .then(async (response) => {
+          if (!response.ok) {
+            let errorBody = {
+              error: undefined,
+              message: undefined,
+            };
+            try {
+              errorBody = await response.json();
+            } catch (error) {
+              console.warn('No body in request', error);
+            }
+            this.errorMessage =
+              errorBody.error ||
+              errorBody.message ||
+              'No message from Provider';
+            handleStatusCodeError(response.status, this.errorMessage);
+          }
+          return response.json();
+        })
+        .then((jsonArray) => {
+          // Sort results by ID to ensure correct order
+          const sortedResults = jsonArray.sort((a: any, b: any) => a.id - b.id);
 
-    const promise = new Promise((resolve, reject) => {
-      inflightRequest.resolve = resolve;
-      inflightRequest.reject = reject;
-    });
-
-    this._pendingBatch.push(inflightRequest);
-
-    if (!this._pendingBatchAggregator) {
-      // Schedule batch for next event loop + short duration
-      this._pendingBatchAggregator = setTimeout(async () => {
-        const batch = this._pendingBatch;
-        this._pendingBatch = null;
-        this._pendingBatchAggregator = null;
-
-        // Get the request as an array of requests
-        const requests = batch?.map((inflight) => inflight.request);
-
-        this.emit('debug', {
-          action: 'requestBatch',
-          request: deepCopy(requests),
-          provider: this,
-        });
-
-        try {
-          await this.throttledRequest(async () =>
-            fetchJson(this.connection, JSON.stringify(requests)).then(
-              (result) => {
-                if (!result) {
-                  let errorBody = {
-                    error: undefined,
-                    message: undefined,
-                  };
-                  try {
-                    errorBody = result;
-                  } catch (error) {
-                    console.warn('No body in request', error);
-                  }
-                  const errorMessage =
-                    errorBody.error ||
-                    errorBody.message ||
-                    'No message from Provider';
-                  handleStatusCodeError(
-                    result.status ?? result.code ?? 0,
-                    errorMessage
-                  );
-                }
-
-                this.emit('debug', {
-                  action: 'response',
-                  request: request,
-                  response: result,
-                  provider: this,
-                });
-
-                // For each result, feed it to the correct Promise, depending
-                // on whether it was a success or error
-                batch?.forEach((inflightRequest, index) => {
-                  const payload = result[index];
-                  if (payload && payload.result !== undefined) {
-                    inflightRequest.resolve(payload.result);
-                  } else {
-                    const errorMessage =
-                      payload?.error?.message ||
-                      payload?.message ||
-                      'Unknown error';
-                    const error = new Error(errorMessage);
-                    (error as any).code =
-                      payload?.error?.code ?? payload?.code ?? 0;
-                    (error as any).data =
-                      payload?.error?.data || payload?.message;
-                    inflightRequest.reject(error);
-                  }
-                });
-              },
-              (error) => {
-                this.emit('debug', {
-                  action: 'response',
-                  error: error,
-                  request: request,
-                  provider: this,
-                });
-
-                batch?.forEach((inflightRequest) => {
-                  inflightRequest.reject(error);
-                });
-              }
-            )
-          );
-        } catch (error) {
-          this.emit('debug', {
-            action: 'response',
-            error: error,
-            request: requests,
-            provider: this,
+          // Extract results or throw errors
+          return sortedResults.map((json: any) => {
+            if (json.error) {
+              this.errorMessage = json.error.message;
+              console.error({
+                errorMessage: json.error.message,
+              });
+              throw new Error(json.error.message);
+            }
+            return json.result;
           });
+        })
+    );
 
-          batch?.forEach((inflightRequest) => {
-            inflightRequest.reject(error);
-          });
-        }
-      }, 50);
-    }
-
-    return promise;
+    return results;
   }
 }
 
@@ -378,7 +320,7 @@ export class CustomL2JsonRpcProvider extends Provider {
     return this.baseProvider.send(method, params);
   }
 
-  sendBatch(method: string, params: any[]) {
+  sendBatch(method: string, params: Array<any[]>): Promise<any[]> {
     return this.baseProvider.sendBatch(method, params);
   }
 }
