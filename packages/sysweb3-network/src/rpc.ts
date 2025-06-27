@@ -55,7 +55,7 @@ export const validateChainId = (
 const getEthChainId = async (
   url: string,
   isInCooldown: boolean
-): Promise<{ chainId: number; latency?: number }> => {
+): Promise<{ chainId: number }> => {
   if (isInCooldown) {
     throw new Error('Cant make request, rpc cooldown is active');
   }
@@ -144,8 +144,6 @@ const getEthChainId = async (
       throw new Error(`Error getting chain ID: ${data.error.message}`);
     }
 
-    // Don't check latency in regular calls - only in validation methods
-
     const chainId = Number(data.result);
 
     // Cache the result
@@ -154,7 +152,7 @@ const getEthChainId = async (
       timestamp: Date.now(),
     });
 
-    return { chainId, latency };
+    return { chainId };
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new Error(
@@ -198,10 +196,9 @@ export const validateEthRpc = async (
   details: Chain | undefined;
   hexChainId: string;
   valid: boolean;
-  latency?: number;
 }> => {
   try {
-    const { chainId, latency } = await getEthChainId(url, isInCooldown);
+    const { chainId } = await getEthChainId(url, isInCooldown);
     if (!chainId) {
       throw new Error('Invalid RPC URL. Could not get chain ID for network.');
     }
@@ -222,7 +219,6 @@ export const validateEthRpc = async (
       chain: details && details.chain ? details.chain : 'unknown',
       hexChainId,
       valid,
-      latency,
     };
   } catch (error) {
     // Properly handle error objects
