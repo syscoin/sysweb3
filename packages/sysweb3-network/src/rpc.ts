@@ -416,7 +416,7 @@ export const getSysRpc = async (data: any) => {
       url: data.url,
       apiUrl: data.url, // apiURL and URL are the same for blockbooks explorer TODO: remove this field from UTXO networks
       explorer,
-      currency: coin.toLowerCase(),
+      currency: data.symbol ? data.symbol.toLowerCase() : coin.toLowerCase(), // Use provided symbol if available
       label: data.label || coin,
       default: true,
       chainId: coinData.slip44, // Use coin's actual slip44 as chainId
