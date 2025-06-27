@@ -54,8 +54,9 @@ export const validateChainId = (
 //TODO: add returns types for getEthChainId
 const getEthChainId = async (
   url: string,
-  isInCooldown: boolean
-): Promise<{ chainId: number }> => {
+  isInCooldown: boolean,
+  minLatency = 500
+): Promise<{ chainId: number; latency?: number }> => {
   if (isInCooldown) {
     throw new Error('Cant make request, rpc cooldown is active');
   }
@@ -66,6 +67,8 @@ const getEthChainId = async (
     console.log('[getEthChainId] Returning cached chainId for', url);
     return { chainId: cached.chainId };
   }
+
+  const startTime = Date.now();
 
   // Create AbortController for timeout
   const controller = new AbortController();
@@ -85,6 +88,15 @@ const getEthChainId = async (
       }),
       signal: controller.signal,
     });
+
+    const latency = Date.now() - startTime;
+
+    // Check for authentication errors
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `Authentication required (HTTP ${response.status}). This RPC endpoint requires an API key.`
+      );
+    }
 
     // Check the status code of the HTTP response
     if (!response.ok) {
@@ -106,10 +118,42 @@ const getEthChainId = async (
 
     const data = await response.json();
 
-    // If the request was successful, the chain ID will be in data.result.
-    // Otherwise, there will be an error message in data.error.
+    // Check for JSON-RPC level authentication errors
     if (data.error) {
+      const errorMsg = data.error.message?.toLowerCase() || '';
+      const authErrorPatterns = [
+        'unauthorized',
+        'authentication',
+        'api key',
+        'access denied',
+        'forbidden',
+        'missing key',
+        'invalid key',
+        'subscription',
+        'upgrade',
+        'plan',
+      ];
+
+      const hasAuthError = authErrorPatterns.some((pattern) =>
+        errorMsg.includes(pattern)
+      );
+
+      if (hasAuthError) {
+        throw new Error(
+          `Authentication required: ${
+            data.error.message || 'This RPC endpoint requires an API key'
+          }`
+        );
+      }
+
       throw new Error(`Error getting chain ID: ${data.error.message}`);
+    }
+
+    // Check minimum latency requirement
+    if (latency < minLatency) {
+      throw new Error(
+        `RPC response too fast (${latency}ms). Minimum ${minLatency}ms required for quality assurance. This might indicate a mock or unreliable RPC endpoint.`
+      );
     }
 
     const chainId = Number(data.result);
@@ -120,7 +164,7 @@ const getEthChainId = async (
       timestamp: Date.now(),
     });
 
-    return { chainId };
+    return { chainId, latency };
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new Error(
@@ -134,7 +178,7 @@ const getEthChainId = async (
       error.message.includes('Failed to fetch')
     ) {
       throw new Error(
-        'Network error: Unable to connect to RPC endpoint. Please check the URL and ensure CORS is enabled.'
+        'Network error: Unable to connect to RPC endpoint. Please check the URL and ensure CORS is enabled. Authentication might be required.'
       );
     }
 
@@ -157,16 +201,22 @@ export const isValidChainIdForEthNetworks = (chainId: number | string) =>
 
 export const validateEthRpc = async (
   url: string,
-  isInCooldown: boolean
+  isInCooldown: boolean,
+  minLatency = 500
 ): Promise<{
   chain: string;
   chainId: number;
   details: Chain | undefined;
   hexChainId: string;
   valid: boolean;
+  latency?: number;
 }> => {
   try {
-    const { chainId } = await getEthChainId(url, isInCooldown);
+    const { chainId, latency } = await getEthChainId(
+      url,
+      isInCooldown,
+      minLatency
+    );
     if (!chainId) {
       throw new Error('Invalid RPC URL. Could not get chain ID for network.');
     }
@@ -187,6 +237,7 @@ export const validateEthRpc = async (
       chain: details && details.chain ? details.chain : 'unknown',
       hexChainId,
       valid,
+      latency,
     };
   } catch (error) {
     // Properly handle error objects
@@ -199,14 +250,16 @@ export const validateEthRpc = async (
 
 export const getEthRpc = async (
   data: any,
-  isInCooldown: boolean
+  isInCooldown: boolean,
+  minLatency = 500
 ): Promise<{
   formattedNetwork: INetwork;
 }> => {
   const endsWithSlash = /\/$/;
   const { valid, hexChainId, details } = await validateEthRpc(
     data.url,
-    isInCooldown
+    isInCooldown,
+    minLatency
   );
 
   if (!valid) throw new Error('Invalid RPC.');
@@ -394,19 +447,24 @@ export const getSysRpc = async (data: any) => {
  * @param url - The RPC endpoint URL
  * @param expectedChainId - Optional expected chainId to validate against
  * @param timeout - Request timeout in milliseconds
- * @returns Success status, chainId if successful, and error message if failed
+ * @param minLatency - Minimum latency in milliseconds to ensure quality (default 500ms)
+ * @returns Success status, chainId if successful, error message if failed, and latency info
  */
 export const validateRpcBatch = async (
   url: string,
   expectedChainId?: number,
-  timeout = 5000
+  timeout = 5000,
+  minLatency = 500
 ): Promise<{
   success: boolean;
   chainId?: number;
   error?: string;
+  latency?: number;
+  requiresAuth?: boolean;
 }> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const startTime = Date.now();
 
   try {
     const response = await fetch(url, {
@@ -432,11 +490,42 @@ export const validateRpcBatch = async (
     });
 
     clearTimeout(timeoutId);
+    const latency = Date.now() - startTime;
+
+    // Check for authentication errors
+    if (response.status === 401 || response.status === 403) {
+      return {
+        success: false,
+        error: `Authentication required (HTTP ${response.status}). This RPC endpoint requires an API key.`,
+        requiresAuth: true,
+        latency,
+      };
+    }
 
     if (!response.ok) {
+      // Check for rate limiting
+      if (response.status === 429) {
+        return {
+          success: false,
+          error:
+            'Rate limited. Please try again later or use a different RPC endpoint.',
+          latency,
+        };
+      }
+
+      // Check for server errors
+      if (response.status >= 500) {
+        return {
+          success: false,
+          error: `Server error (HTTP ${response.status}). The RPC endpoint is currently unavailable.`,
+          latency,
+        };
+      }
+
       return {
         success: false,
         error: `RPC returned ${response.status}`,
+        latency,
       };
     }
 
@@ -444,27 +533,99 @@ export const validateRpcBatch = async (
 
     // Check if we got a valid batch response
     if (!Array.isArray(data) || data.length !== 2) {
+      // Check for single error response indicating auth issues
+      if (data?.error?.message) {
+        const errorMsg = data.error.message.toLowerCase();
+        if (
+          errorMsg.includes('unauthorized') ||
+          errorMsg.includes('authentication') ||
+          errorMsg.includes('api key') ||
+          errorMsg.includes('access denied') ||
+          errorMsg.includes('forbidden')
+        ) {
+          return {
+            success: false,
+            error:
+              'Authentication required. This RPC endpoint requires an API key.',
+            requiresAuth: true,
+            latency,
+          };
+        }
+      }
+
       return {
         success: false,
         error: 'Invalid batch response format',
+        latency,
       };
     }
 
     const chainIdResult = data.find((r) => r.id === 1);
     const blockNumberResult = data.find((r) => r.id === 2);
 
-    if (!chainIdResult?.result || chainIdResult.error) {
+    // Check for JSON-RPC level authentication errors
+    const authErrorPatterns = [
+      'unauthorized',
+      'authentication',
+      'api key',
+      'access denied',
+      'forbidden',
+      'missing key',
+      'invalid key',
+      'subscription',
+      'upgrade',
+      'plan',
+    ];
+
+    if (chainIdResult?.error) {
+      const errorMsg = chainIdResult.error.message?.toLowerCase() || '';
+      const hasAuthError = authErrorPatterns.some((pattern) =>
+        errorMsg.includes(pattern)
+      );
+
+      if (hasAuthError) {
+        return {
+          success: false,
+          error: chainIdResult.error.message || 'Authentication required',
+          requiresAuth: true,
+          latency,
+        };
+      }
+
       return {
         success: false,
-        error: chainIdResult?.error?.message || 'Failed to get chainId',
+        error: chainIdResult.error.message || 'Failed to get chainId',
+        latency,
       };
     }
 
-    if (!blockNumberResult?.result || blockNumberResult.error) {
+    if (blockNumberResult?.error) {
+      const errorMsg = blockNumberResult.error.message?.toLowerCase() || '';
+      const hasAuthError = authErrorPatterns.some((pattern) =>
+        errorMsg.includes(pattern)
+      );
+
+      if (hasAuthError) {
+        return {
+          success: false,
+          error: blockNumberResult.error.message || 'Authentication required',
+          requiresAuth: true,
+          latency,
+        };
+      }
+
       return {
         success: false,
-        error:
-          blockNumberResult?.error?.message || 'Failed to get block number',
+        error: blockNumberResult.error.message || 'Failed to get block number',
+        latency,
+      };
+    }
+
+    if (!chainIdResult?.result || !blockNumberResult?.result) {
+      return {
+        success: false,
+        error: 'Invalid response: missing required data',
+        latency,
       };
     }
 
@@ -476,26 +637,54 @@ export const validateRpcBatch = async (
         success: false,
         chainId,
         error: `Chain ID mismatch: expected ${expectedChainId}, got ${chainId}`,
+        latency,
+      };
+    }
+
+    // Check minimum latency requirement
+    if (latency < minLatency) {
+      return {
+        success: false,
+        chainId,
+        error: `RPC response too fast (${latency}ms). Minimum ${minLatency}ms required for quality assurance.`,
+        latency,
       };
     }
 
     return {
       success: true,
       chainId,
+      latency,
     };
   } catch (error) {
     clearTimeout(timeoutId);
+    const latency = Date.now() - startTime;
 
     if (error.name === 'AbortError') {
       return {
         success: false,
         error: 'Request timeout',
+        latency,
+      };
+    }
+
+    // Check for network errors that might indicate authentication issues
+    if (
+      error instanceof TypeError &&
+      error.message.includes('Failed to fetch')
+    ) {
+      return {
+        success: false,
+        error:
+          'Network error: Unable to connect. This might be due to CORS restrictions or authentication requirements.',
+        latency,
       };
     }
 
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
+      latency,
     };
   }
 };
