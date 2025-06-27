@@ -642,11 +642,11 @@ export const validateRpcBatch = async (
     }
 
     // Check minimum latency requirement
-    if (latency < minLatency) {
+    if (latency > minLatency) {
       return {
         success: false,
         chainId,
-        error: `RPC response too fast (${latency}ms). Minimum ${minLatency}ms required for quality assurance.`,
+        error: `RPC response too slow (${latency}ms). Maximum ${minLatency}ms required for quality assurance.`,
         latency,
       };
     }
