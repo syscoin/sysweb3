@@ -54,8 +54,7 @@ export const validateChainId = (
 //TODO: add returns types for getEthChainId
 const getEthChainId = async (
   url: string,
-  isInCooldown: boolean,
-  minLatency = 500
+  isInCooldown: boolean
 ): Promise<{ chainId: number; latency?: number }> => {
   if (isInCooldown) {
     throw new Error('Cant make request, rpc cooldown is active');
@@ -67,8 +66,6 @@ const getEthChainId = async (
     console.log('[getEthChainId] Returning cached chainId for', url);
     return { chainId: cached.chainId };
   }
-
-  const startTime = Date.now();
 
   // Create AbortController for timeout
   const controller = new AbortController();
@@ -88,8 +85,6 @@ const getEthChainId = async (
       }),
       signal: controller.signal,
     });
-
-    const latency = Date.now() - startTime;
 
     // Check for authentication errors
     if (response.status === 401 || response.status === 403) {
@@ -149,12 +144,7 @@ const getEthChainId = async (
       throw new Error(`Error getting chain ID: ${data.error.message}`);
     }
 
-    // Check minimum latency requirement
-    if (latency > minLatency) {
-      throw new Error(
-        `RPC response too slow (${latency}ms). Maximum ${minLatency}ms required for quality assurance. This might indicate a mock or unreliable RPC endpoint.`
-      );
-    }
+    // Don't check latency in regular calls - only in validation methods
 
     const chainId = Number(data.result);
 
@@ -201,8 +191,7 @@ export const isValidChainIdForEthNetworks = (chainId: number | string) =>
 
 export const validateEthRpc = async (
   url: string,
-  isInCooldown: boolean,
-  minLatency = 500
+  isInCooldown: boolean
 ): Promise<{
   chain: string;
   chainId: number;
@@ -212,11 +201,7 @@ export const validateEthRpc = async (
   latency?: number;
 }> => {
   try {
-    const { chainId, latency } = await getEthChainId(
-      url,
-      isInCooldown,
-      minLatency
-    );
+    const { chainId, latency } = await getEthChainId(url, isInCooldown);
     if (!chainId) {
       throw new Error('Invalid RPC URL. Could not get chain ID for network.');
     }
@@ -250,16 +235,14 @@ export const validateEthRpc = async (
 
 export const getEthRpc = async (
   data: any,
-  isInCooldown: boolean,
-  minLatency = 500
+  isInCooldown: boolean
 ): Promise<{
   formattedNetwork: INetwork;
 }> => {
   const endsWithSlash = /\/$/;
   const { valid, hexChainId, details } = await validateEthRpc(
     data.url,
-    isInCooldown,
-    minLatency
+    isInCooldown
   );
 
   if (!valid) throw new Error('Invalid RPC.');
