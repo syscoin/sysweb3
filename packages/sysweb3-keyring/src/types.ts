@@ -205,7 +205,7 @@ export interface ISyscoinTransactions {
     isMax?: boolean | false;
   }) => Promise<{ fee: number; psbt: any }>; // Returns UNSIGNED psbt - may throw ISyscoinTransactionError
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
-  decodeRawTransaction: (psbt: any) => any;
+  decodeRawTransaction: (psbtOrHex: any, isRawHex?: boolean) => any;
   // Sign PSBT separately
   sendTransaction: (psbt: any) => Promise<ITxid>;
   signPSBT: ({

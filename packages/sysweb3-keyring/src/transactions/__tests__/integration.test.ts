@@ -50,6 +50,7 @@ describe('PSBT Transaction Flow Integration', () => {
 
     syscoinTransactions = new SyscoinTransactions(
       () => mockSigner,
+      () => mockSigner, // getReadOnlySigner - same mock for testing
       () => mockState,
       mockGetAddress,
       mockLedger

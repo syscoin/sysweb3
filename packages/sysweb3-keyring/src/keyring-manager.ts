@@ -172,6 +172,7 @@ export class KeyringManager implements IKeyringManager {
     // this.syscoinTransaction = SyscoinTransactions();
     this.syscoinTransaction = new SyscoinTransactions(
       this.getSigner,
+      this.getReadOnlySigner,
       this.getAccountsState,
       this.getAddress,
       this.ledgerSigner
@@ -1061,6 +1062,30 @@ export class KeyringManager implements IKeyringManager {
     };
   };
 
+  // Read-only version that works when wallet is locked
+  private getReadOnlySigner = (): {
+    main: any; //TODO: Type this following syscoinJSLib interface
+  } => {
+    if (this.getActiveChain() !== INetworkType.Syscoin) {
+      throw new Error('Switch to UTXO chain');
+    }
+
+    // Create syscoinjs instance without HD signer for read-only operations
+    const vault = this.getVault();
+    const network = vault.activeNetwork;
+    const networkConfig = getNetworkConfig(network.slip44, network.currency);
+
+    const syscoinMainSigner = new syscoinjs.SyscoinJSLib(
+      null, // No HD signer needed for read-only operations
+      network.url,
+      networkConfig?.networks?.mainnet || undefined
+    );
+
+    return {
+      main: syscoinMainSigner,
+    };
+  };
+
   private validateAndHandleErrorByMessage(message: string) {
     const utf8ErrorMessage = 'Malformed UTF-8 data';
     if (
@@ -1739,9 +1764,21 @@ export class KeyringManager implements IKeyringManager {
       rpc: rpcConfig as any,
     });
 
-    // Create account at the specified index and set it as active (synchronous!)
-    // This also sets the signer's accountIndex internally
+    // Create account at the specified index and set it as active
+    // Note: createAccountAtIndex is synchronous despite TypeScript types
     hd.createAccountAtIndex(accountId, 84);
+
+    // Verify the account was created correctly
+    if (!hd.Signer.accounts.has(accountId)) {
+      throw new Error(`Failed to create account at index ${accountId}`);
+    }
+
+    // Verify the correct account is active
+    if (hd.Signer.accountIndex !== accountId) {
+      throw new Error(
+        `Account index mismatch: expected ${accountId}, got ${hd.Signer.accountIndex}`
+      );
+    }
 
     return hd;
   }

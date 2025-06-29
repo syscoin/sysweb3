@@ -5,5 +5,5 @@
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-# Now yarn should be able to find node
-yarn lint-staged
+# Use the type-check script from package.json
+yarn type-check

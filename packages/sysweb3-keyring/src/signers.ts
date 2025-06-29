@@ -102,8 +102,11 @@ export interface SyscoinHDSigner {
   blockbookURL: string;
   // Already async
   createAccount: (bipNum?: number, zprv?: string) => number;
-  // New method for creating accounts at specific indexes
-  createAccountAtIndex: (index: number, bipNum?: number) => Promise<number>;
+  createAccountAtIndex: (
+    index: number,
+    bipNum?: number,
+    zprv?: string
+  ) => number;
   createAddress: (
     addressIndex: number,
     isChange: boolean,

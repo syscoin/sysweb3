@@ -153,6 +153,7 @@ describe('SyscoinTransactions', () => {
     // Create instance
     syscoinTransactions = new SyscoinTransactions(
       mockGetSigner,
+      mockGetSigner,
       mockGetState,
       mockGetAddress,
       mockLedger

@@ -33,11 +33,11 @@
     "bech32": "^2.0.0",
     "bip84": "^0.2.7",
     "camelcase-keys": "^7.0.2",
-    "coinselectsyscoin": "^1.1.7",
+    "coinselectsyscoin": "^1.1.8",
     "crypto-js": "^4.1.1",
     "ethers": "^5.6.4",
-    "syscoinjs-lib": "^1.0.238",
-    "syscointx-js": "^1.0.117"
+    "syscoinjs-lib": "^1.0.239",
+    "syscointx-js": "^1.0.118"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.1.1",

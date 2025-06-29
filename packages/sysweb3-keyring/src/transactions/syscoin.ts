@@ -18,7 +18,7 @@ import { ITxid, txUtils, getAsset } from '@pollum-io/sysweb3-utils';
 type EstimateFeeParams = {
   changeAddress: string;
   feeRateBN: any;
-  outputs: { address: string; value: number }[];
+  outputs: { address: string; value: any; subtractFeeFrom?: boolean }[];
   txOptions: any;
   xpub: string;
 };
@@ -36,6 +36,9 @@ export class SyscoinTransactions implements ISyscoinTransactions {
 
   private getSigner: () => {
     hd: SyscoinHDSigner;
+    main: any;
+  };
+  private getReadOnlySigner: () => {
     main: any;
   };
   private trezor: TrezorKeyring;
@@ -61,6 +64,9 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       hd: SyscoinHDSigner;
       main: any;
     },
+    getReadOnlySigner: () => {
+      main: any;
+    },
     getState: () => {
       accounts: {
         HDAccount: accountType;
@@ -76,6 +82,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     ledgerSigner: LedgerKeyring
   ) {
     this.getSigner = getSyscoinSigner;
+    this.getReadOnlySigner = getReadOnlySigner;
     this.getState = getState;
     this.getAddress = getAddress;
     this.trezor = new TrezorKeyring(this.getSigner);
@@ -120,10 +127,19 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     }
   };
 
-  public decodeRawTransaction = (psbt: any) => {
-    const { main } = this.getSigner();
-    const psbtObj = PsbtUtils.fromPali(psbt);
-    return main.decodeRawTransaction(psbtObj);
+  public decodeRawTransaction = (psbtOrHex: any, isRawHex = false) => {
+    const { main } = this.getReadOnlySigner();
+
+    if (isRawHex) {
+      // Handle raw transaction hex
+      const bitcoinTx =
+        syscoinjs.utils.bitcoinjs.Transaction.fromHex(psbtOrHex);
+      return main.decodeRawTransaction(bitcoinTx);
+    } else {
+      // Handle PSBT format (existing behavior)
+      const psbtObj = PsbtUtils.fromPali(psbtOrHex);
+      return main.decodeRawTransaction(psbtObj);
+    }
   };
 
   public getRecommendedFee = async (explorerUrl: string): Promise<number> =>
@@ -213,8 +229,8 @@ export class SyscoinTransactions implements ISyscoinTransactions {
         const outputs = [
           {
             address: receivingAddress,
-            value,
-            subtractFeeFrom: isMax ? true : undefined,
+            value: value, // Pass BN object directly
+            ...(isMax && { subtractFeeFrom: true }), // Only add subtractFeeFrom if isMax is true
           },
         ];
 
