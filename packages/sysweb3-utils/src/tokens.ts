@@ -592,87 +592,6 @@ export const getSearchTokenAtSysGithubRepo = async (tokenSymbol: string) => {
   }
 };
 
-export const getTokenInfoBasedOnNetwork = async (
-  token: ITokenEthProps,
-  networkChainId: number
-): Promise<ITokenEthProps> => {
-  const rolluxChainIds = [570, 57000];
-
-  const isRolluxNetwork = rolluxChainIds.some(
-    (rolluxChain) => rolluxChain === networkChainId
-  );
-
-  //Fill the let with the default values that can't be different / edited
-  let web3Token: ITokenEthProps = {
-    ...token,
-    tokenSymbol: token.editedSymbolToUse
-      ? token.editedSymbolToUse
-      : token.tokenSymbol,
-    balance: token.balance ? token.balance : 0,
-    id: token.contractAddress,
-    isNft: token.isNft,
-    chainId: networkChainId,
-  };
-
-  switch (isRolluxNetwork) {
-    case true: {
-      const fetchTokenData = await getSearchTokenAtSysGithubRepo(
-        token.tokenSymbol
-      );
-
-      if (fetchTokenData?.token !== null && fetchTokenData?.imageUrl !== '') {
-        web3Token = {
-          ...web3Token,
-          name: fetchTokenData?.token.name || token?.name,
-          logo: fetchTokenData?.imageUrl || token?.logo,
-        };
-      } else {
-        const tokenResult = await getSearchTokenAtCoingecko(token.tokenSymbol);
-
-        if (tokenResult !== null && tokenResult !== undefined) {
-          const { name, thumb } = tokenResult;
-
-          web3Token = {
-            ...web3Token,
-            name: token?.name ? token.name : name,
-            logo: token?.logo ? token.logo : thumb,
-          };
-        } else {
-          web3Token = {
-            ...web3Token,
-            name: token.tokenSymbol,
-            logo: token?.logo ? token.logo : '', //Return empty string to use fill it up with Pali Logo at Pali Side
-          };
-        }
-      }
-      break;
-    }
-
-    case false: {
-      const tokenResult = await getSearchTokenAtCoingecko(token.tokenSymbol);
-
-      if (tokenResult !== null && tokenResult !== undefined) {
-        const { name, thumb } = tokenResult;
-
-        web3Token = {
-          ...web3Token,
-          name: token?.name ? token.name : name,
-          logo: token?.logo ? token.logo : thumb,
-        };
-      } else {
-        web3Token = {
-          ...web3Token,
-          name: token.tokenSymbol,
-          logo: token?.logo ? token.logo : '', //Return empty string to use fill it up with Pali Logo at Pali Side
-        };
-      }
-      break;
-    }
-  }
-
-  return web3Token;
-};
-
 /**
  *
  * @param contractAddress Contract address of the token to get info from
@@ -1031,26 +950,4 @@ export type ContractMethod = {
   methodName: string;
 };
 
-interface ITokenEthProps {
-  balance: number;
-  chainId?: number;
-  collection?: IERC1155Collection[];
-  collectionName?: string;
-  contractAddress: string;
-  decimals: string | number;
-  editedSymbolToUse?: string;
-  id?: string;
-  is1155?: boolean;
-  isNft: boolean;
-  logo?: string;
-  name?: string;
-  tokenId?: number | string;
-  tokenSymbol: string;
-}
-
-interface IERC1155Collection {
-  balance: number;
-  tokenId: number;
-  tokenSymbol: string;
-}
 /** end */

@@ -112,6 +112,8 @@ export type IPubTypes = {
 export type INetwork = {
   apiUrl?: string;
   chainId: number;
+  coingeckoId?: string;
+  coingeckoPlatformId?: string;
   currency: string;
   default?: boolean;
   explorer?: string;

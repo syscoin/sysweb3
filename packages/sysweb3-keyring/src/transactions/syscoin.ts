@@ -13,7 +13,7 @@ import {
 import { getAccountDerivationPath } from '../utils/derivation-paths';
 import { PsbtUtils } from '../utils/psbt';
 import { INetwork } from '@pollum-io/sysweb3-network';
-import { ITxid, txUtils, getAsset } from '@pollum-io/sysweb3-utils';
+import { ITxid, txUtils } from '@pollum-io/sysweb3-utils';
 
 type EstimateFeeParams = {
   changeAddress: string;
@@ -190,17 +190,6 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     try {
       if (token && token.guid) {
         // Token transaction: use assetAllocationSend
-        const asset = await getAsset(main.blockbookURL, token.guid);
-
-        if (!asset) {
-          throw {
-            error: true,
-            code: 'INVALID_ASSET_ALLOCATION',
-            message: 'Token not found',
-            details: { guid: token.guid },
-          };
-        }
-
         // Create a Map for the asset allocation
         const assetMap = new Map();
         assetMap.set(token.guid, {
@@ -214,6 +203,7 @@ export class SyscoinTransactions implements ISyscoinTransactions {
         });
 
         // Pass xpub to get back just the PSBT without signing and sending
+        // syscoinjs-lib will validate asset existence and sufficient balance
         const result = await main.assetAllocationSend(
           finalTxOptions,
           assetMap,
