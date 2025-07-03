@@ -205,8 +205,27 @@ export const fetchStandardNftContractData = async (
 
   return {
     name,
-    symbol,
+    symbol: cleanTokenSymbol(symbol),
   };
+};
+
+/**
+ * Clean token symbol by removing spam content
+ * @param symbol - Raw token symbol that may contain spam
+ * @returns Cleaned symbol with spam content removed
+ */
+export const cleanTokenSymbol = (symbol: string): string => {
+  if (!symbol) return symbol;
+
+  // Find first occurrence of common spam separators (: is most common)
+  const separatorMatch = symbol.match(/[:\s|/\\()[\]{}<>=+&%#@!?;~`"'-]/);
+  if (separatorMatch) {
+    const cleanSymbol = symbol.substring(0, separatorMatch.index).trim();
+    // Return cleaned symbol if it's valid, otherwise fallback to original
+    return cleanSymbol.length > 0 ? cleanSymbol : symbol;
+  }
+
+  return symbol;
 };
 
 export const fetchStandardTokenContractData = async (
@@ -229,7 +248,7 @@ export const fetchStandardTokenContractData = async (
   return {
     balance,
     decimals,
-    tokenSymbol: symbol,
+    tokenSymbol: cleanTokenSymbol(symbol),
   };
 };
 
