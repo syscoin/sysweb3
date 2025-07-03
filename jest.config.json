@@ -2,10 +2,13 @@
   "preset": "ts-jest",
   "projects": ["<rootDir>/packages/*"],
   "modulePathIgnorePatterns": [
+    "<rootDir>/dist/",
+    "<rootDir>/coverage/",
     "<rootDir>/packages/sysweb3-core/dist/",
     "<rootDir>/packages/sysweb3-keyring/dist/",
     "<rootDir>/packages/sysweb3-network/dist/",
-    "<rootDir>/packages/sysweb3-utils/dist/"
+    "<rootDir>/packages/sysweb3-utils/dist/",
+    "<rootDir>/packages/*/coverage/"
   ],
   "moduleNameMapper": {
     "isomorphic-fetch": "<rootDir>/__mocks__/isomorphic-fetch.js"
