@@ -55,47 +55,6 @@ export const fetchImage = (src: string): Promise<HTMLImageElement> =>
     image.onerror = (error) => reject(error);
   });
 
-export const normalizeOpenSeaUrl = (url: string, tokenId: string): string => {
-  try {
-    const _url = new URL(url);
-
-    const { host, pathname, searchParams } = _url;
-
-    // 0x%7Bid%7D" = 0x{id} (url encoded)
-    if (
-      (host !== 'api.opensea.io' && host !== 'testnets-api.opensea.io') ||
-      !pathname.includes('0x%7Bid%7D')
-    ) {
-      return url;
-    }
-
-    _url.pathname = pathname.replace(/0x%7Bid%7D/g, tokenId);
-    searchParams.set('format', 'json');
-
-    return String(_url);
-  } catch (error) {
-    return url;
-  }
-};
-
-export const normalizeNiftyGatewayUrl = (url: string): string => {
-  try {
-    const _url = new URL(url);
-
-    if (_url.host !== 'api.niftygateway.com') {
-      return url;
-    }
-
-    // Without final slash, the Nifty Gateway API server
-    // doesn't set the CORS headers properly.
-    _url.pathname = _url.pathname + '/';
-
-    return String(_url);
-  } catch (error) {
-    return url;
-  }
-};
-
 export const normalizeTokenUrl = (url: string): string =>
   String(url).replace('ipfs://', 'https://ipfs.io/ipfs/');
 

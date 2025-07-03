@@ -1548,6 +1548,7 @@ export class EthereumTransactions implements IEthereumTransactions {
     receiver,
     tokenAddress,
     tokenId,
+    tokenAmount,
     isLegacy,
     maxPriorityFeePerGas,
     maxFeePerGas,
@@ -1571,23 +1572,15 @@ export class EthereumTransactions implements IEthereumTransactions {
           walletSigned
         );
 
-        if (isLegacy) {
-          transferMethod = await _contract.safeTransferFrom(
-            walletSigned.address,
-            receiver,
-            tokenId as number,
-            1,
-            []
-          );
-        } else {
-          transferMethod = await _contract.safeTransferFrom(
-            walletSigned.address,
-            receiver,
-            tokenId as number,
-            1,
-            []
-          );
-        }
+        const amount = tokenAmount ? parseInt(tokenAmount) : 1;
+
+        transferMethod = await _contract.safeTransferFrom(
+          walletSigned.address,
+          receiver,
+          tokenId as number,
+          amount,
+          []
+        );
 
         return transferMethod;
       } catch (error) {
@@ -1606,9 +1599,12 @@ export class EthereumTransactions implements IEthereumTransactions {
           getErc55Abi(),
           signer
         );
+
+        const amount = tokenAmount ? parseInt(tokenAmount) : 1;
+
         const txData = _contract.interface.encodeFunctionData(
           'safeTransferFrom',
-          [activeAccountAddress, receiver, tokenId, 1, []]
+          [activeAccountAddress, receiver, tokenId, amount, []]
         );
 
         let txFormattedForEthers;
@@ -1681,9 +1677,12 @@ export class EthereumTransactions implements IEthereumTransactions {
           getErc55Abi(),
           signer
         );
+
+        const amount = tokenAmount ? parseInt(tokenAmount) : 1;
+
         const txData = _contract.interface.encodeFunctionData(
           'safeTransferFrom',
-          [activeAccountAddress, receiver, tokenId, 1, []]
+          [activeAccountAddress, receiver, tokenId, amount, []]
         );
         let txToBeSignedByTrezor;
         if (isLegacy) {

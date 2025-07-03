@@ -9,4 +9,3 @@ export * from './trezor';
 export * from './address';
 export * from './constants';
 export * from './getContract';
-export * from './nfts';
