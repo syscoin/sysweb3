@@ -393,7 +393,6 @@ export const getSysRpc = async (data: any) => {
     // Use coin's actual slip44/chainId - no testnet differentiation
     const formattedNetwork = {
       url: data.url,
-      apiUrl: data.url, // apiURL and URL are the same for blockbooks explorer TODO: remove this field from UTXO networks
       explorer,
       currency: data.symbol ? data.symbol.toLowerCase() : coin.toLowerCase(), // Use provided symbol if available
       label: data.label || coin,

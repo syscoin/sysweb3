@@ -1915,7 +1915,7 @@ export const coins = [
     },
     blocktimeSeconds: 60,
     cashaddrPrefix: null,
-    coinLabel: 'Syscoin',
+    coinLabel: 'Syscoin Mainnet',
     coinName: 'Syscoin',
     coinShortcut: 'SYS',
     curveName: 'secp256k1',
