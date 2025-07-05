@@ -1989,7 +1989,7 @@ export class KeyringManager implements IKeyringManager {
     network: INetwork
   ): string {
     // Generate concise network-specific labels using actual network config
-    const { label, chainId, kind } = network;
+    const { label, chainId, kind, currency } = network;
 
     // Create a shortened network identifier based on actual network configurations
     let networkPrefix = '';
@@ -2001,10 +2001,15 @@ export class KeyringManager implements IKeyringManager {
       } else if (chainId === 5700) {
         networkPrefix = 'SYS-T'; // Syscoin UTXO Testnet (slip44=1)
       } else {
-        // Other UTXO networks - use first word from label
-        const firstWord = label.split(' ')[0];
-        networkPrefix =
-          firstWord.length > 6 ? firstWord.substring(0, 6) : firstWord;
+        // Other UTXO networks - use currency shortcut (e.g., "btc" -> "BTC")
+        if (currency) {
+          networkPrefix = currency.toUpperCase();
+        } else {
+          // Fallback to first word from label if no currency
+          const firstWord = label.split(' ')[0];
+          networkPrefix =
+            firstWord.length > 6 ? firstWord.substring(0, 6) : firstWord;
+        }
       }
     } else {
       // EVM networks (all use slip44=60)
@@ -2025,19 +2030,32 @@ export class KeyringManager implements IKeyringManager {
       } else if (chainId === 57000) {
         networkPrefix = 'ROLLUX-T'; // Rollux Testnet
       } else {
-        // Other EVM networks - extract meaningful prefix from label
-        const firstWord = label.split(' ')[0];
-        if (
-          firstWord.toLowerCase().includes('testnet') ||
-          firstWord.toLowerCase().includes('test')
-        ) {
-          const baseWord = label.split(' ')[0];
-          networkPrefix = `${baseWord.substring(0, 4).toUpperCase()}-T`;
+        // Other EVM networks - use currency shortcut if available
+        if (currency) {
+          // Check if it's a testnet network
+          if (
+            label.toLowerCase().includes('testnet') ||
+            label.toLowerCase().includes('test')
+          ) {
+            networkPrefix = `${currency.toUpperCase()}-T`;
+          } else {
+            networkPrefix = currency.toUpperCase();
+          }
         } else {
-          networkPrefix =
-            firstWord.length > 6
-              ? firstWord.substring(0, 6).toUpperCase()
-              : firstWord.toUpperCase();
+          // Fallback to extracting meaningful prefix from label
+          const firstWord = label.split(' ')[0];
+          if (
+            firstWord.toLowerCase().includes('testnet') ||
+            firstWord.toLowerCase().includes('test')
+          ) {
+            const baseWord = label.split(' ')[0];
+            networkPrefix = `${baseWord.substring(0, 4).toUpperCase()}-T`;
+          } else {
+            networkPrefix =
+              firstWord.length > 6
+                ? firstWord.substring(0, 6).toUpperCase()
+                : firstWord.toUpperCase();
+          }
         }
       }
     }

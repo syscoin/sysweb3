@@ -1,4 +1,6 @@
-export const coins = [
+import { CoinsArray } from './types';
+
+export const coins: CoinsArray = [
   {
     addressType: 0,
     addressTypeP2sh: 5,
@@ -11,6 +13,7 @@ export const coins = [
         'https://btc3.trezor.io',
         'https://btc4.trezor.io',
         'https://btc5.trezor.io',
+        'https://blockbook.btc.zelcore.io',
       ],
     },
     blocktimeSeconds: 600,
@@ -65,6 +68,7 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
+    chainId: 10000, // Unique chainId for Bitcoin Regtest
     coinLabel: 'Regtest',
     coinName: 'Regtest',
     coinShortcut: 'REGTEST',
@@ -115,6 +119,7 @@ export const coins = [
     },
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
+    chainId: 1, // Bitcoin testnet gets to keep chainId 1 since it's the most common
     coinLabel: 'Testnet',
     coinName: 'Testnet',
     coinShortcut: 'TEST',
@@ -266,7 +271,7 @@ export const coins = [
     blocktimeSeconds: 600,
     cashaddrPrefix: 'bitcoincash',
     coinLabel: 'Bitcoin Cash',
-    coinName: 'Bcash',
+    coinName: 'bitcoincash',
     coinShortcut: 'BCH',
     curveName: 'secp256k1',
     decimals: 8,
@@ -315,8 +320,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 600,
     cashaddrPrefix: 'bchtest',
+    chainId: 10003, // Unique chainId for Bitcoin Cash testnet
     coinLabel: 'Bitcoin Cash Testnet',
-    coinName: 'Bcash Testnet',
+    coinName: 'bitcoincash',
     coinShortcut: 'TBCH',
     curveName: 'secp256k1',
     decimals: 8,
@@ -372,7 +378,7 @@ export const coins = [
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
     coinLabel: 'Bitcoin Gold',
-    coinName: 'Bgold',
+    coinName: 'bitcoingold',
     coinShortcut: 'BTG',
     curveName: 'secp256k1',
     decimals: 8,
@@ -421,8 +427,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
+    chainId: 10004, // Unique chainId for Bitcoin Gold testnet
     coinLabel: 'Bitcoin Gold Testnet',
-    coinName: 'Bgold Testnet',
+    coinName: 'bitcoingold',
     coinShortcut: 'TBTG',
     curveName: 'secp256k1',
     decimals: 8,
@@ -621,8 +628,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 150,
     cashaddrPrefix: null,
+    chainId: 10005, // Unique chainId for Dash testnet
     coinLabel: 'Dash Testnet',
-    coinName: 'Dash Testnet',
+    coinName: 'Dash',
     coinShortcut: 'tDASH',
     curveName: 'secp256k1',
     decimals: 8,
@@ -715,8 +723,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 120,
     cashaddrPrefix: null,
+    chainId: 10006, // Unique chainId for Decred testnet
     coinLabel: 'Decred Testnet',
-    coinName: 'Decred Testnet',
+    coinName: 'Decred',
     coinShortcut: 'TDCR',
     curveName: 'secp256k1_decred',
     decimals: 8,
@@ -968,8 +977,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
+    chainId: 10007, // Unique chainId for Firo testnet
     coinLabel: 'Firo Testnet',
-    coinName: 'Firo Testnet',
+    coinName: 'Firo',
     coinShortcut: 'tFIRO',
     curveName: 'secp256k1',
     decimals: 8,
@@ -1270,6 +1280,7 @@ export const coins = [
         'https://ltc3.trezor.io',
         'https://ltc4.trezor.io',
         'https://ltc5.trezor.io',
+        'https://blockbook.ltc.zelcore.io',
       ],
     },
     blocktimeSeconds: 150,
@@ -1321,8 +1332,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 150,
     cashaddrPrefix: null,
+    chainId: 10001, // Unique chainId for Litecoin testnet
     coinLabel: 'Litecoin Testnet',
-    coinName: 'Litecoin Testnet',
+    coinName: 'Litecoin',
     coinShortcut: 'tLTC',
     curveName: 'secp256k1',
     decimals: 8,
@@ -1618,8 +1630,9 @@ export const coins = [
     },
     blocktimeSeconds: 600,
     cashaddrPrefix: null,
+    chainId: 10008, // Unique chainId for Peercoin testnet
     coinLabel: 'Peercoin Testnet',
-    coinName: 'Peercoin Testnet',
+    coinName: 'Peercoin',
     coinShortcut: 'tPPC',
     curveName: 'secp256k1',
     decimals: 6,
@@ -1911,7 +1924,10 @@ export const coins = [
     bech32Prefix: 'sys',
     blockchainLink: {
       type: 'blockbook',
-      url: ['https://explorer-blockbook.syscoin.org'],
+      url: [
+        'https://explorer-blockbook.syscoin.org',
+        'https://blockbook.syscoin.org',
+      ],
     },
     blocktimeSeconds: 60,
     cashaddrPrefix: null,
@@ -1964,12 +1980,17 @@ export const coins = [
     bech32Prefix: 'tsys',
     blockchainLink: {
       type: 'blockbook',
-      url: ['https://explorer-blockbook-dev.syscoin.org'],
+      url: [
+        'https://explorer-blockbook-dev.syscoin.org',
+        'https://blockbook-dev.syscoin.org',
+        'https://sys-test.org',
+      ],
     },
     blocktimeSeconds: 60,
     cashaddrPrefix: null,
+    chainId: 5700, // Unique chainId to match EVM testnet and avoid conflicts
     coinLabel: 'Syscoin Testnet',
-    coinName: 'Syscoin Testnet',
+    coinName: 'Syscoin',
     coinShortcut: 'tSYS',
     curveName: 'secp256k1',
     decimals: 8,
@@ -2330,8 +2351,9 @@ export const coins = [
     blockchainLink: null,
     blocktimeSeconds: 150,
     cashaddrPrefix: null,
+    chainId: 10002, // Unique chainId for Zcash testnet
     coinLabel: 'Zcash Testnet',
-    coinName: 'Zcash Testnet',
+    coinName: 'Zcash',
     coinShortcut: 'TAZ',
     curveName: 'secp256k1',
     decimals: 8,

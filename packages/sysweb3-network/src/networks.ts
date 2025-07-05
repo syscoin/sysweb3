@@ -36,6 +36,65 @@ export const getPubType = (
   };
 };
 
+/**
+ * Helper function to get network config directly from a coin object
+ * This is more efficient when you already have the coin data
+ */
+export const getNetworkConfigFromCoin = (coin: any) => {
+  if (!coin) {
+    throw new Error('Coin object is required');
+  }
+
+  const {
+    signedMessageHeader,
+    bech32Prefix,
+    xprvMagic,
+    xpubMagic,
+    addressType,
+    addressTypeP2sh,
+    wif,
+    coinName,
+    name,
+    coinLabel,
+  } = coin;
+
+  const coinDisplayName = coinName || name || coinLabel || 'Unknown';
+
+  const hexPubKeyHash = addressType;
+  const hexScriptHash = addressTypeP2sh;
+
+  if (bech32Prefix === null) {
+    throw new Error(
+      `We currently don't support ${coinDisplayName} as we don't have its bech32 prefix, please if you need it supported create a pr on sysweb3-network package adding it to coins.ts`
+    );
+  }
+
+  // Each coin has its own network parameters - no testnet differentiation
+  const network = {
+    messagePrefix: String(signedMessageHeader).replace(/[\r\n]/gm, ''),
+    bech32: String(bech32Prefix),
+    bip32: {
+      public: xpubMagic,
+      private: xprvMagic,
+    },
+    pubKeyHash: hexPubKeyHash,
+    scriptHash: hexScriptHash,
+    slip44: coin.slip44,
+    wif,
+  };
+
+  // For backward compatibility, provide both mainnet and testnet as the same
+  const networks = {
+    mainnet: network,
+    testnet: network,
+  };
+
+  return {
+    networks,
+    types: getPubType(network) || null,
+  };
+};
+
 export const getNetworkConfig = (slip44: number, coinName: string) => {
   try {
     // Use the shared findCoin utility
@@ -44,48 +103,9 @@ export const getNetworkConfig = (slip44: number, coinName: string) => {
     if (!coin) {
       throw `${coinName} not supported, add its network config on coins.ts at Pali repo`;
     }
-    const {
-      signedMessageHeader,
-      bech32Prefix,
-      xprvMagic,
-      xpubMagic,
-      addressType,
-      addressTypeP2sh,
-      wif,
-    } = coin;
 
-    const hexPubKeyHash = addressType;
-    const hexScriptHash = addressTypeP2sh;
-    if (bech32Prefix === null) {
-      throw new Error(
-        `We currently don't support ${coinName} as we don't have its bech32 prefix, please if you need it supported create a pr on sysweb3-network package adding it to coins.ts  `
-      );
-    }
-
-    // Each coin has its own network parameters - no testnet differentiation
-    const network = {
-      messagePrefix: String(signedMessageHeader).replace(/[\r\n]/gm, ''),
-      bech32: String(bech32Prefix),
-      bip32: {
-        public: xpubMagic,
-        private: xprvMagic,
-      },
-      pubKeyHash: hexPubKeyHash,
-      scriptHash: hexScriptHash,
-      slip44: coin.slip44,
-      wif,
-    };
-
-    // For backward compatibility, provide both mainnet and testnet as the same
-    const networks = {
-      mainnet: network,
-      testnet: network,
-    };
-
-    return {
-      networks,
-      types: getPubType(network) || null,
-    };
+    // Use the helper function
+    return getNetworkConfigFromCoin(coin);
   } catch (error) {
     throw new Error(error);
   }

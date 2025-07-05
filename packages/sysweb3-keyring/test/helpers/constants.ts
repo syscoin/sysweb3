@@ -9,7 +9,7 @@ export const SYS_TANENBAUM_UTXO_NETWORK = {
   chainId: 5700,
   label: 'Syscoin Testnet',
   url: 'https://sys-test.tk/',
-  default: true,
+  default: false,
   currency: 'tsys',
   apiUrl: '',
   explorer: '',

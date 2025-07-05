@@ -1,3 +1,4 @@
+import { getDefaultUTXONetworks } from './network-utils';
 import { IKeyringAccountState } from './types';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
@@ -34,30 +35,7 @@ export const initialActiveLedgerAccountState: IKeyringAccountState = {
 };
 
 export const initialNetworksState = {
-  syscoin: {
-    57: {
-      chainId: 57,
-      label: 'Syscoin Mainnet',
-      url: 'https://explorer-blockbook.syscoin.org',
-      default: true,
-      currency: 'sys',
-      apiUrl: '',
-      explorer: 'https://explorer-blockbook.syscoin.org',
-      slip44: 57,
-      kind: INetworkType.Syscoin,
-    },
-    5700: {
-      chainId: 5700,
-      label: 'Syscoin Testnet',
-      url: 'https://explorer-blockbook-dev.syscoin.org',
-      default: true,
-      currency: 'tsys',
-      apiUrl: '',
-      explorer: '',
-      slip44: 1,
-      kind: INetworkType.Syscoin,
-    },
-  },
+  syscoin: getDefaultUTXONetworks(),
   ethereum: {
     1: {
       chainId: 1,
