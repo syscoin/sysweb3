@@ -6,14 +6,6 @@ interface IStateStorageClient {
   setItem(key: string, value: string): void;
 }
 
-interface IStateStorageDb {
-  deleteItem(key: string): void;
-  get(key: string): JSON;
-  set(key: string, value: any): void;
-  setClient(client?: IStateStorageClient): void;
-  setPrefix(prefix: string): void;
-}
-
 export interface IKeyValueDb {
   deleteItem(key: string): void;
   get(key: string): any;
@@ -59,7 +51,7 @@ const StateStorageDb = (
     if (!storageClient) return;
 
     if ('get' in storageClient) {
-      const value = await storageClient.get(keyPrefix + key);
+      const value = await storageClient.get([keyPrefix + key]);
       if (value) {
         const result = parseJsonRecursively(value);
         return result[keyPrefix + key];
@@ -116,7 +108,7 @@ const CrossPlatformDi = () => {
   //======================
   //= State Storage =
   //======================
-  const stateStorageDb: IStateStorageDb = StateStorageDb(MemoryStorageClient());
+  const stateStorageDb: IKeyValueDb = StateStorageDb(MemoryStorageClient());
 
   const getStateStorageDb = (): IKeyValueDb => stateStorageDb;
 
