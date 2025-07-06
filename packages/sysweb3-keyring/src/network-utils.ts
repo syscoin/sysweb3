@@ -39,7 +39,7 @@ export function getDefaultUTXONetworks(): { [chainId: number]: INetwork } {
     const network: INetwork = {
       chainId,
       url: primaryUrl,
-      label: coin.coinLabel || coin.name || `${coin.coinShortcut} Network`,
+      label: coin.name || coin.coinLabel || `${coin.coinShortcut} Network`,
       default: coin.coinShortcut === 'SYS',
       currency: coin.coinShortcut?.toLowerCase() || 'unknown',
       slip44: coin.slip44,

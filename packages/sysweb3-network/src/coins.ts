@@ -862,7 +862,7 @@ export const coins: CoinsArray = [
     maxfeeKb: 42000000000,
     minAddressLength: 27,
     minfeeKb: 10000,
-    name: 'Syscoin',
+    name: 'Syscoin Mainnet',
     segwit: true,
     shortcut: 'SYS',
     signedMessageHeader: '\x18Syscoin Signed Message:\n',
