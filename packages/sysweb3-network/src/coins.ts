@@ -8,12 +8,12 @@ export const coins: CoinsArray = [
     blockchainLink: {
       type: 'blockbook',
       url: [
+        'https://blockbook.btc.zelcore.io',
         'https://btc1.trezor.io',
         'https://btc2.trezor.io',
         'https://btc3.trezor.io',
         'https://btc4.trezor.io',
         'https://btc5.trezor.io',
-        'https://blockbook.btc.zelcore.io',
       ],
     },
     blocktimeSeconds: 600,
@@ -1275,12 +1275,12 @@ export const coins: CoinsArray = [
     blockchainLink: {
       type: 'blockbook',
       url: [
+        'https://blockbook.ltc.zelcore.io',
         'https://ltc1.trezor.io',
         'https://ltc2.trezor.io',
         'https://ltc3.trezor.io',
         'https://ltc4.trezor.io',
         'https://ltc5.trezor.io',
-        'https://blockbook.ltc.zelcore.io',
       ],
     },
     blocktimeSeconds: 150,
