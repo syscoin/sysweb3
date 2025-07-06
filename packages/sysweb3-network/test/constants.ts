@@ -86,7 +86,7 @@ export const VALID_BLOCKBOOK_RPC_RESPONSE = {
 };
 export const VALID_SYS_BLOCKBOOK_RESPONSE = {
   valid: true,
-  coin: 'Syscoin',
+  network: 'Syscoin',
   chain: 'main',
 };
 export const VALID_BIP44_DATA_RESPONSE = {

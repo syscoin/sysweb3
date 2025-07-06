@@ -585,7 +585,14 @@ export const validateRpcBatchUniversal = async (
   };
 
   // Perform multiple requests to get accurate latency measurement
-  const requests = [];
+  const requests: Array<{
+    success: boolean;
+    chainId?: number;
+    error?: string;
+    latency: number;
+    requiresAuth?: boolean;
+    response?: any;
+  }> = [];
   const maxRequests = 3;
 
   for (let i = 0; i < maxRequests; i++) {
