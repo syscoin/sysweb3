@@ -65,7 +65,7 @@ export const getNetworkConfigFromCoin = (coin: any) => {
 
   if (bech32Prefix === null) {
     throw new Error(
-      `We currently don't support ${coinDisplayName} as we don't have its bech32 prefix, please if you need it supported create a pr on sysweb3-network package adding it to coins.ts`
+      `We currently don't support ${coinDisplayName} as we don't have its bech32 prefix (or it doesn't support segwit)`
     );
   }
 

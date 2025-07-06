@@ -56,7 +56,7 @@
     "ledger-bitcoin": "^0.2.3",
     "lodash": "^4.17.21",
     "satoshi-bitcoin": "^1.0.5",
-    "syscoinjs-lib": "^1.0.239",
+    "syscoinjs-lib": "^1.0.240",
     "syscointx-js": "^1.0.118",
     "web3": "^1.7.1",
     "zksync-ethers": "5"

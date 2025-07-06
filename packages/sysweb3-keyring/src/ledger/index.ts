@@ -22,6 +22,7 @@ import {
   isEvmCoin,
 } from '../utils/derivation-paths';
 import { Transaction } from 'syscoinjs-lib';
+import { retryableFetch } from '@pollum-io/sysweb3-network';
 
 export class LedgerKeyring {
   public ledgerUtxoClient: SysUtxoClient;
@@ -130,7 +131,9 @@ export class LedgerKeyring {
       fingerprint
     );
     const url = `${BLOCKBOOK_API_URL}/api/v2/utxo/${xpubWithDescriptor}`;
-    const resp: UTXOPayload = await fetch(url).then((resp) => resp.json());
+    const resp: UTXOPayload = await retryableFetch(url).then((resp) =>
+      resp.json()
+    );
     return resp.utxos;
   };
 

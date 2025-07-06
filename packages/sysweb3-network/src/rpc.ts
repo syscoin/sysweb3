@@ -9,6 +9,7 @@ import {
   INetwork,
   INetworkType,
 } from './networks';
+import { retryableFetch } from './retryUtils';
 
 const hexRegEx = /^0x[0-9a-f]+$/iu;
 
@@ -72,7 +73,7 @@ const getEthChainId = async (
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
   try {
-    const response = await fetch(url, {
+    const response = await retryableFetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -260,7 +261,11 @@ export const getEthRpc = async (
     label: data.label || String(details ? details.name : ''),
     apiUrl: data.apiUrl,
     explorer: String(explorer),
-    currency: details ? details.nativeCurrency.symbol : data.symbol,
+    currency: data.symbol
+      ? data.symbol.toLowerCase()
+      : details
+      ? details.nativeCurrency.symbol.toLowerCase()
+      : '',
     chainId: chainIdNumber,
     slip44: 60, // All EVM networks use ETH slip44 for address compatibility
     kind: INetworkType.Ethereum,
@@ -295,7 +300,7 @@ export const validateSysRpc = async (
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
     try {
-      const response = await fetch(formatURL, {
+      const response = await retryableFetch(formatURL, {
         signal: controller.signal,
       });
 
@@ -472,7 +477,7 @@ export const validateRpcBatchUniversal = async (
 
       if (networkType === INetworkType.Ethereum) {
         // EVM: Use JSON-RPC batch request
-        response = await fetch(url, {
+        response = await retryableFetch(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -499,7 +504,8 @@ export const validateRpcBatchUniversal = async (
         const formatURL = `${
           url.endsWith('/') ? url.slice(0, -1) : url
         }/api/v2`;
-        response = await fetch(formatURL, {
+
+        response = await retryableFetch(formatURL, {
           signal: controller.signal,
           cache: 'no-cache', // Force fresh request for testing
         });

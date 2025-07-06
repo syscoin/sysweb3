@@ -16,7 +16,7 @@ export interface CoinSearchOptions {
 export function findCoin(options: CoinSearchOptions): any {
   const { slip44, name, exactMatch = false } = options;
 
-  if (!slip44 && !name) {
+  if (slip44 === undefined && !name) {
     return undefined;
   }
 
