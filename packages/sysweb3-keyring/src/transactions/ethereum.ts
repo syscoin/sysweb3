@@ -1067,31 +1067,34 @@ export class EthereumTransactions implements IEthereumTransactions {
         );
         let transferMethod;
         if (isLegacy) {
+          const overrides = {
+            nonce: await this.web3Provider.getTransactionCount(
+              walletSigned.address,
+              'pending'
+            ),
+            gasPrice,
+            ...(gasLimit && { gasLimit }),
+          };
           transferMethod = await _contract.transfer(
             receiver,
             calculatedTokenAmount,
-            {
-              nonce: await this.web3Provider.getTransactionCount(
-                walletSigned.address,
-                'pending'
-              ),
-              gasPrice,
-              gasLimit,
-            }
+            overrides
           );
         } else {
+          const overrides = {
+            nonce: await this.web3Provider.getTransactionCount(
+              walletSigned.address,
+              'pending'
+            ),
+            maxPriorityFeePerGas,
+            maxFeePerGas,
+            ...(gasLimit && { gasLimit }),
+          };
+
           transferMethod = await _contract.transfer(
             receiver,
             calculatedTokenAmount,
-            {
-              nonce: await this.web3Provider.getTransactionCount(
-                walletSigned.address,
-                'pending'
-              ),
-              maxPriorityFeePerGas,
-              maxFeePerGas,
-              gasLimit,
-            }
+            overrides
           );
         }
 
@@ -1122,12 +1125,15 @@ export class EthereumTransactions implements IEthereumTransactions {
           calculatedTokenAmount,
         ]);
 
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('100000'); // ERC20 fallback
+
         let txFormattedForEthers;
         if (isLegacy) {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             gasPrice,
             data: txData,
             nonce: transactionNonce,
@@ -1138,7 +1144,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             maxFeePerGas,
             maxPriorityFeePerGas,
             data: txData,
@@ -1202,13 +1208,17 @@ export class EthereumTransactions implements IEthereumTransactions {
           receiver,
           calculatedTokenAmount,
         ]);
+
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('100000'); // ERC20 fallback
+
         let txToBeSignedByTrezor;
         if (isLegacy) {
           txToBeSignedByTrezor = {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             gasPrice: `${gasPrice}`,
             nonce: this.toBigNumber(transactionNonce)._hex,
@@ -1220,7 +1230,7 @@ export class EthereumTransactions implements IEthereumTransactions {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             maxFeePerGas: `${maxFeePerGas.hex}`,
             // @ts-ignore
@@ -1245,7 +1255,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 gasPrice,
                 data: txData,
                 nonce: transactionNonce,
@@ -1256,7 +1266,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 maxFeePerGas,
                 maxPriorityFeePerGas,
                 data: txData,
@@ -1324,30 +1334,32 @@ export class EthereumTransactions implements IEthereumTransactions {
         );
 
         if (isLegacy) {
+          const overrides = {
+            nonce: await this.web3Provider.getTransactionCount(
+              walletSigned.address,
+              'pending'
+            ),
+            gasPrice,
+            ...(gasLimit && { gasLimit }),
+          };
           transferMethod = await _contract.transferFrom(
             walletSigned.address,
             receiver,
             tokenId as number,
-            {
-              nonce: await this.web3Provider.getTransactionCount(
-                walletSigned.address,
-                'pending'
-              ),
-              gasLimit,
-              gasPrice,
-            }
+            overrides
           );
         } else {
+          const overrides = {
+            nonce: await this.web3Provider.getTransactionCount(
+              walletSigned.address,
+              'pending'
+            ),
+          };
           transferMethod = await _contract.transferFrom(
             walletSigned.address,
             receiver,
             tokenId as number,
-            {
-              nonce: await this.web3Provider.getTransactionCount(
-                walletSigned.address,
-                'pending'
-              ),
-            }
+            overrides
           );
         }
 
@@ -1374,12 +1386,15 @@ export class EthereumTransactions implements IEthereumTransactions {
           tokenId,
         ]);
 
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('150000'); // ERC721 fallback
+
         let txFormattedForEthers;
         if (isLegacy) {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             gasPrice,
             data: txData,
             nonce: transactionNonce,
@@ -1390,7 +1405,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             maxFeePerGas,
             maxPriorityFeePerGas,
             data: txData,
@@ -1449,13 +1464,17 @@ export class EthereumTransactions implements IEthereumTransactions {
           receiver,
           tokenId,
         ]);
+
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('150000'); // ERC721 fallback
+
         let txToBeSignedByTrezor;
         if (isLegacy) {
           txToBeSignedByTrezor = {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             gasPrice: `${gasPrice}`,
             nonce: this.toBigNumber(transactionNonce)._hex,
@@ -1468,7 +1487,7 @@ export class EthereumTransactions implements IEthereumTransactions {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             maxFeePerGas: `${maxFeePerGas.hex}`,
             // @ts-ignore
@@ -1493,7 +1512,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 gasPrice,
                 data: txData,
                 nonce: transactionNonce,
@@ -1504,7 +1523,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 maxFeePerGas,
                 maxPriorityFeePerGas,
                 data: txData,
@@ -1574,14 +1593,16 @@ export class EthereumTransactions implements IEthereumTransactions {
 
         const amount = tokenAmount ? parseInt(tokenAmount) : 1;
 
+        const overrides = {};
+
         transferMethod = await _contract.safeTransferFrom(
           walletSigned.address,
           receiver,
           tokenId as number,
           amount,
-          []
+          [],
+          overrides
         );
-
         return transferMethod;
       } catch (error) {
         throw error;
@@ -1607,12 +1628,15 @@ export class EthereumTransactions implements IEthereumTransactions {
           [activeAccountAddress, receiver, tokenId, amount, []]
         );
 
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('200000'); // ERC1155 fallback
+
         let txFormattedForEthers;
         if (isLegacy) {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             gasPrice,
             data: txData,
             nonce: transactionNonce,
@@ -1623,7 +1647,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           txFormattedForEthers = {
             to: tokenAddress,
             value: '0x0',
-            gasLimit,
+            gasLimit: effectiveGasLimit,
             maxFeePerGas,
             maxPriorityFeePerGas,
             data: txData,
@@ -1684,13 +1708,17 @@ export class EthereumTransactions implements IEthereumTransactions {
           'safeTransferFrom',
           [activeAccountAddress, receiver, tokenId, amount, []]
         );
+
+        // Use fallback gas limit if not provided (for auto-estimation)
+        const effectiveGasLimit = gasLimit || this.toBigNumber('200000'); // ERC1155 fallback
+
         let txToBeSignedByTrezor;
         if (isLegacy) {
           txToBeSignedByTrezor = {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             gasPrice: `${gasPrice}`,
             nonce: this.toBigNumber(transactionNonce)._hex,
@@ -1702,7 +1730,7 @@ export class EthereumTransactions implements IEthereumTransactions {
             to: tokenAddress,
             value: '0x0',
             // @ts-ignore
-            gasLimit: `${gasLimit.hex}`,
+            gasLimit: `${effectiveGasLimit.hex}`,
             // @ts-ignore
             maxFeePerGas: `${maxFeePerGas.hex}`,
             // @ts-ignore
@@ -1727,7 +1755,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 gasPrice,
                 data: txData,
                 nonce: transactionNonce,
@@ -1738,7 +1766,7 @@ export class EthereumTransactions implements IEthereumTransactions {
               txFormattedForEthers = {
                 to: tokenAddress,
                 value: '0x0',
-                gasLimit,
+                gasLimit: effectiveGasLimit,
                 maxFeePerGas,
                 maxPriorityFeePerGas,
                 data: txData,
