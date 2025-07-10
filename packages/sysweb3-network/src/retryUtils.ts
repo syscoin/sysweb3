@@ -51,33 +51,64 @@ export async function retryWithBackoff<T>(
  * Specifically designed for blockbook API calls
  *
  * @param url - URL to fetch
- * @param options - Fetch options
+ * @param options - Fetch options (including optional timeout in ms)
  * @returns Promise with Response object
  */
 export async function retryableFetch(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeout?: number } = {}
 ): Promise<Response> {
   return retryWithBackoff(async () => {
-    const response = await fetch(url, options);
+    // Default timeout of 30 seconds if not specified
+    const timeout = options.timeout ?? 30000;
 
-    // Check for retryable status codes and throw appropriate errors
-    if (!response.ok) {
-      if (response.status === 503 || response.status === 429) {
-        const error = new Error(
-          `HTTP ${response.status}: ${response.statusText}`
-        );
-        (error as any).status = response.status;
-        throw error;
-      } else {
-        // For non-retryable errors, get the response text for better error messages
-        const responseData = await response.text();
-        throw new Error(
-          `HTTP error! Status: ${response.status}. Details: ${responseData}`
-        );
-      }
+    // Create AbortController if signal not provided
+    let abortController: AbortController | undefined;
+    let timeoutId: NodeJS.Timeout | undefined;
+    let signal = options.signal;
+
+    if (!signal && timeout > 0) {
+      abortController = new AbortController();
+      signal = abortController.signal;
+
+      // Set up timeout
+      timeoutId = setTimeout(() => {
+        abortController?.abort();
+      }, timeout);
     }
 
-    return response;
+    try {
+      const response = await fetch(url, { ...options, signal });
+
+      // Check for retryable status codes and throw appropriate errors
+      if (!response.ok) {
+        if (response.status === 503 || response.status === 429) {
+          const error = new Error(
+            `HTTP ${response.status}: ${response.statusText}`
+          );
+          (error as any).status = response.status;
+          throw error;
+        } else {
+          // For non-retryable errors, get the response text for better error messages
+          const responseData = await response.text();
+          throw new Error(
+            `HTTP error! Status: ${response.status}. Details: ${responseData}`
+          );
+        }
+      }
+
+      return response;
+    } catch (error: any) {
+      // Handle timeout error
+      if (error.name === 'AbortError' && timeoutId) {
+        throw new Error(`Request timeout after ${timeout}ms`);
+      }
+      throw error;
+    } finally {
+      // Clear timeout if it was set
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   });
 }
