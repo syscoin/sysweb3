@@ -893,16 +893,41 @@ export class EthereumTransactions implements IEthereumTransactions {
       };
     }
 
-    const { decryptedPrivateKey } = this.getDecryptedPrivateKey();
+    const { decryptedPrivateKey, address } = this.getDecryptedPrivateKey();
     const wallet = new ethers.Wallet(decryptedPrivateKey, this.web3Provider);
+
+    // Check if this might be a max send transaction by comparing total cost to balance
+    const currentBalance = await this.web3Provider.getBalance(address);
+
+    // Ensure all transaction values are resolved from promises
+    const gasLimit = await Promise.resolve(tx.gasLimit);
+    const gasPrice = await Promise.resolve(tx.gasPrice || 0);
+    const maxFeePerGas = await Promise.resolve(tx.maxFeePerGas || 0);
+    const maxPriorityFeePerGas = await Promise.resolve(
+      tx.maxPriorityFeePerGas || 0
+    );
+    const txValue = await Promise.resolve(tx.value);
+    const txData = await Promise.resolve(tx.data || '0x');
+
+    // Check if this is a contract call (has data)
+    const isContractCall = txData && txData !== '0x' && txData.length > 2;
+
+    const originalGasCost = isLegacy
+      ? gasLimit.mul(gasPrice || 0)
+      : gasLimit.mul(maxFeePerGas || 0);
+    const originalTotalCost = txValue.add(originalGasCost);
+
+    // If original transaction used >95% of balance, it's likely a max send
+    const balanceThreshold = currentBalance.mul(95).div(100);
+    const isLikelyMaxSend = originalTotalCost.gt(balanceThreshold);
 
     let txWithEditedFee: Deferrable<ethers.providers.TransactionRequest>;
 
     const oldTxsGasValues: IGasParams = {
-      maxFeePerGas: tx.maxFeePerGas as BigNumber,
-      maxPriorityFeePerGas: tx.maxPriorityFeePerGas as BigNumber,
-      gasPrice: tx.gasPrice as BigNumber,
-      gasLimit: tx.gasLimit as BigNumber,
+      maxFeePerGas: maxFeePerGas as BigNumber,
+      maxPriorityFeePerGas: maxPriorityFeePerGas as BigNumber,
+      gasPrice: gasPrice as BigNumber,
+      gasLimit: gasLimit as BigNumber,
     };
 
     if (!isLegacy) {
@@ -912,11 +937,47 @@ export class EthereumTransactions implements IEthereumTransactions {
         false
       );
 
+      let adjustedValue = txValue;
+
+      // For likely max sends, check if we need to adjust value
+      if (
+        isLikelyMaxSend &&
+        newGasValues.gasLimit &&
+        newGasValues.maxFeePerGas
+      ) {
+        const newGasCost = newGasValues.gasLimit.mul(newGasValues.maxFeePerGas);
+        const newTotalCost = txValue.add(newGasCost);
+
+        if (newTotalCost.gt(currentBalance)) {
+          // If this is a contract call, we cannot adjust the value
+          if (isContractCall) {
+            console.error(
+              '[SpeedUp] Cannot adjust value for contract call - rejecting speedup'
+            );
+            return {
+              isSpeedUp: false,
+              error: true,
+            };
+          }
+
+          // For non-contract calls, reduce value to fit within balance
+          adjustedValue = currentBalance.sub(newGasCost);
+
+          // Ensure we don't go below a minimum threshold (0.0001 ETH)
+          const minValue = ethers.utils.parseEther('0.0001');
+          if (adjustedValue.lt(minValue)) {
+            console.warn('[SpeedUp] Adjusted value too low, keeping original');
+            adjustedValue = txValue;
+          }
+        }
+      }
+
       txWithEditedFee = {
         from: tx.from,
         to: tx.to,
         nonce: tx.nonce,
-        value: tx.value,
+        value: adjustedValue,
+        data: txData,
         maxFeePerGas: newGasValues.maxFeePerGas,
         maxPriorityFeePerGas: newGasValues.maxPriorityFeePerGas,
         gasLimit: newGasValues.gasLimit,
@@ -928,11 +989,43 @@ export class EthereumTransactions implements IEthereumTransactions {
         true
       );
 
+      let adjustedValue = txValue;
+
+      // For likely max sends, check if we need to adjust value
+      if (isLikelyMaxSend && newGasValues.gasLimit && newGasValues.gasPrice) {
+        const newGasCost = newGasValues.gasLimit.mul(newGasValues.gasPrice);
+        const newTotalCost = txValue.add(newGasCost);
+
+        if (newTotalCost.gt(currentBalance)) {
+          // If this is a contract call, we cannot adjust the value
+          if (isContractCall) {
+            console.error(
+              '[SpeedUp] Cannot adjust value for contract call - rejecting speedup'
+            );
+            return {
+              isSpeedUp: false,
+              error: true,
+            };
+          }
+
+          // For non-contract calls, reduce value to fit within balance
+          adjustedValue = currentBalance.sub(newGasCost);
+
+          // Ensure we don't go below a minimum threshold (0.0001 ETH)
+          const minValue = ethers.utils.parseEther('0.0001');
+          if (adjustedValue.lt(minValue)) {
+            console.warn('[SpeedUp] Adjusted value too low, keeping original');
+            adjustedValue = txValue;
+          }
+        }
+      }
+
       txWithEditedFee = {
         from: tx.from,
         to: tx.to,
         nonce: tx.nonce,
-        value: tx.value,
+        value: adjustedValue,
+        data: txData,
         gasLimit: newGasValues.gasLimit,
         gasPrice: newGasValues.gasPrice,
       };
@@ -955,6 +1048,10 @@ export class EthereumTransactions implements IEthereumTransactions {
           };
         }
       } catch (error) {
+        console.error(
+          '[SpeedUp] Failed to send replacement transaction:',
+          error
+        );
         //If we don't find the TX or is already confirmed we send as error true to show this message
         //in the alert at Pali
         return {
