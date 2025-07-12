@@ -62,7 +62,6 @@ export interface IEthereumTransactions {
     isCanceled: boolean;
     transaction?: TransactionResponse;
   }>;
-  contentScriptWeb3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
   decryptMessage: (msgParams: string[]) => string;
   ethSign: (params: string[]) => Promise<string>;
   getBalance: (address: string) => Promise<number>;

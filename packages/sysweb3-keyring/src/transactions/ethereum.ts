@@ -60,9 +60,6 @@ const L2_NETWORK_CHAIN_IDS = [324, 300];
 
 export class EthereumTransactions implements IEthereumTransactions {
   private _web3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
-  private _contentScriptWeb3Provider:
-    | CustomJsonRpcProvider
-    | CustomL2JsonRpcProvider;
   public trezorSigner: TrezorKeyring;
   public ledgerSigner: LedgerKeyring;
   private getNetwork: () => INetwork;
@@ -127,13 +124,6 @@ export class EthereumTransactions implements IEthereumTransactions {
   public get web3Provider(): CustomJsonRpcProvider | CustomL2JsonRpcProvider {
     this.ensureProvidersInitialized();
     return this._web3Provider;
-  }
-
-  public get contentScriptWeb3Provider():
-    | CustomJsonRpcProvider
-    | CustomL2JsonRpcProvider {
-    this.ensureProvidersInitialized();
-    return this._contentScriptWeb3Provider;
   }
 
   // Helper method to ensure providers are initialized when first needed
@@ -2008,7 +1998,6 @@ export class EthereumTransactions implements IEthereumTransactions {
       );
       // Clear any existing providers for UTXO networks
       this._web3Provider = undefined as any;
-      this._contentScriptWeb3Provider = undefined as any;
     } else {
       // For EVM networks, create normal providers
       const isL2Network = L2_NETWORK_CHAIN_IDS.includes(network.chainId);
@@ -2018,10 +2007,6 @@ export class EthereumTransactions implements IEthereumTransactions {
         : CustomJsonRpcProvider;
 
       this._web3Provider = new CurrentProvider(
-        this.abortController.signal,
-        network.url
-      );
-      this._contentScriptWeb3Provider = new CurrentProvider(
         this.abortController.signal,
         network.url
       );
