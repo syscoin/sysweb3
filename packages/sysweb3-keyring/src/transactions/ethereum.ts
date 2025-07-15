@@ -260,7 +260,25 @@ export class EthereumTransactions implements IEthereumTransactions {
     const sign = () => {
       try {
         const bufPriv = toBuffer(decryptedPrivateKey);
-        const msgHash = Buffer.from(msg, 'hex');
+
+        // Validate and prepare the message for eth_sign
+        let msgHash: Buffer;
+
+        // Check if message is a valid 32-byte hex string
+        if (msg.length === 64 && /^[0-9a-fA-F]+$/.test(msg)) {
+          // Message is already a 32-byte hex string
+          msgHash = Buffer.from(msg, 'hex');
+        } else {
+          // Message is not a proper hash - provide helpful error
+          throw new Error(
+            `Expected message to be an Uint8Array with length 32. ` +
+              `Got message of length ${msg.length}: "${msg.substring(0, 50)}${
+                msg.length > 50 ? '...' : ''
+              }". ` +
+              `For signing arbitrary text, use personal_sign instead of eth_sign.`
+          );
+        }
+
         const sig = ecsign(msgHash, bufPriv);
         const resp = concatSig(toBuffer(sig.v), sig.r, sig.s);
         return resp;
@@ -332,7 +350,22 @@ export class EthereumTransactions implements IEthereumTransactions {
     const signPersonalMessageWithDefaultWallet = () => {
       try {
         const privateKey = toBuffer(decryptedPrivateKey);
-        const message = toBuffer(msg);
+
+        // Handle both hex-encoded and plain text messages for personal_sign
+        let message: Buffer;
+        if (msg.startsWith('0x')) {
+          // Message is hex-encoded
+          try {
+            message = toBuffer(msg);
+          } catch (error) {
+            // If hex parsing fails, treat as plain text
+            message = Buffer.from(msg, 'utf8');
+          }
+        } else {
+          // Message is plain text
+          message = Buffer.from(msg, 'utf8');
+        }
+
         const msgHash = hashPersonalMessage(message);
         const sig = ecsign(msgHash, privateKey);
         const serialized = concatSig(toBuffer(sig.v), sig.r, sig.s);
@@ -344,9 +377,19 @@ export class EthereumTransactions implements IEthereumTransactions {
 
     const signPersonalMessageWithLedger = async () => {
       try {
+        // Handle both hex-encoded and plain text messages for personal_sign
+        let messageForLedger: string;
+        if (msg.startsWith('0x')) {
+          // Message is hex-encoded, remove 0x prefix
+          messageForLedger = msg.replace('0x', '');
+        } else {
+          // Message is plain text, convert to hex
+          messageForLedger = Buffer.from(msg, 'utf8').toString('hex');
+        }
+
         const response = await this.ledgerSigner.evm.signPersonalMessage({
           accountIndex: activeAccountId,
-          message: msg.replace('0x', ''),
+          message: messageForLedger,
         });
         return response;
       } catch (error) {
@@ -356,11 +399,21 @@ export class EthereumTransactions implements IEthereumTransactions {
 
     const signPersonalMessageWithTrezor = async () => {
       try {
+        // Handle both hex-encoded and plain text messages for personal_sign
+        let messageForTrezor: string;
+        if (msg.startsWith('0x')) {
+          // Message is hex-encoded, keep as is
+          messageForTrezor = msg;
+        } else {
+          // Message is plain text, convert to hex with 0x prefix
+          messageForTrezor = '0x' + Buffer.from(msg, 'utf8').toString('hex');
+        }
+
         const response: any = await this.trezorSigner.signMessage({
           coin: activeNetwork.currency,
           address: activeAccount.address,
           index: activeAccountId,
-          message: msg,
+          message: messageForTrezor,
           slip44: activeNetwork.slip44,
         });
         return response.signature as string;
