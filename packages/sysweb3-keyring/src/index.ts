@@ -8,3 +8,4 @@ export * from './keyring-manager';
 export * from './providers';
 export * from './utils/derivation-paths';
 export * from './network-utils';
+export { PsbtUtils } from './utils/psbt';
