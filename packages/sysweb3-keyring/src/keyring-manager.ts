@@ -746,10 +746,15 @@ export class KeyringManager implements IKeyringManager {
           throw new Error('Active network currency is not defined');
         }
 
+        // Use getNextAccountId to filter out placeholder accounts
+        const nextIndex = this.getNextAccountId(
+          vault.accounts[KeyringAccountType.Ledger]
+        );
+
         const importedAccount = await this._createLedgerAccount(
           currency,
           vault.activeNetwork.slip44,
-          Object.values(vault.accounts[KeyringAccountType.Ledger]).length
+          nextIndex
         );
         importedAccount.label = label
           ? label
@@ -1194,15 +1199,31 @@ export class KeyringManager implements IKeyringManager {
 
     const isEVM = isEvmCoin(coin, slip44);
 
-    const address = isEVM ? xpub : await this.getAddress(xpub, false);
-
+    // For EVM networks, we need to get the actual address from Trezor
+    let address: string;
     if (isEVM) {
+      // For EVM, the descriptor from getAccountInfo is actually the address
+      // But we should get it properly from getAddress to ensure consistency
+      const trezorAddress = await this.trezorSigner.getAddress({
+        coin,
+        slip44,
+        index: index,
+      });
+      if (!trezorAddress) {
+        throw new Error('Failed to get EVM address from Trezor');
+      }
+      address = trezorAddress;
+
+      // Also get the public key for EVM
       const response = await this.trezorSigner.getPublicKey({
         coin,
         slip44,
         index: +index,
       });
       ethPubKey = response.publicKey;
+    } else {
+      // For UTXO, use the xpub to derive the address
+      address = await this.getAddress(xpub, false);
     }
 
     const accountAlreadyExists =
@@ -1306,10 +1327,8 @@ export class KeyringManager implements IKeyringManager {
         'Something wrong happened. Please, try again or report it'
       );
 
-    const id =
-      Object.values(accounts[KeyringAccountType.Ledger]).length < 1
-        ? 0
-        : Object.values(accounts[KeyringAccountType.Ledger]).length;
+    // Use getNextAccountId to properly handle placeholder accounts
+    const id = this.getNextAccountId(accounts[KeyringAccountType.Ledger]);
 
     const currentBalances = { syscoin: 0, ethereum: 0 };
 

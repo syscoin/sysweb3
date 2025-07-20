@@ -166,6 +166,9 @@ describe('Trezor Hardware Wallet', () => {
         descriptor: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f', // Return EVM address directly as descriptor
         balance: '1000000000000000000', // 1 ETH in wei
       });
+      evmKeyring.trezorSigner.getAddress = jest
+        .fn()
+        .mockResolvedValue('0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f');
 
       const account = await evmKeyring.importTrezorAccount('Trezor ETH');
 
@@ -452,6 +455,14 @@ describe('Trezor Hardware Wallet', () => {
       evmKeyring.trezorSigner.getAccountInfo = jest.fn().mockResolvedValue({
         descriptor: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
         balance: '1000000000000000000',
+      });
+
+      evmKeyring.trezorSigner.getAddress = jest
+        .fn()
+        .mockResolvedValue('0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f');
+
+      evmKeyring.trezorSigner.getPublicKey = jest.fn().mockResolvedValue({
+        publicKey: '0x04mock_evm_public_key',
       });
 
       evmKeyring.trezorSigner.signEthTransaction = jest.fn().mockResolvedValue({
