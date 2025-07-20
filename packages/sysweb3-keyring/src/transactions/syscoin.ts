@@ -183,7 +183,11 @@ export class SyscoinTransactions implements ISyscoinTransactions {
     const finalTxOptions = { rbf: true, ...txOptions };
     const { activeAccountId, accounts, activeAccountType } = this.getState();
     const { main } = this.getSigner();
-    const xpub = accounts[activeAccountType][activeAccountId].xpub;
+    const account = accounts[activeAccountType]?.[activeAccountId];
+    if (!account) {
+      throw new Error('Active account not found');
+    }
+    const xpub = account.xpub;
     const value = new syscoinjs.utils.BN(amount * 1e8);
     const changeAddress = await this.getAddress(xpub, true);
 
@@ -266,8 +270,12 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       }
 
       // CRITICAL: Enhance PSBT with required Ledger fields
-      const accountXpub = accounts[activeAccountType][activeAccountId].xpub;
-      const accountId = accounts[activeAccountType][activeAccountId].id;
+      const account = accounts[activeAccountType]?.[activeAccountId];
+      if (!account) {
+        throw new Error('Active account not found');
+      }
+      const accountXpub = account.xpub;
+      const accountId = account.id;
       const enhancedPsbt = await this.ledger.convertToLedgerFormat(
         psbt,
         accountXpub,

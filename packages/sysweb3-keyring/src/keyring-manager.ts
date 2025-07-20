@@ -365,14 +365,22 @@ export class KeyringManager implements IKeyringManager {
   public getNewChangeAddress = async (): Promise<string> => {
     const vault = this.getVault();
     const { accounts, activeAccount } = vault;
-    const { xpub } = accounts[activeAccount.type][activeAccount.id];
+    const account = accounts[activeAccount.type]?.[activeAccount.id];
+    if (!account) {
+      throw new Error('Active account not found');
+    }
+    const { xpub } = account;
     return await this.getAddress(xpub, true); // Don't skip increment - get next unused
   };
 
   public getChangeAddress = async (id: number): Promise<string> => {
     const vault = this.getVault();
     const { accounts, activeAccount } = vault;
-    const { xpub } = accounts[activeAccount.type][id];
+    const account = accounts[activeAccount.type]?.[id];
+    if (!account) {
+      throw new Error(`Account with id ${id} not found`);
+    }
+    const { xpub } = account;
 
     return await this.getAddress(xpub, true);
   };
@@ -380,7 +388,11 @@ export class KeyringManager implements IKeyringManager {
   public updateReceivingAddress = async (): Promise<string> => {
     const vault = this.getVault();
     const { accounts, activeAccount } = vault;
-    const { xpub } = accounts[activeAccount.type][activeAccount.id];
+    const account = accounts[activeAccount.type]?.[activeAccount.id];
+    if (!account) {
+      throw new Error('Active account not found');
+    }
+    const { xpub } = account;
 
     const address = await this.getAddress(xpub, false);
     // NOTE: Address updates should be dispatched to Redux store, not updated here
@@ -662,7 +674,10 @@ export class KeyringManager implements IKeyringManager {
   public getAccountXpub = (): string => {
     const vault = this.getVault();
     const { activeAccount } = vault;
-    const account = vault.accounts[activeAccount.type][activeAccount.id];
+    const account = vault.accounts[activeAccount.type]?.[activeAccount.id];
+    if (!account) {
+      throw new Error('Active account not found');
+    }
     return account.xpub;
   };
 
