@@ -42,6 +42,20 @@ global.self = global as any;
   },
 };
 
+// Mock ledgerService from @ledgerhq/hw-app-eth
+jest.mock('@ledgerhq/hw-app-eth', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    getAddress: jest.fn(),
+    signTransaction: jest.fn(),
+    signPersonalMessage: jest.fn(),
+    signEIP712HashedMessage: jest.fn(),
+  })),
+  ledgerService: {
+    resolveTransaction: jest.fn().mockResolvedValue({}),
+  },
+}));
+
 // Mock environment variables if needed
 process.env.SEED_PEACE_GLOBE =
   process.env.SEED_PEACE_GLOBE ||

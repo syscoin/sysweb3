@@ -47,6 +47,33 @@ export class LedgerKeyring {
     };
   }
 
+  public isConnected = (): boolean => {
+    return !!(
+      this.ledgerTransport &&
+      this.ledgerUtxoClient &&
+      this.ledgerEVMClient
+    );
+  };
+
+  public ensureConnection = async (): Promise<void> => {
+    // Check if all clients are properly initialized
+    if (!this.isConnected()) {
+      await this.connectToLedgerDevice();
+    }
+
+    // Additional check: Try a simple operation to verify connection is still active
+    try {
+      if (this.ledgerUtxoClient) {
+        // Try to get master fingerprint as a connection test
+        await this.ledgerUtxoClient.getMasterFingerprint();
+      }
+    } catch (error) {
+      // Connection lost, reconnect
+      console.log('Ledger connection lost, reconnecting...');
+      await this.connectToLedgerDevice();
+    }
+  };
+
   public connectToLedgerDevice = async () => {
     try {
       const connectionResponse = await HIDTransport.create();
@@ -73,6 +100,9 @@ export class LedgerKeyring {
     slip44: number;
   }) => {
     try {
+      // Ensure Ledger is connected before attempting operations
+      await this.ensureConnection();
+
       const fingerprint = await this.getMasterFingerprint();
       const xpub = await this.getXpub({ index, coin, slip44 });
       this.setHdPath(coin, index, slip44);
@@ -121,6 +151,9 @@ export class LedgerKeyring {
     currency: string;
     slip44: number;
   }) => {
+    // Ensure Ledger is connected before attempting operations
+    await this.ensureConnection();
+
     const coin = currency;
     this.setHdPath(coin, accountIndex, slip44);
     const fingerprint = await this.getMasterFingerprint();
@@ -141,14 +174,17 @@ export class LedgerKeyring {
     index,
     coin,
     slip44,
-    withDecriptor,
+    withDescriptor,
   }: {
     coin: string;
     index: number;
     slip44: number;
-    withDecriptor?: boolean;
+    withDescriptor?: boolean;
   }) => {
     try {
+      // Ensure Ledger is connected before attempting operations
+      await this.ensureConnection();
+
       const fingerprint = await this.getMasterFingerprint();
       this.setHdPath(coin, index, slip44);
       const xpub = await this.ledgerUtxoClient.getExtendedPubkey(this.hdPath);
@@ -158,7 +194,7 @@ export class LedgerKeyring {
         fingerprint
       );
 
-      return withDecriptor ? xpubWithDescriptor : xpub;
+      return withDescriptor ? xpubWithDescriptor : xpub;
     } catch (error) {
       throw error;
     }
@@ -166,6 +202,9 @@ export class LedgerKeyring {
 
   public signUtxoMessage = async (path: string, message: string) => {
     try {
+      // Ensure Ledger is connected before attempting to sign
+      await this.ensureConnection();
+
       const bufferMessage = Buffer.from(message);
       const signature = await this.ledgerUtxoClient.signMessage(
         bufferMessage,
@@ -184,6 +223,9 @@ export class LedgerKeyring {
     accountIndex: number;
     rawTx: string;
   }) => {
+    // Ensure Ledger is connected before attempting to sign
+    await this.ensureConnection();
+
     this.setHdPath('eth', accountIndex, 60);
     const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
 
@@ -203,6 +245,9 @@ export class LedgerKeyring {
     accountIndex: number;
     message: string;
   }) => {
+    // Ensure Ledger is connected before attempting to sign
+    await this.ensureConnection();
+
     this.setHdPath('eth', accountIndex, 60);
 
     const signature = await this.ledgerEVMClient.signPersonalMessage(
@@ -276,6 +321,9 @@ export class LedgerKeyring {
   }: {
     accountIndex: number;
   }) => {
+    // Ensure Ledger is connected before attempting operations
+    await this.ensureConnection();
+
     this.setHdPath('eth', accountIndex, 60);
     try {
       const { address, publicKey } = await this.ledgerEVMClient.getAddress(
@@ -296,6 +344,9 @@ export class LedgerKeyring {
     data: any;
     version: Version;
   }) => {
+    // Ensure Ledger is connected before attempting to sign
+    await this.ensureConnection();
+
     this.setHdPath('eth', accountIndex, 60);
     const dataWithHashes = this.transformTypedData(data, version === 'V4');
 
@@ -347,6 +398,9 @@ export class LedgerKeyring {
     slip44: number
   ): Promise<any> => {
     try {
+      // Ensure Ledger is connected before attempting operations
+      await this.ensureConnection();
+
       // Create BIP32 node from account xpub
       const accountNode = fromBase58(accountXpub);
 

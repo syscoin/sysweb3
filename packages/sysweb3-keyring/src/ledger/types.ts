@@ -126,12 +126,12 @@ export interface IUTXOMethods {
     index,
     coin,
     slip44,
-    withDecriptor,
+    withDescriptor,
   }: {
     coin: string;
     index: number;
     slip44: number;
-    withDecriptor?: boolean | undefined;
+    withDescriptor?: boolean | undefined;
   }) => Promise<string>;
   verifyUtxoAddress: (
     accountIndex: number,

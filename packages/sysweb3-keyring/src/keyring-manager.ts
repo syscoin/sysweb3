@@ -1272,7 +1272,7 @@ export class KeyringManager implements IKeyringManager {
           index: index,
           coin,
           slip44,
-          withDecriptor: true,
+          withDescriptor: true,
         });
         xpub = ledgerXpub;
         address = await this.ledgerSigner.utxo.getUtxoAddress({

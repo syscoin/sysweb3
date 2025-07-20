@@ -264,10 +264,8 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       this.getState();
 
     if (isLedger) {
-      // Initialize Ledger connection if needed
-      if (!this.ledger.ledgerTransport) {
-        await this.ledger.connectToLedgerDevice();
-      }
+      // Ensure Ledger is connected before attempting to sign
+      await this.ledger.ensureConnection();
 
       // CRITICAL: Enhance PSBT with required Ledger fields
       const account = accounts[activeAccountType]?.[activeAccountId];

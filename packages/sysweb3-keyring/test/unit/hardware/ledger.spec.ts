@@ -379,6 +379,101 @@ describe('Ledger Hardware Wallet', () => {
       mockSyscoinjs.utils.importPsbtFromJson = originalImportPsbtFromJson;
     });
 
+    it('should reconnect to Ledger when connection is lost during EVM transaction signing', async () => {
+      // Set up EVM vault state
+      const evmVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.Ledger,
+        networkType: INetworkType.Ethereum,
+        chainId: 1,
+      });
+      const evmVaultStateGetter = jest.fn(() => evmVaultState);
+
+      // Create EVM keyring with Ledger
+      const evmKeyring = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        evmVaultStateGetter
+      );
+
+      // Mock Ledger as disconnected (all clients undefined)
+      evmKeyring.ledgerSigner.ledgerTransport = undefined as any;
+      evmKeyring.ledgerSigner.ledgerUtxoClient = undefined as any;
+      evmKeyring.ledgerSigner.ledgerEVMClient = undefined as any;
+
+      // Mock connectToLedgerDevice to simulate successful reconnection
+      const mockTransport = { close: jest.fn() } as any;
+      evmKeyring.ledgerSigner.connectToLedgerDevice = jest
+        .fn()
+        .mockImplementation(async () => {
+          // Simulate successful reconnection
+          evmKeyring.ledgerSigner.ledgerTransport = mockTransport;
+          evmKeyring.ledgerSigner.ledgerUtxoClient = {
+            getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
+          } as any;
+          evmKeyring.ledgerSigner.ledgerEVMClient = {
+            signTransaction: jest.fn().mockResolvedValue({
+              r: '123456789abcdef',
+              s: '987654321fedcba',
+              v: '00',
+            }),
+            getAddress: jest.fn().mockResolvedValue({
+              address: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
+              publicKey: '0x04...',
+            }),
+            signPersonalMessage: jest
+              .fn()
+              .mockResolvedValue('0xmocked_signature'),
+            signEIP712HashedMessage: jest
+              .fn()
+              .mockResolvedValue('0xmocked_typed_signature'),
+          } as any;
+          return mockTransport;
+        });
+
+      // Import Ledger account
+      const evmAccount = {
+        id: 0,
+        label: 'Ledger 1',
+        address: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
+        xpub: 'xpub...',
+      };
+
+      evmVaultState.accounts[KeyringAccountType.Ledger][0] = {
+        id: evmAccount.id,
+        label: evmAccount.label,
+        address: evmAccount.address,
+        xpub: evmAccount.xpub,
+        xprv: '',
+        isImported: false,
+        isTrezorWallet: false,
+        isLedgerWallet: true,
+        balances: { syscoin: 0, ethereum: 0 },
+        assets: { syscoin: [], ethereum: [] },
+      };
+
+      // Test that Ledger reconnects and signs successfully
+      const result = await evmKeyring.ledgerSigner.evm.signEVMTransaction({
+        rawTx: '0x1234567890',
+        accountIndex: 0,
+      });
+
+      // Verify reconnection happened
+      expect(
+        evmKeyring.ledgerSigner.connectToLedgerDevice
+      ).toHaveBeenCalledTimes(1);
+
+      // Verify the signature was returned
+      expect(result).toEqual({
+        r: '123456789abcdef',
+        s: '987654321fedcba',
+        v: '00',
+      });
+
+      // Verify Ledger is now connected
+      expect(evmKeyring.ledgerSigner.isConnected()).toBe(true);
+    });
+
     it('should handle EVM transaction signing for Ledger', async () => {
       // Set up EVM vault state
       const evmVaultState = createMockVaultState({
