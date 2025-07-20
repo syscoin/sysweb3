@@ -108,7 +108,7 @@ export const url = async (
     contract.uri(tokenId),
   ]).catch((error: Error) => {
     throw new Error(
-      `An error occurred while trying to fetch the token URI from the NFT contract. Error: ${error}`
+      `An error occurred while trying to fetch the token URI from the NFT contract. ${error}`
     );
   });
 
@@ -166,7 +166,7 @@ export const getERC1155StandardBalance = async (
     );
   } catch (error) {
     throw new Error(
-      `Verify current network or the contract address. Set the same network of token contract. Error: ${error}`
+      `Verify current network or the contract address. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -183,7 +183,7 @@ export const getERC721StandardBalance = async (
     return await fetchBalanceOfERC721Contract(contractAddress, address, loaded);
   } catch (error) {
     throw new Error(
-      `Verify current network or the contract address. Set the same network of token contract. Error: ${error}`
+      `Verify current network or the contract address. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -413,7 +413,7 @@ export const getTokenStandardMetadata = async (
     );
   } catch (error) {
     throw new Error(
-      `Verify current network. Set the same network of token contract. Error: ${error}`
+      `Verify current network. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -429,7 +429,7 @@ export const getNftStandardMetadata = async (
     return await fetchStandardNftContractData(contractAddress, loaded);
   } catch (error) {
     throw new Error(
-      `Verify current network. Set the same network of NFT token contract. Error: ${error}`
+      `Verify current network. Set the same network of NFT token contract. ${error}`
     );
   }
 };
