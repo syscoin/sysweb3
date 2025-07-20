@@ -16,7 +16,8 @@ export function getDefaultUTXONetworks(): { [chainId: number]: INetwork } {
     // Include Syscoin mainnet and testnet as defaults
     return (
       (coin.coinShortcut === 'SYS' && coin.slip44 === 57) || // Syscoin Mainnet
-      (coin.coinShortcut === 'tSYS' && coin.slip44 === 1) // Syscoin Testnet
+      (coin.coinShortcut === 'tSYS' && coin.slip44 === 1) || // Syscoin Testnet
+      (coin.coinShortcut === 'BTC' && coin.slip44 === 0) // Bitcoin Mainnet only
     );
   });
 
@@ -81,4 +82,18 @@ export function getSyscoinUTXOTestnetNetwork(): INetwork {
   }
 
   return syscoinTestnet;
+}
+
+export function getBitcoinMainnetNetwork(): INetwork {
+  const networks = getDefaultUTXONetworks();
+  // Find Bitcoin mainnet (slip44: 0, currency: btc)
+  const bitcoinMainnet = Object.values(networks).find(
+    (network) => network.slip44 === 0 && network.currency === 'btc'
+  );
+
+  if (!bitcoinMainnet) {
+    throw new Error('Bitcoin Mainnet network not found in coins.ts');
+  }
+
+  return bitcoinMainnet;
 }
