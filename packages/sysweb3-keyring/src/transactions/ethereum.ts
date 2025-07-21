@@ -254,7 +254,7 @@ export class EthereumTransactions implements IEthereumTransactions {
     } else if (params[1].toLowerCase() === address.toLowerCase()) {
       msg = stripHexPrefix(params[0]);
     } else {
-      throw { msg: 'Signing for wrong address' };
+      throw new Error('Signing for wrong address');
     }
 
     const sign = () => {
@@ -344,7 +344,7 @@ export class EthereumTransactions implements IEthereumTransactions {
     } else if (params[1].toLowerCase() === address.toLowerCase()) {
       msg = params[0];
     } else {
-      throw { msg: 'Signing for wrong address' };
+      throw new Error('Signing for wrong address');
     }
 
     const signPersonalMessageWithDefaultWallet = () => {
@@ -467,12 +467,13 @@ export class EthereumTransactions implements IEthereumTransactions {
     const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
 
     let encryptedData = '';
+
     if (msgParams[0].toLowerCase() === address.toLowerCase()) {
       encryptedData = msgParams[1];
     } else if (msgParams[1].toLowerCase() === address.toLowerCase()) {
       encryptedData = msgParams[0];
     } else {
-      throw { msg: 'Decrypting for wrong receiver' };
+      throw new Error('Decrypting for wrong receiver');
     }
     encryptedData = stripHexPrefix(encryptedData);
 
@@ -537,7 +538,7 @@ export class EthereumTransactions implements IEthereumTransactions {
       } else if (block && !block.baseFeePerGas) {
         console.error('Chain doesnt support EIP1559');
         return { maxFeePerGas, maxPriorityFeePerGas };
-      } else if (!block) throw { msg: 'Block not found' };
+      } else if (!block) throw new Error('Block not found');
 
       return { maxFeePerGas, maxPriorityFeePerGas };
     } catch (error) {
