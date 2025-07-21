@@ -236,6 +236,7 @@ export interface IKeyringManager {
     isForPvtKey?: boolean
   ) => Promise<{
     canLogin: boolean;
+    needsAccountCreation?: boolean;
   }>;
   isUnlocked: () => boolean;
   logout: () => void;

@@ -314,6 +314,7 @@ export class KeyringManager implements IKeyringManager {
 
   public async unlock(password: string): Promise<{
     canLogin: boolean;
+    needsAccountCreation?: boolean;
   }> {
     try {
       const vaultKeys = await this.storage.get('vault-keys');
@@ -323,7 +324,6 @@ export class KeyringManager implements IKeyringManager {
           canLogin: false,
         };
       }
-
       // FIRST: Validate password against stored hash
       const { hash, salt } = vaultKeys;
       const saltedHashPassword = this.encryptSHA512(password, salt);
@@ -333,6 +333,67 @@ export class KeyringManager implements IKeyringManager {
         return {
           canLogin: false,
         };
+      }
+      // Handle migration from old vault format with currentSessionSalt
+      if (vaultKeys.currentSessionSalt) {
+        console.log(
+          '[KeyringManager] Detected old vault format, handling session migration...'
+        );
+
+        // The old format used currentSessionSalt for session data encryption
+        // We need to use it temporarily to decrypt the mnemonic correctly
+        const oldSessionPassword = this.encryptSHA512(
+          password,
+          vaultKeys.currentSessionSalt
+        );
+
+        // Get the vault and check if mnemonic needs migration
+        const { mnemonic } = await getDecryptedVault(password);
+
+        if (mnemonic) {
+          // Check if mnemonic is double-encrypted (old format behavior)
+          const isLikelyPlainMnemonic =
+            mnemonic.includes(' ') &&
+            (mnemonic.split(' ').length === 12 ||
+              mnemonic.split(' ').length === 24);
+
+          let decryptedMnemonic = mnemonic;
+          if (!isLikelyPlainMnemonic) {
+            try {
+              // Try to decrypt with raw password first (as vault stores it)
+              decryptedMnemonic = CryptoJS.AES.decrypt(
+                mnemonic,
+                password
+              ).toString(CryptoJS.enc.Utf8);
+            } catch (e) {
+              console.warn(
+                '[KeyringManager] Failed to decrypt mnemonic with password, trying old session password'
+              );
+              // If that fails, try with old session password
+              try {
+                decryptedMnemonic = CryptoJS.AES.decrypt(
+                  mnemonic,
+                  oldSessionPassword
+                ).toString(CryptoJS.enc.Utf8);
+              } catch (e2) {
+                // If both fail, assume it's already decrypted
+                decryptedMnemonic = mnemonic;
+              }
+            }
+          }
+
+          // Re-save the vault with properly formatted mnemonic (single encryption)
+          await setEncryptedVault({ mnemonic: decryptedMnemonic }, password);
+          console.log('[KeyringManager] Vault mnemonic format normalized');
+        }
+
+        // Remove currentSessionSalt from vault-keys
+        const migratedVaultKeys = {
+          hash: vaultKeys.hash,
+          salt: vaultKeys.salt,
+        };
+        await this.storage.set('vault-keys', migratedVaultKeys);
+        console.log('[KeyringManager] Old vault format migration completed');
       }
 
       // If session data missing or corrupted, recreate from vault
@@ -344,6 +405,22 @@ export class KeyringManager implements IKeyringManager {
       // No need to explicitly set active account after unlock - it's managed externally
       const vault = this.getVault();
       if (vault.activeAccount?.id !== undefined && vault.activeAccount?.type) {
+        // Check if the active account actually exists in the accounts map
+        const accountType = vault.activeAccount.type;
+        const accountId = vault.activeAccount.id;
+        const accountExists = vault.accounts?.[accountType]?.[accountId];
+
+        if (!accountExists) {
+          console.log(
+            `[KeyringManager] Active account ${accountType}:${accountId} not found in accounts map. This may indicate a migration from old vault format.`
+          );
+          // Signal that accounts need to be created after migration
+          return {
+            canLogin: true,
+            needsAccountCreation: true,
+          };
+        }
+
         console.log(
           `[KeyringManager] Active account ${vault.activeAccount.id} available after unlock`
         );
