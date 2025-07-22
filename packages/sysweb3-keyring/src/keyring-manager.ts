@@ -462,6 +462,36 @@ export class KeyringManager implements IKeyringManager {
     return await this.getAddress(xpub, true);
   };
 
+  public getPubkey = async (
+    id: number,
+    isChangeAddress: boolean
+  ): Promise<string> => {
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const account = accounts[activeAccount.type]?.[id];
+    if (!account) {
+      throw new Error(`Account with id ${id} not found`);
+    }
+    const { xpub } = account;
+
+    return await this.getCurrentAddressPubkey(xpub, isChangeAddress);
+  };
+
+  public getBip32Path = async (
+    id: number,
+    isChangeAddress: boolean
+  ): Promise<string> => {
+    const vault = this.getVault();
+    const { accounts, activeAccount } = vault;
+    const account = accounts[activeAccount.type]?.[id];
+    if (!account) {
+      throw new Error(`Account with id ${id} not found`);
+    }
+    const { xpub } = account;
+
+    return await this.getCurrentAddressBip32Path(xpub, isChangeAddress);
+  };
+
   public updateReceivingAddress = async (): Promise<string> => {
     const vault = this.getVault();
     const { accounts, activeAccount } = vault;
@@ -862,8 +892,16 @@ export class KeyringManager implements IKeyringManager {
   public createEthAccount = (privateKey: string) =>
     new ethers.Wallet(privateKey);
 
-  public getAddress = async (xpub: string, isChangeAddress: boolean) => {
-    const { hd, main } = this.getSigner();
+  // Helper to get current account data from backend
+  private fetchCurrentAccountData = async (
+    xpub: string,
+    isChangeAddress: boolean
+  ) => {
+    const vault = this.getVault();
+    const { activeNetwork } = vault;
+
+    // Use read-only signer for backend calls - works for all account types including hardware wallets
+    const { main } = this.getReadOnlySigner();
     const options = 'tokens=used&details=tokens';
 
     const { tokens } = await syscoinjs.utils.fetchBackendAccount(
@@ -877,19 +915,85 @@ export class KeyringManager implements IKeyringManager {
     const { receivingIndex, changeIndex } =
       this.setLatestIndexesFromXPubTokens(tokens);
 
-    const currentAccount = new BIP84.fromZPub(
+    // Get network configuration for BIP84
+    const networkConfig = getNetworkConfig(
+      activeNetwork.slip44,
+      activeNetwork.currency
+    );
+
+    // BIP84 needs pubTypes and networks config
+    // For read-only operations, we construct these from networkConfig
+    const pubTypes = networkConfig?.types?.zPubType || {
+      mainnet: { zprv: 0x04b2430c, zpub: 0x04b24746 },
+      testnet: { vprv: 0x045f18bc, vpub: 0x045f1cf6 },
+    };
+    const networks = networkConfig?.networks || {
+      mainnet: {},
+      testnet: {},
+    };
+
+    const currentAccount = new BIP84.fromZPub(xpub, pubTypes, networks);
+
+    const addressIndex = isChangeAddress ? changeIndex : receivingIndex;
+
+    return {
+      currentAccount,
+      addressIndex,
+      main,
+    };
+  };
+
+  public getAddress = async (xpub: string, isChangeAddress: boolean) => {
+    const { currentAccount, addressIndex } = await this.fetchCurrentAccountData(
       xpub,
-      hd.Signer.pubTypes,
-      hd.Signer.networks
+      isChangeAddress
     );
 
     const address = currentAccount.getAddress(
-      isChangeAddress ? changeIndex : receivingIndex,
+      addressIndex,
       isChangeAddress,
       84
     ) as string;
 
     return address;
+  };
+
+  public getCurrentAddressPubkey = async (
+    xpub: string,
+    isChangeAddress = false
+  ): Promise<string> => {
+    const { currentAccount, addressIndex } = await this.fetchCurrentAccountData(
+      xpub,
+      isChangeAddress
+    );
+
+    // BIP84 returns the public key as a hex string directly
+    return currentAccount.getPublicKey(addressIndex, isChangeAddress);
+  };
+
+  public getCurrentAddressBip32Path = async (
+    xpub: string,
+    isChangeAddress: boolean
+  ): Promise<string> => {
+    const vault = this.getVault();
+    const { activeAccount, activeNetwork } = vault;
+
+    const { addressIndex } = await this.fetchCurrentAccountData(
+      xpub,
+      isChangeAddress
+    );
+
+    // Use the utility function to generate the proper derivation path
+    const coinShortcut = activeNetwork.currency.toLowerCase(); // e.g., 'sys', 'btc'
+    const path = getAddressDerivationPath(
+      coinShortcut,
+      activeNetwork.slip44,
+      activeAccount.id,
+      isChangeAddress,
+      addressIndex
+    );
+
+    return path;
   };
 
   public logout = () => {

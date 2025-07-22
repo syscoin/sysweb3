@@ -267,6 +267,8 @@ export interface IKeyringManager {
   ) => Promise<IKeyringAccountState>;
   getNewChangeAddress: () => Promise<string>;
   getChangeAddress: (id: number) => Promise<string>;
+  getPubkey: (id: number, isChangeAddress: boolean) => Promise<string>;
+  getBip32Path: (id: number, isChangeAddress: boolean) => Promise<string>;
   updateReceivingAddress: () => Promise<string>;
   getActiveAccount: () => {
     activeAccount: Omit<IKeyringAccountState, 'xprv'>;

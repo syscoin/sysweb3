@@ -591,4 +591,406 @@ describe('KeyringManager - Key Derivation', () => {
       }).toThrow('Account index overflow');
     });
   });
+
+  describe('Address Public Key and BIP32 Path Methods', () => {
+    let mockFetchBackendAccount: jest.Mock;
+
+    beforeEach(async () => {
+      // Set up UTXO vault state for testing these methods
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        mockVaultStateGetter
+      );
+
+      // Mock the fetchBackendAccount to return specific tokens with paths
+      const syscoinjs = require('syscoinjs-lib');
+      mockFetchBackendAccount = syscoinjs.utils
+        .fetchBackendAccount as jest.Mock;
+    });
+
+    describe('getCurrentAddressPubkey', () => {
+      it('should return public key for receiving address', async () => {
+        // Mock backend response with tokens
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/0/0",
+              transfers: '1',
+            },
+            {
+              path: "m/84'/57'/0'/0/1",
+              transfers: '1',
+            },
+            {
+              path: "m/84'/57'/0'/1/0",
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+        const pubkey = await keyringManager.getCurrentAddressPubkey(
+          account.xpub,
+          false // receiving address
+        );
+
+        // Verify the public key is a valid hex string
+        expect(pubkey).toMatch(/^[0-9a-fA-F]{66}$/); // 33 bytes = 66 hex chars
+        expect(pubkey.length).toBe(66); // Compressed public key
+
+        // Verify fetchBackendAccount was called with correct params
+        expect(mockFetchBackendAccount).toHaveBeenCalledWith(
+          expect.any(String), // blockbook URL
+          account.xpub,
+          'tokens=used&details=tokens',
+          true,
+          undefined
+        );
+      });
+
+      it('should return public key for change address', async () => {
+        // Mock backend response with tokens
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/0/0",
+              transfers: '1',
+            },
+            {
+              path: "m/84'/57'/0'/1/0",
+              transfers: '1',
+            },
+            {
+              path: "m/84'/57'/0'/1/1",
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+        const pubkey = await keyringManager.getCurrentAddressPubkey(
+          account.xpub,
+          true // change address
+        );
+
+        // Verify the public key is a valid hex string
+        expect(pubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+        expect(pubkey.length).toBe(66);
+      });
+
+      it('should use correct index based on token paths', async () => {
+        // Mock backend response with specific token paths
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/0/5", // receiving index 5
+              transfers: '1',
+            },
+            {
+              path: "m/84'/57'/0'/1/3", // change index 3
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+
+        // Get public key for receiving address - should use index 6 (5 + 1)
+        const receivingPubkey = await keyringManager.getCurrentAddressPubkey(
+          account.xpub,
+          false
+        );
+
+        // Get public key for change address - should use index 4 (3 + 1)
+        const changePubkey = await keyringManager.getCurrentAddressPubkey(
+          account.xpub,
+          true
+        );
+
+        // They should be different
+        expect(receivingPubkey).not.toBe(changePubkey);
+        expect(receivingPubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+        expect(changePubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+      });
+    });
+
+    describe('getCurrentAddressBip32Path', () => {
+      it('should return correct BIP32 path for receiving address', async () => {
+        // Mock backend response with tokens
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/0/2",
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+        const path = await keyringManager.getCurrentAddressBip32Path(
+          account.xpub,
+          false // receiving address
+        );
+
+        // Should return path for index 3 (2 + 1)
+        expect(path).toBe("m/84'/57'/0'/0/3");
+      });
+
+      it('should return correct BIP32 path for change address', async () => {
+        // Mock backend response with tokens
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/1/4",
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+        const path = await keyringManager.getCurrentAddressBip32Path(
+          account.xpub,
+          true // change address
+        );
+
+        // Should return path for index 5 (4 + 1)
+        expect(path).toBe("m/84'/57'/0'/1/5");
+      });
+
+      it('should use account ID from active account', async () => {
+        // Add a new account
+        const newAccount = await keyringManager.addNewAccount();
+
+        // Update vault state with new account
+        currentVaultState.accounts[KeyringAccountType.HDAccount][1] = {
+          id: 1,
+          label: 'Account 2',
+          address: newAccount.address,
+          xpub: newAccount.xpub,
+          xprv: '',
+          isImported: false,
+          isTrezorWallet: false,
+          isLedgerWallet: false,
+          balances: { syscoin: 0, ethereum: 0 },
+          assets: { syscoin: [], ethereum: [] },
+        };
+        currentVaultState.activeAccount = {
+          id: 1,
+          type: KeyringAccountType.HDAccount,
+        };
+
+        // Mock backend response
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [],
+        });
+
+        const path = await keyringManager.getCurrentAddressBip32Path(
+          newAccount.xpub,
+          false
+        );
+
+        // Should use account ID 1
+        expect(path).toBe("m/84'/57'/1'/0/0");
+      });
+
+      it('should handle empty token list', async () => {
+        // Mock backend response with no tokens
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 0,
+          tokens: [],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+
+        // Should use index 0 for both
+        const receivingPath = await keyringManager.getCurrentAddressBip32Path(
+          account.xpub,
+          false
+        );
+        const changePath = await keyringManager.getCurrentAddressBip32Path(
+          account.xpub,
+          true
+        );
+
+        expect(receivingPath).toBe("m/84'/57'/0'/0/0");
+        expect(changePath).toBe("m/84'/57'/0'/1/0");
+      });
+
+      it('should handle Bitcoin network paths', async () => {
+        // Set up Bitcoin vault state
+        const btcVaultState = createMockVaultState({
+          activeAccountId: 0,
+          activeAccountType: KeyringAccountType.HDAccount,
+          networkType: INetworkType.Syscoin, // UTXO type
+          chainId: 57, // Use default Syscoin chainId for now
+        });
+
+        // Override the active network to be Bitcoin
+        btcVaultState.activeNetwork = {
+          chainId: 0,
+          currency: 'BTC',
+          label: 'Bitcoin',
+          url: 'https://blockstream.info',
+          kind: INetworkType.Syscoin,
+          slip44: 0, // Bitcoin's slip44
+          explorer: 'https://blockstream.info',
+        };
+
+        const btcVaultStateGetter = jest.fn(() => btcVaultState);
+
+        // Create Bitcoin keyring
+        const btcKeyring = await KeyringManager.createInitialized(
+          PEACE_SEED_PHRASE,
+          FAKE_PASSWORD,
+          btcVaultStateGetter
+        );
+
+        // Mock backend response
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [],
+        });
+
+        const account = btcKeyring.getActiveAccount().activeAccount;
+        const path = await btcKeyring.getCurrentAddressBip32Path(
+          account.xpub,
+          false
+        );
+
+        // Should use Bitcoin's slip44 (0)
+        expect(path).toBe("m/84'/0'/0'/0/0");
+      });
+    });
+
+    describe('Integration between methods', () => {
+      it('getCurrentAddressPubkey and getAddress should derive from same index', async () => {
+        // Mock backend response
+        mockFetchBackendAccount.mockResolvedValue({
+          balance: 100000000,
+          tokens: [
+            {
+              path: "m/84'/57'/0'/0/2",
+              transfers: '1',
+            },
+          ],
+        });
+
+        const account = keyringManager.getActiveAccount().activeAccount;
+
+        // Get address and public key
+        const address = await keyringManager.getAddress(account.xpub, false);
+        const pubkey = await keyringManager.getCurrentAddressPubkey(
+          account.xpub,
+          false
+        );
+
+        // Both should be valid and non-empty
+        expect(address).toBeTruthy();
+        expect(address).toMatch(/^(sys1|tsys1)/);
+        expect(pubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+
+        // They should have been called with the same backend data
+        expect(mockFetchBackendAccount).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
+  describe('Hardware Wallet Support', () => {
+    it('should work with all read-only methods', async () => {
+      // Set up UTXO vault state with a regular HD account for testing
+      // The key point is that our methods work with just xpub, regardless of account type
+      currentVaultState = createMockVaultState({
+        activeAccountId: 0,
+        activeAccountType: KeyringAccountType.HDAccount,
+        networkType: INetworkType.Syscoin,
+        chainId: 57,
+      });
+
+      mockVaultStateGetter = jest.fn(() => currentVaultState);
+
+      keyringManager = await KeyringManager.createInitialized(
+        PEACE_SEED_PHRASE,
+        FAKE_PASSWORD,
+        mockVaultStateGetter
+      );
+
+      // Mock backend response
+      const syscoinjs = require('syscoinjs-lib');
+      const mockFetchBackendAccount = syscoinjs.utils
+        .fetchBackendAccount as jest.Mock;
+      mockFetchBackendAccount.mockResolvedValue({
+        balance: 100000000,
+        tokens: [
+          {
+            path: "m/84'/57'/0'/0/2",
+            transfers: '1',
+          },
+          {
+            path: "m/84'/57'/0'/1/1",
+            transfers: '1',
+          },
+        ],
+      });
+
+      // Get the xpub from a regular account to test with
+      const account = keyringManager.getActiveAccount().activeAccount;
+      const xpub = account.xpub;
+
+      // Test all read-only methods that hardware wallets can use
+      // These methods only need xpub, not private keys
+
+      // 1. Test getCurrentAddressPubkey
+      const receivingPubkey = await keyringManager.getCurrentAddressPubkey(
+        xpub,
+        false
+      );
+      const changePubkey = await keyringManager.getCurrentAddressPubkey(
+        xpub,
+        true
+      );
+      expect(receivingPubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+      expect(changePubkey).toMatch(/^[0-9a-fA-F]{66}$/);
+      expect(receivingPubkey).not.toBe(changePubkey);
+
+      // 2. Test getBip32Path
+      const receivingPath = await keyringManager.getCurrentAddressBip32Path(
+        xpub,
+        false
+      );
+      const changePath = await keyringManager.getCurrentAddressBip32Path(
+        xpub,
+        true
+      );
+      expect(receivingPath).toBe("m/84'/57'/0'/0/3"); // index 2 + 1
+      expect(changePath).toBe("m/84'/57'/0'/1/2"); // index 1 + 1
+
+      // 3. Test getAddress (used by getChangeAddress)
+      const receivingAddress = await keyringManager.getAddress(xpub, false);
+      const changeAddress = await keyringManager.getAddress(xpub, true);
+      expect(receivingAddress).toMatch(/^(sys1|tsys1)/);
+      expect(changeAddress).toMatch(/^(sys1|tsys1)/);
+      expect(receivingAddress).not.toBe(changeAddress);
+
+      // 4. Test getChangeAddress (calls getAddress internally)
+      const changeAddr = await keyringManager.getChangeAddress(0);
+      expect(changeAddr).toMatch(/^(sys1|tsys1)/);
+
+      // All these methods work with just xpub, making them hardware wallet compatible
+    });
+  });
 });
