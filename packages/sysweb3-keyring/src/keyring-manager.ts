@@ -960,7 +960,7 @@ export class KeyringManager implements IKeyringManager {
 
   public getCurrentAddressPubkey = async (
     xpub: string,
-    isChangeAddress = false
+    isChangeAddress: boolean
   ): Promise<string> => {
     const { currentAccount, addressIndex } = await this.fetchCurrentAccountData(
       xpub,
