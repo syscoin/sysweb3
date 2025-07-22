@@ -301,8 +301,11 @@ export class EthereumTransactions implements IEthereumTransactions {
 
     const signWithTrezor = async () => {
       try {
+        // For EVM networks, Trezor expects 'eth' regardless of the network's currency
+        const trezorCoin =
+          activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
         const response: any = await this.trezorSigner.signMessage({
-          coin: activeNetwork.currency,
+          coin: trezorCoin,
           address: activeAccount.address,
           index: activeAccountId,
           message: msg,
@@ -409,8 +412,11 @@ export class EthereumTransactions implements IEthereumTransactions {
           messageForTrezor = '0x' + Buffer.from(msg, 'utf8').toString('hex');
         }
 
+        // For EVM networks, Trezor expects 'eth' regardless of the network's currency
+        const trezorCoin =
+          activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
         const response: any = await this.trezorSigner.signMessage({
-          coin: activeNetwork.currency,
+          coin: trezorCoin,
           address: activeAccount.address,
           index: activeAccountId,
           message: messageForTrezor,
@@ -1639,10 +1645,13 @@ export class EthereumTransactions implements IEthereumTransactions {
           };
         }
 
+        // For EVM networks, Trezor expects 'eth' regardless of the network's currency
+        const trezorCoin =
+          activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
         const signature = await this.trezorSigner.signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
-          coin: activeNetwork.currency,
+          coin: trezorCoin,
           slip44: activeNetwork.slip44,
         });
 
