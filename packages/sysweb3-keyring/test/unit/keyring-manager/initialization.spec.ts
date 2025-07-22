@@ -573,7 +573,6 @@ describe('KeyringManager - Initialization', () => {
       };
 
       const ledgerAccount = await keyringManager.importLedgerAccount(
-        true,
         'Test Ledger'
       );
       expect(ledgerAccount).toBeDefined();

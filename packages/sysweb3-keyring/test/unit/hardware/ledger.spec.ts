@@ -3,6 +3,9 @@ import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
+// Use global createMockVaultState
+const createMockVaultState = (global as any).createMockVaultState;
+
 describe('Ledger Hardware Wallet', () => {
   let keyringManager: KeyringManager;
   let mockVaultStateGetter: jest.Mock;
@@ -31,6 +34,17 @@ describe('Ledger Hardware Wallet', () => {
     keyringManager.ledgerSigner.connectToLedgerDevice = jest
       .fn()
       .mockResolvedValue(true);
+
+    // Mock ensureConnection
+    keyringManager.ledgerSigner.ensureConnection = jest
+      .fn()
+      .mockResolvedValue(undefined);
+
+    // Mock ledgerUtxoClient for getMasterFingerprint calls
+    keyringManager.ledgerSigner.ledgerUtxoClient = {
+      getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
+      signPsbt: jest.fn(),
+    } as any;
   });
 
   describe('Account Import', () => {
@@ -49,10 +63,7 @@ describe('Ledger Hardware Wallet', () => {
           .mockResolvedValue('sys1qmock_ledger_address'),
       };
 
-      const account = await keyringManager.importLedgerAccount(
-        true,
-        'My Ledger'
-      );
+      const account = await keyringManager.importLedgerAccount('My Ledger');
 
       expect(account).toBeDefined();
       if (account) {
@@ -67,13 +78,14 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should fail if Ledger connection fails', async () => {
-      // Mock connection failure
-      keyringManager.ledgerSigner.connectToLedgerDevice = jest
+      // Mock connection failure in ensureConnection
+      keyringManager.ledgerSigner.ensureConnection = jest
         .fn()
-        .mockResolvedValue(false);
+        .mockRejectedValue(new Error('Failed to connect to device'));
 
-      const result = await keyringManager.importLedgerAccount(false);
-      expect(result).toBeUndefined();
+      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
+        'Failed to connect to device'
+      );
     });
 
     it('should handle Ledger import for EVM networks', async () => {
@@ -93,6 +105,11 @@ describe('Ledger Hardware Wallet', () => {
         evmVaultStateGetter
       );
 
+      // Mock ensureConnection for EVM keyring
+      evmKeyring.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock complete EVM interface
       evmKeyring.ledgerSigner.evm = {
         getEvmAddressAndPubKey: jest.fn().mockResolvedValue({
@@ -108,7 +125,7 @@ describe('Ledger Hardware Wallet', () => {
         signTypedData: jest.fn().mockResolvedValue('0xmocked_typed_signature'),
       };
 
-      const account = await evmKeyring.importLedgerAccount(true, 'Ledger ETH');
+      const account = await evmKeyring.importLedgerAccount('Ledger ETH');
 
       expect(account).toBeDefined();
       if (account) {
@@ -126,7 +143,7 @@ describe('Ledger Hardware Wallet', () => {
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
       };
 
-      const firstAccount = await keyringManager.importLedgerAccount(true);
+      const firstAccount = await keyringManager.importLedgerAccount();
 
       // Update vault state with first account
       if (firstAccount) {
@@ -154,7 +171,7 @@ describe('Ledger Hardware Wallet', () => {
       };
 
       // Should reject duplicate - this tests the actual business logic
-      await expect(keyringManager.importLedgerAccount(true)).rejects.toThrow(
+      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
         'Account already exists'
       );
     });
@@ -177,10 +194,7 @@ describe('Ledger Hardware Wallet', () => {
       };
 
       // Import a Ledger account
-      const account = await keyringManager.importLedgerAccount(
-        true,
-        'Test Ledger'
-      );
+      const account = await keyringManager.importLedgerAccount('Test Ledger');
 
       // Update vault state with imported account
       if (account) {
@@ -287,10 +301,7 @@ describe('Ledger Hardware Wallet', () => {
           .mockResolvedValue('sys1qmock_ledger_address'),
       };
 
-      const account = await keyringManager.importLedgerAccount(
-        true,
-        'Signing Test'
-      );
+      const account = await keyringManager.importLedgerAccount('Signing Test');
       if (account) {
         // Update vault state to set Ledger as active
         currentVaultState.accounts[KeyringAccountType.Ledger][account.id] = {
@@ -491,6 +502,11 @@ describe('Ledger Hardware Wallet', () => {
         evmVaultStateGetter
       );
 
+      // Mock ensureConnection
+      evmKeyring.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock Ledger EVM signer
       const mockSignEVMTransaction = jest.fn().mockResolvedValue({
         r: '123456789abcdef123456789abcdef123456789abcdef123456789abcdef12345678',
@@ -509,10 +525,7 @@ describe('Ledger Hardware Wallet', () => {
       };
 
       // Import Ledger account
-      const evmAccount = await evmKeyring.importLedgerAccount(
-        true,
-        'EVM Ledger'
-      );
+      const evmAccount = await evmKeyring.importLedgerAccount('EVM Ledger');
       if (evmAccount) {
         // Update vault state to set Ledger as active
         evmVaultState.accounts[KeyringAccountType.Ledger][evmAccount.id] = {
@@ -580,6 +593,11 @@ describe('Ledger Hardware Wallet', () => {
         testnetVaultStateGetter
       );
 
+      // Mock ensureConnection for testnet
+      testnetKeyring.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock testnet Ledger
       testnetKeyring.ledgerSigner.utxo = {
         getXpub: jest.fn().mockResolvedValue('tpub_testnet'),
@@ -589,7 +607,6 @@ describe('Ledger Hardware Wallet', () => {
       };
 
       const account = await testnetKeyring.importLedgerAccount(
-        true,
         'Testnet Ledger'
       );
       if (account) {
@@ -608,7 +625,6 @@ describe('Ledger Hardware Wallet', () => {
 
       // Import on mainnet
       const mainnetAccount = await keyringManager.importLedgerAccount(
-        true,
         'Mainnet Ledger'
       );
 
@@ -628,6 +644,11 @@ describe('Ledger Hardware Wallet', () => {
         testnetVaultStateGetter
       );
 
+      // Mock ensureConnection for testnet
+      testnetKeyring.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock testnet Ledger
       testnetKeyring.ledgerSigner.utxo = {
         getXpub: jest.fn().mockResolvedValue('tpub_testnet'),
@@ -638,7 +659,6 @@ describe('Ledger Hardware Wallet', () => {
 
       // Import on testnet
       const testnetAccount = await testnetKeyring.importLedgerAccount(
-        true,
         'Testnet Ledger'
       );
 
@@ -663,7 +683,7 @@ describe('Ledger Hardware Wallet', () => {
         verifyUtxoAddress: jest.fn(),
       };
 
-      await expect(keyringManager.importLedgerAccount(true)).rejects.toThrow(
+      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
         'Ledger device communication error'
       );
     });
@@ -677,7 +697,7 @@ describe('Ledger Hardware Wallet', () => {
         verifyUtxoAddress: jest.fn(),
       };
 
-      await expect(keyringManager.importLedgerAccount(true)).rejects.toThrow(
+      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
         'Something wrong happened'
       );
     });
@@ -692,7 +712,7 @@ describe('Ledger Hardware Wallet', () => {
         verifyUtxoAddress: jest.fn(),
       };
 
-      await expect(keyringManager.importLedgerAccount(true)).rejects.toThrow(
+      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
         'Please open Syscoin app on Ledger'
       );
     });
@@ -707,10 +727,7 @@ describe('Ledger Hardware Wallet', () => {
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_test_address'),
       };
 
-      const account = await keyringManager.importLedgerAccount(
-        true,
-        'Security Test'
-      );
+      const account = await keyringManager.importLedgerAccount('Security Test');
 
       expect(account).toBeDefined();
       if (account) {
@@ -740,7 +757,6 @@ describe('Ledger Hardware Wallet', () => {
       };
 
       const ledgerAccount = await keyringManager.importLedgerAccount(
-        true,
         'Isolation Test'
       );
 

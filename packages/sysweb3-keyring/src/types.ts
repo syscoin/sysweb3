@@ -278,7 +278,6 @@ export interface IKeyringManager {
   createNewSeed: () => string;
   getUTXOState: () => any;
   importLedgerAccount: (
-    isAlreadyConnected: boolean,
     label?: string
   ) => Promise<IKeyringAccountState | undefined>;
   getActiveUTXOAccountState: () => any;

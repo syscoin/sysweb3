@@ -741,5 +741,71 @@ describe('Trezor Hardware Wallet', () => {
         expect(activeAfter.activeAccount.isTrezorWallet).toBe(true);
       }
     });
+
+    it('should verify UTXO address on Trezor device', async () => {
+      // Mock TrezorConnect.getAddress to simulate device verification
+      const TrezorConnect = require('@trezor/connect-webextension').default;
+      TrezorConnect.getAddress = jest.fn().mockResolvedValue({
+        success: true,
+        payload: {
+          address: 'sys1qmock_trezor_verified_address',
+        },
+      });
+
+      const account = await keyringManager.importTrezorAccount('Verify Test');
+
+      if (account) {
+        // Update vault state
+        currentVaultState.accounts[KeyringAccountType.Trezor][account.id] = {
+          id: account.id,
+          label: account.label,
+          address: account.address,
+          xpub: account.xpub,
+          xprv: '',
+          isImported: false,
+          isTrezorWallet: true,
+          isLedgerWallet: false,
+          balances: { syscoin: 0, ethereum: 0 },
+          assets: { syscoin: [], ethereum: [] },
+        };
+
+        // Test verifyUtxoAddress
+        const verifiedAddress =
+          await keyringManager.trezorSigner.verifyUtxoAddress(
+            account.id,
+            'sys',
+            57
+          );
+
+        expect(verifiedAddress).toBe('sys1qmock_trezor_verified_address');
+
+        // Verify that showOnTrezor was set to true
+        expect(TrezorConnect.getAddress).toHaveBeenCalledWith(
+          expect.objectContaining({
+            showOnTrezor: true,
+          })
+        );
+      }
+    });
+
+    it('should handle user cancellation during address verification', async () => {
+      // Mock TrezorConnect.getAddress to simulate user cancellation
+      const TrezorConnect = require('@trezor/connect-webextension').default;
+      TrezorConnect.getAddress = jest.fn().mockResolvedValue({
+        success: false,
+        payload: {
+          error: 'User cancelled',
+        },
+      });
+
+      const account = await keyringManager.importTrezorAccount('Cancel Test');
+
+      if (account) {
+        // Attempt to verify address
+        await expect(
+          keyringManager.trezorSigner.verifyUtxoAddress(account.id, 'sys', 57)
+        ).rejects.toThrow('Address verification cancelled by user');
+      }
+    });
   });
 });

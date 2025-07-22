@@ -808,6 +808,7 @@ export class KeyringManager implements IKeyringManager {
         [KeyringAccountType.HDAccount]: utxOAccounts,
         [KeyringAccountType.Imported]: {},
         [KeyringAccountType.Trezor]: {},
+        [KeyringAccountType.Ledger]: {},
       },
     };
   };
@@ -837,41 +838,36 @@ export class KeyringManager implements IKeyringManager {
     return importedAccount;
   }
 
-  public async importLedgerAccount(
-    isAlreadyConnected: boolean,
-    label?: string
-  ) {
+  public async importLedgerAccount(label?: string) {
     try {
-      const connectionResponse = isAlreadyConnected
-        ? true
-        : await this.ledgerSigner.connectToLedgerDevice();
+      // Use ensureConnection for robust connection handling
+      // This will connect if needed, or reuse existing connection
+      await this.ledgerSigner.ensureConnection();
 
-      if (connectionResponse) {
-        const vault = this.getVault();
-        const currency = vault.activeNetwork.currency;
-        if (!currency) {
-          throw new Error('Active network currency is not defined');
-        }
-
-        // Use getNextAccountId to filter out placeholder accounts
-        const nextIndex = this.getNextAccountId(
-          vault.accounts[KeyringAccountType.Ledger]
-        );
-
-        const importedAccount = await this._createLedgerAccount(
-          currency,
-          vault.activeNetwork.slip44,
-          nextIndex
-        );
-        importedAccount.label = label
-          ? label
-          : `Ledger ${importedAccount.id + 1}`;
-
-        // NOTE: Account creation should be dispatched to Redux store, not updated here
-        // The calling code should handle the Redux dispatch
-        // Return the created account for Pali to add to store
-        return importedAccount;
+      const vault = this.getVault();
+      const currency = vault.activeNetwork.currency;
+      if (!currency) {
+        throw new Error('Active network currency is not defined');
       }
+
+      // Use getNextAccountId to filter out placeholder accounts
+      const nextIndex = this.getNextAccountId(
+        vault.accounts[KeyringAccountType.Ledger]
+      );
+
+      const importedAccount = await this._createLedgerAccount(
+        currency,
+        vault.activeNetwork.slip44,
+        nextIndex
+      );
+      importedAccount.label = label
+        ? label
+        : `Ledger ${importedAccount.id + 1}`;
+
+      // NOTE: Account creation should be dispatched to Redux store, not updated here
+      // The calling code should handle the Redux dispatch
+      // Return the created account for Pali to add to store
+      return importedAccount;
     } catch (error) {
       console.log({ error });
       throw error;
@@ -1364,10 +1360,14 @@ export class KeyringManager implements IKeyringManager {
     const vault = this.getVault();
     const { accounts } = vault;
     let xpub, balance;
+
+    // For EVM networks, Trezor expects 'eth' regardless of the network's currency
+    const trezorCoin = slip44 === 60 ? 'eth' : coin;
+
     try {
       const { descriptor, balance: _balance } =
         await this.trezorSigner.getAccountInfo({
-          coin,
+          coin: trezorCoin,
           slip44,
           index,
         });
@@ -1386,7 +1386,7 @@ export class KeyringManager implements IKeyringManager {
       // For EVM, the descriptor from getAccountInfo is actually the address
       // But we should get it properly from getAddress to ensure consistency
       const trezorAddress = await this.trezorSigner.getAddress({
-        coin,
+        coin: trezorCoin,
         slip44,
         index: index,
       });
@@ -1397,7 +1397,7 @@ export class KeyringManager implements IKeyringManager {
 
       // Also get the public key for EVM
       const response = await this.trezorSigner.getPublicKey({
-        coin,
+        coin: trezorCoin,
         slip44,
         index: +index,
       });

@@ -853,4 +853,39 @@ export class TrezorKeyring {
       return error;
     }
   }
+
+  /**
+   * Verify UTXO address by displaying it on the Trezor device
+   * @param accountIndex - The account index
+   * @param currency - The currency (coin type)
+   * @param slip44 - The slip44 value for the network
+   * @returns The verified address
+   */
+  public async verifyUtxoAddress(
+    accountIndex: number,
+    currency: string,
+    slip44: number
+  ): Promise<string | undefined> {
+    const fullPath = getAddressDerivationPath(
+      currency,
+      slip44,
+      0,
+      false, // Not a change address
+      accountIndex
+    );
+
+    try {
+      const { payload, success } = await TrezorConnect.getAddress({
+        path: fullPath,
+        coin: currency,
+        showOnTrezor: true, // This displays the address on device for verification
+      });
+      if (success) {
+        return payload.address;
+      }
+      throw new Error('Address verification cancelled by user');
+    } catch (error) {
+      throw error;
+    }
+  }
 }
