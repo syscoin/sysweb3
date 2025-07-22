@@ -6,14 +6,13 @@ import HIDTransport from '@ledgerhq/hw-transport-webhid';
 import { listen } from '@ledgerhq/logs';
 import SysUtxoClient, { DefaultWalletPolicy } from './bitcoin_client';
 import {
-  BLOCKBOOK_API_URL,
   DESCRIPTOR,
   RECEIVING_ADDRESS_INDEX,
   WILL_NOT_DISPLAY,
 } from './consts';
 import { getXpubWithDescriptor } from './utils';
 import { fromBase58 } from '@trezor/utxo-lib/lib/bip32';
-import { IEvmMethods, IUTXOMethods, MessageTypes, UTXOPayload } from './types';
+import { IEvmMethods, IUTXOMethods, MessageTypes } from './types';
 import LedgerEthClient, { ledgerService } from '@ledgerhq/hw-app-eth';
 import { TypedDataUtils, TypedMessage, Version } from 'eth-sig-util';
 import {
@@ -22,7 +21,6 @@ import {
   isEvmCoin,
 } from '../utils/derivation-paths';
 import { Transaction } from 'syscoinjs-lib';
-import { retryableFetch } from '@pollum-io/sysweb3-network';
 
 export class LedgerKeyring {
   public ledgerUtxoClient: SysUtxoClient;
@@ -34,7 +32,6 @@ export class LedgerKeyring {
 
   constructor() {
     this.utxo = {
-      getUtxos: this.getUtxos,
       getUtxoAddress: this.getUtxoAddress,
       getXpub: this.getXpub,
       verifyUtxoAddress: this.verifyUtxoAddress,
@@ -141,34 +138,6 @@ export class LedgerKeyring {
       slip44: slip44,
       showInLedger: true,
     });
-
-  private getUtxos = async ({
-    accountIndex,
-    currency,
-    slip44,
-  }: {
-    accountIndex: number;
-    currency: string;
-    slip44: number;
-  }) => {
-    // Ensure Ledger is connected before attempting operations
-    await this.ensureConnection();
-
-    const coin = currency;
-    this.setHdPath(coin, accountIndex, slip44);
-    const fingerprint = await this.getMasterFingerprint();
-    const xpub = await this.ledgerUtxoClient.getExtendedPubkey(this.hdPath);
-    const xpubWithDescriptor = getXpubWithDescriptor(
-      xpub,
-      this.hdPath,
-      fingerprint
-    );
-    const url = `${BLOCKBOOK_API_URL}/api/v2/utxo/${xpubWithDescriptor}`;
-    const resp: UTXOPayload = await retryableFetch(url).then((resp) =>
-      resp.json()
-    );
-    return resp.utxos;
-  };
 
   private getXpub = async ({
     index,

@@ -92,9 +92,6 @@ export interface Vin {
   txid: string;
   value: string;
 }
-export type UTXOPayload = {
-  utxos: BlockbookUTXO[];
-};
 export interface Vout {
   addresses: string[];
   hex: string;
@@ -113,15 +110,6 @@ export interface IUTXOMethods {
     index: number;
     slip44: number;
   }) => Promise<string>;
-  getUtxos: ({
-    accountIndex,
-    currency,
-    slip44,
-  }: {
-    accountIndex: number;
-    currency: string;
-    slip44: number;
-  }) => Promise<BlockbookUTXO[]>;
   getXpub: ({
     index,
     coin,

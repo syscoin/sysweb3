@@ -564,11 +564,22 @@ describe('KeyringManager - Initialization', () => {
         mockVaultStateGetter
       );
 
+      // Mock Ledger device connection
+      keyringManager.ledgerSigner.connectToLedgerDevice = jest
+        .fn()
+        .mockResolvedValue(true);
+      keyringManager.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock Ledger import
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_ledger_test'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_ledger_test'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_ledger_test'),
       };
 
@@ -607,11 +618,22 @@ describe('KeyringManager - Initialization', () => {
       const newMockVaultStateGetter = jest.fn(() => currentVaultState);
       newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
+      // Mock Ledger device connection for new keyring
+      newKeyringManager.ledgerSigner.connectToLedgerDevice = jest
+        .fn()
+        .mockResolvedValue(true);
+      newKeyringManager.ledgerSigner.ensureConnection = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
       // Mock Ledger for new keyring
       newKeyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_ledger_test'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_ledger_test'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_ledger_test'),
       };
 

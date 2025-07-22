@@ -1477,11 +1477,8 @@ export class KeyringManager implements IKeyringManager {
           withDescriptor: true,
         });
         xpub = ledgerXpub;
-        address = await this.ledgerSigner.utxo.getUtxoAddress({
-          coin,
-          index: index,
-          slip44,
-        });
+        // Use the generic getAddress method like Trezor does - no need to query device again
+        address = await this.getAddress(xpub, false);
       } catch (e) {
         throw new Error(e);
       }

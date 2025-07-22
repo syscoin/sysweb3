@@ -45,6 +45,11 @@ describe('Ledger Hardware Wallet', () => {
       getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
       signPsbt: jest.fn(),
     } as any;
+
+    // Mock getAddress to return our mocked addresses
+    keyringManager.getAddress = jest
+      .fn()
+      .mockResolvedValue('sys1qmock_ledger_address');
   });
 
   describe('Account Import', () => {
@@ -54,10 +59,9 @@ describe('Ledger Hardware Wallet', () => {
         getXpub: jest
           .fn()
           .mockResolvedValue(
-            'xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKpXqNPQ8R5ziHackBvPaKjYNDvyVp7ytpqqxV5BDK1Co76d4oVGkYvJXFFpbhctBCTKRQ8Y7HNrxE'
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
           ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest
           .fn()
           .mockResolvedValue('sys1qmock_ledger_address'),
@@ -135,11 +139,19 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should reject duplicate Ledger addresses', async () => {
+      // Mock getAddress to return the expected addresses
+      keyringManager.getAddress = jest
+        .fn()
+        .mockResolvedValue('sys1q_first_address');
+
       // First import with unique address
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_first'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
       };
 
@@ -164,9 +176,12 @@ describe('Ledger Hardware Wallet', () => {
 
       // Mock Ledger returning same address for next account (simulate duplicate)
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_duplicate'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'), // Same as first!
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
       };
 
@@ -184,10 +199,9 @@ describe('Ledger Hardware Wallet', () => {
         getXpub: jest
           .fn()
           .mockResolvedValue(
-            'xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKpXqNPQ8R5ziHackBvPaKjYNDvyVp7ytpqqxV5BDK1Co76d4oVGkYvJXFFpbhctBCTKRQ8Y7HNrxE'
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
           ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest
           .fn()
           .mockResolvedValue('sys1qmock_ledger_address'),
@@ -241,7 +255,7 @@ describe('Ledger Hardware Wallet', () => {
       const xpub = keyringManager.getAccountXpub();
       expect(xpub).toBeDefined();
       expect(xpub).toBe(
-        'xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKpXqNPQ8R5ziHackBvPaKjYNDvyVp7ytpqqxV5BDK1Co76d4oVGkYvJXFFpbhctBCTKRQ8Y7HNrxE'
+        'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
       );
     });
 
@@ -292,10 +306,9 @@ describe('Ledger Hardware Wallet', () => {
         getXpub: jest
           .fn()
           .mockResolvedValue(
-            'xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKpXqNPQ8R5ziHackBvPaKjYNDvyVp7ytpqqxV5BDK1Co76d4oVGkYvJXFFpbhctBCTKRQ8Y7HNrxE'
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
           ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest
           .fn()
           .mockResolvedValue('sys1qmock_ledger_address'),
@@ -323,6 +336,11 @@ describe('Ledger Hardware Wallet', () => {
 
         // Account switch is handled by vault state update
       }
+
+      // Mock getAddress to return our mocked addresses
+      keyringManager.getAddress = jest
+        .fn()
+        .mockResolvedValue('sys1qmock_ledger_address');
 
       // Mock Ledger UTXO client for transaction signing
       keyringManager.ledgerSigner.ledgerUtxoClient = {
@@ -593,6 +611,11 @@ describe('Ledger Hardware Wallet', () => {
         testnetVaultStateGetter
       );
 
+      // Mock getAddress to return testnet address
+      testnetKeyring.getAddress = jest
+        .fn()
+        .mockResolvedValue('tsys1q_testnet_ledger');
+
       // Mock ensureConnection for testnet
       testnetKeyring.ledgerSigner.ensureConnection = jest
         .fn()
@@ -600,9 +623,12 @@ describe('Ledger Hardware Wallet', () => {
 
       // Mock testnet Ledger
       testnetKeyring.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('tpub_testnet'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'vpub5YMNvjHGu8MhNvgxNrGV8qZGkb3SVTiCAzqyCV8TbCZrEXrJqsCTMJjEJXBLfmjfFCDPRpGPW59THQMvPDuQejY5cSpfNYVZYcgJaMVZJCG'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
       };
 
@@ -615,11 +641,19 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should maintain separate Ledger accounts per network', async () => {
+      // Mock getAddress for mainnet
+      keyringManager.getAddress = jest
+        .fn()
+        .mockResolvedValue('sys1q_mainnet_ledger');
+
       // Mock mainnet Ledger
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_mainnet'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_mainnet_ledger'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_mainnet_ledger'),
       };
 
@@ -644,6 +678,11 @@ describe('Ledger Hardware Wallet', () => {
         testnetVaultStateGetter
       );
 
+      // Mock getAddress for testnet
+      testnetKeyring.getAddress = jest
+        .fn()
+        .mockResolvedValue('tsys1q_testnet_ledger');
+
       // Mock ensureConnection for testnet
       testnetKeyring.ledgerSigner.ensureConnection = jest
         .fn()
@@ -651,9 +690,12 @@ describe('Ledger Hardware Wallet', () => {
 
       // Mock testnet Ledger
       testnetKeyring.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('tpub_testnet'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'vpub5YMNvjHGu8MhNvgxNrGV8qZGkb3SVTiCAzqyCV8TbCZrEXrJqsCTMJjEJXBLfmjfFCDPRpGPW59THQMvPDuQejY5cSpfNYVZYcgJaMVZJCG'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
       };
 
@@ -679,7 +721,6 @@ describe('Ledger Hardware Wallet', () => {
           .fn()
           .mockRejectedValue(new Error('Ledger device communication error')),
         getUtxoAddress: jest.fn(),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn(),
       };
 
@@ -693,7 +734,6 @@ describe('Ledger Hardware Wallet', () => {
       keyringManager.ledgerSigner.utxo = {
         getXpub: jest.fn().mockResolvedValue(null),
         getUtxoAddress: jest.fn().mockResolvedValue(null),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn(),
       };
 
@@ -708,7 +748,6 @@ describe('Ledger Hardware Wallet', () => {
           .fn()
           .mockRejectedValue(new Error('Please open Syscoin app on Ledger')),
         getUtxoAddress: jest.fn(),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn(),
       };
 
@@ -720,10 +759,18 @@ describe('Ledger Hardware Wallet', () => {
 
   describe('Security', () => {
     it('should not expose private keys for hardware wallets', async () => {
+      // Mock getAddress
+      keyringManager.getAddress = jest
+        .fn()
+        .mockResolvedValue('sys1q_test_address');
+
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_test'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_test_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_test_address'),
       };
 
@@ -746,11 +793,19 @@ describe('Ledger Hardware Wallet', () => {
     });
 
     it('should maintain hardware wallet isolation', async () => {
+      // Mock getAddress
+      keyringManager.getAddress = jest
+        .fn()
+        .mockResolvedValue('sys1q_isolation_address');
+
       // Mock and import Ledger account
       keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue('xpub_isolation_test'),
+        getXpub: jest
+          .fn()
+          .mockResolvedValue(
+            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
+          ),
         getUtxoAddress: jest.fn().mockResolvedValue('sys1q_isolation_address'),
-        getUtxos: jest.fn().mockResolvedValue([]),
         verifyUtxoAddress: jest
           .fn()
           .mockResolvedValue('sys1q_isolation_address'),
