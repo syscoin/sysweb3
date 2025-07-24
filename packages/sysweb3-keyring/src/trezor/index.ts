@@ -29,7 +29,7 @@ const { decompile } = script;
 const { fromBase58Check, fromBech32 } = address;
 
 const initialHDPath = `m/44'/60'/0'/0/0`;
-const DELAY_BETWEEN_POPUPS = 1000;
+const DELAY_BETWEEN_POPUPS = 2000; // Increased from 1000ms to 2000ms for more reliable operation
 
 export interface TrezorControllerState {
   hdPath: string;
@@ -327,6 +327,8 @@ export class TrezorKeyring {
     this.setHdPath(coin, index || 0, slip44);
 
     if (hdPath) this.hdPath = hdPath;
+
+    await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_POPUPS));
 
     try {
       // For EVM networks, use ethereumGetPublicKey
@@ -853,120 +855,6 @@ export class TrezorKeyring {
       // @ts-ignore
       throw new Error(response.payload.error || 'Unknown error');
     }, 'signTypedData');
-  }
-
-  /**
-   * Gets account address based in index of account in path derivation.
-   *
-   * @param coin - network symbol. Example: eth, sys, btc
-   * @param slip44 - network slip44 number
-   * @param index - index of account for path derivation
-   * @returns account address
-   */
-
-  public async getAddress({
-    coin,
-    slip44,
-    index,
-    isChangeAddress,
-  }: {
-    coin: string;
-    index: string | number;
-    isChangeAddress?: boolean;
-    slip44: number; // Required, not optional
-  }): Promise<string | undefined> {
-    return this.executeWithRetry(async () => {
-      // Use dynamic path generation instead of hardcoded switch
-      // currently only used by EVM so accountIndex going into the last parameter
-      const fullPath = getAddressDerivationPath(
-        coin,
-        slip44,
-        0,
-        isChangeAddress,
-        Number(index)
-      );
-
-      try {
-        // For EVM networks, use ethereumGetAddress
-        if (slip44 === 60) {
-          const { payload, success } = await TrezorConnect.ethereumGetAddress({
-            path: fullPath,
-            showOnTrezor: false,
-          });
-          if (success) {
-            return payload.address;
-          }
-          throw new Error(payload.error || 'Failed to get Ethereum address');
-        }
-
-        // For UTXO networks, use standard getAddress
-        const { payload, success } = await TrezorConnect.getAddress({
-          path: fullPath,
-          coin,
-        });
-        if (success) {
-          return payload.address;
-        }
-      } catch (error) {
-        return error;
-      }
-    }, 'getAddress');
-  }
-
-  public async getMultipleAddress({
-    coin,
-    slip44,
-    indexArray,
-    isChangeAddress,
-  }: {
-    coin: string;
-    indexArray: string[] | number[];
-    isChangeAddress?: boolean;
-    slip44: number; // Required, not optional
-  }): Promise<string[] | undefined> {
-    return this.executeWithRetry(async () => {
-      try {
-        // For EVM networks, use ethereumGetAddress with bundle
-        if (slip44 === 60) {
-          const { payload, success } = await TrezorConnect.ethereumGetAddress({
-            bundle: indexArray.map((index) => ({
-              path: getAddressDerivationPath(
-                coin,
-                slip44,
-                0,
-                isChangeAddress,
-                Number(index)
-              ),
-              showOnTrezor: false,
-            })),
-          });
-          if (success) {
-            return payload.map((item: any) => item.address);
-          }
-          throw new Error('Failed to get Ethereum addresses');
-        }
-
-        // For UTXO networks, use standard getAddress with bundle
-        const { payload, success } = await TrezorConnect.getAddress({
-          bundle: indexArray.map((index) => ({
-            // currently only used by EVM so accountIndex going into the last parameter
-            path: getAddressDerivationPath(
-              coin,
-              slip44,
-              0,
-              isChangeAddress,
-              Number(index)
-            ),
-            coin,
-          })),
-        });
-        if (success) {
-          return payload.map((item: any) => item.address);
-        }
-      } catch (error) {
-        return error;
-      }
-    }, 'getMultipleAddress');
   }
 
   /**
