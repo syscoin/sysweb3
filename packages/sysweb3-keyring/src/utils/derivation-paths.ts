@@ -109,25 +109,3 @@ export function getAddressDerivationPath(
     return `m/${bip}'/${slip44}'/${accountIndex}'/${changeValue}/${addressIndex}`;
   }
 }
-
-/**
- * Generate derivation path for public key derivation (typically account level + change level)
- * Example: m/84'/57'/0'/0 for Syscoin receive addresses
- */
-export function getPublicKeyDerivationPath(
-  coinShortcut: string,
-  slip44: number,
-  accountIndex = 0,
-  isChangeAddress = false
-): string {
-  const bip = getBipStandard(coinShortcut, slip44);
-
-  if (isEvmCoin(coinShortcut, slip44)) {
-    // EVM coins: m/44'/60'/0'/0
-    return `m/${bip}'/${slip44}'/0'/0`;
-  } else {
-    // UTXO coins: m/84'/slip44'/account'/change
-    const changeValue = isChangeAddress ? 1 : 0;
-    return `m/${bip}'/${slip44}'/${accountIndex}'/${changeValue}`;
-  }
-}
