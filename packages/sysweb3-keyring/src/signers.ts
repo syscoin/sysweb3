@@ -61,12 +61,6 @@ export type SyscoinHdAccount = {
   zprv: string;
 };
 
-export interface Bip84FromMnemonic {
-  deriveAccount: () => string;
-  getRootPrivateKey: () => string;
-  getRootPublicKey: () => string;
-}
-
 export type ISyscoinSignerParams = {
   mnemonic: string;
   rpc: {
