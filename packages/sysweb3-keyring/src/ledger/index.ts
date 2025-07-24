@@ -127,7 +127,7 @@ export class LedgerKeyring {
     }, 'getUtxoAddress');
   };
 
-  private verifyUtxoAddress = async (
+  public verifyUtxoAddress = async (
     accountIndex: number,
     currency: string,
     slip44: number
@@ -186,7 +186,7 @@ export class LedgerKeyring {
       const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
 
       const signature = await this.ledgerEVMClient.signTransaction(
-        this.hdPath,
+        this.hdPath.replace(/^m\//, ''), // Remove 'm/' prefix for EVM
         rawTx,
         resolution
       );
@@ -206,7 +206,7 @@ export class LedgerKeyring {
       this.setHdPath('eth', accountIndex, 60);
 
       const signature = await this.ledgerEVMClient.signPersonalMessage(
-        this.hdPath,
+        this.hdPath.replace(/^m\//, ''), // Remove 'm/' prefix for EVM
         message
       );
 
@@ -280,7 +280,7 @@ export class LedgerKeyring {
     return this.executeWithRetry(async () => {
       this.setHdPath('eth', accountIndex, 60);
       const { address, publicKey } = await this.ledgerEVMClient.getAddress(
-        this.hdPath
+        this.hdPath.replace(/^m\//, '') // Remove 'm/' prefix for EVM
       );
       return { address, publicKey };
     }, 'getEvmAddressAndPubKey');
@@ -302,7 +302,7 @@ export class LedgerKeyring {
       const { domain_separator_hash, message_hash } = dataWithHashes;
 
       const signature = await this.ledgerEVMClient.signEIP712HashedMessage(
-        this.hdPath,
+        this.hdPath.replace(/^m\//, ''), // Remove 'm/' prefix for EVM
         domain_separator_hash,
         message_hash ? message_hash : ''
       );
