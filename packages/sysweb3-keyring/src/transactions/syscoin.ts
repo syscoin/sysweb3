@@ -321,9 +321,6 @@ export class SyscoinTransactions implements ISyscoinTransactions {
 
       return enhancedPsbt;
     } else if (isTrezor) {
-      // Initialize Trezor connection before signing
-      await this.trezor.init();
-
       // Handle Trezor signing for UTXO
       const trezorTx = this.trezor.convertToTrezorFormat({
         psbt,
