@@ -183,6 +183,17 @@ export class HardwareWalletManager extends EventEmitter {
       return true;
     }
 
+    // Check if we're already trying to connect
+    if (existing?.status === ConnectionStatus.CONNECTING) {
+      console.log(
+        '[HardwareWalletManager] Trezor connection already in progress'
+      );
+      // Wait a bit and check again
+      await this.delay(1000);
+      const updated = this.connectionPool.get(key);
+      return updated?.status === ConnectionStatus.CONNECTED || false;
+    }
+
     return this.initializeTrezorWithRetry(key);
   }
 
@@ -199,13 +210,29 @@ export class HardwareWalletManager extends EventEmitter {
 
     let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+    // Reduce retry attempts for Trezor to prevent repeated popups
+    const trezorRetryConfig = {
+      ...this.retryConfig,
+      maxRetries: 1, // Only retry once for Trezor
+    };
+
+    for (let attempt = 0; attempt <= trezorRetryConfig.maxRetries; attempt++) {
       try {
         this.emit('connectionAttempt', {
           type: HardwareWalletType.TREZOR,
           attempt: attempt + 1,
-          maxAttempts: this.retryConfig.maxRetries + 1,
+          maxAttempts: trezorRetryConfig.maxRetries + 1,
         });
+
+        // Dispose any existing iframe before initialization
+        try {
+          await TrezorConnect.dispose();
+        } catch (disposeError) {
+          console.log(
+            '[HardwareWalletManager] Dispose error (safe to ignore):',
+            disposeError
+          );
+        }
 
         await TrezorConnect.init({
           manifest: {
@@ -217,6 +244,9 @@ export class HardwareWalletManager extends EventEmitter {
           connectSrc: 'https://connect.trezor.io/9/',
           _extendWebextensionLifetime: true,
           transports: ['BridgeTransport', 'WebUsbTransport'],
+          debug: false, // Disable debug mode to prevent extra logs
+          coreMode: 'popup', // Use popup mode for webUSB support in Chrome extension
+          env: 'webextension',
         });
 
         entry.status = ConnectionStatus.CONNECTED;
@@ -236,20 +266,79 @@ export class HardwareWalletManager extends EventEmitter {
       } catch (error) {
         lastError = error as Error;
 
-        // Check if already initialized
+        // Check if already initialized - this is actually OK
         if (
           lastError.message.includes(
             'TrezorConnect has been already initialized'
           )
         ) {
-          entry.status = ConnectionStatus.CONNECTED;
-          return true;
+          // Instead of just marking as connected, verify the connection
+          try {
+            // Test the connection with a simple call
+            const testResponse = await TrezorConnect.getFeatures();
+            if (testResponse.success) {
+              entry.status = ConnectionStatus.CONNECTED;
+              entry.retryCount = 0;
+              entry.error = undefined;
+              this.emit('connected', { type: HardwareWalletType.TREZOR });
+              return true;
+            }
+          } catch (testError) {
+            console.log(
+              '[HardwareWalletManager] Trezor test connection failed:',
+              testError
+            );
+          }
+
+          // If test failed, dispose and retry
+          try {
+            await TrezorConnect.dispose();
+            await this.delay(500);
+          } catch (disposeError) {
+            console.log(
+              '[HardwareWalletManager] Error disposing for retry:',
+              disposeError
+            );
+          }
         }
 
         entry.retryCount = attempt + 1;
         entry.error = lastError;
 
-        if (attempt < this.retryConfig.maxRetries) {
+        // Check for specific Trezor errors
+        if (
+          lastError.message.includes('device is already in use') ||
+          lastError.message.includes('Device is being used in another window')
+        ) {
+          console.log(
+            '[HardwareWalletManager] Trezor device is in use by another application'
+          );
+
+          // Try to dispose and reinitialize
+          try {
+            await TrezorConnect.dispose();
+            await this.delay(2000); // Wait 2 seconds before retry
+          } catch (disposeError) {
+            console.log(
+              '[HardwareWalletManager] Error during dispose:',
+              disposeError
+            );
+          }
+        }
+
+        // Don't retry if user cancelled
+        if (
+          lastError.message.includes('Popup closed') ||
+          lastError.message.includes('cancelled') ||
+          lastError.message.includes('denied')
+        ) {
+          console.log(
+            '[HardwareWalletManager] User cancelled Trezor connection'
+          );
+          break; // Exit retry loop
+        }
+
+        if (attempt < trezorRetryConfig.maxRetries) {
           const delay = this.calculateBackoffDelay(attempt);
 
           this.emit('retrying', {
@@ -269,6 +358,16 @@ export class HardwareWalletManager extends EventEmitter {
       type: HardwareWalletType.TREZOR,
       error: lastError?.message,
     });
+
+    // Clean up on failure
+    try {
+      await TrezorConnect.dispose();
+    } catch (disposeError) {
+      console.log(
+        '[HardwareWalletManager] Failed to dispose on error:',
+        disposeError
+      );
+    }
 
     return false;
   }
@@ -395,6 +494,17 @@ export class HardwareWalletManager extends EventEmitter {
    */
   private async closeConnection(key: string): Promise<void> {
     const entry = this.connectionPool.get(key);
+
+    // Handle Trezor connections
+    if (key.startsWith(HardwareWalletType.TREZOR)) {
+      try {
+        await TrezorConnect.dispose();
+      } catch (error) {
+        console.error('Error disposing Trezor:', error);
+      }
+    }
+
+    // Handle Ledger connections
     if (entry?.transport) {
       try {
         await entry.transport.close();
@@ -402,6 +512,7 @@ export class HardwareWalletManager extends EventEmitter {
         console.error('Error closing transport:', error);
       }
     }
+
     this.connectionPool.delete(key);
   }
 

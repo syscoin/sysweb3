@@ -107,6 +107,10 @@ export class TrezorKeyring {
       return true;
     }
 
+    // Add a small delay to ensure Chrome extension context is ready
+    // This helps prevent "waiting for handshake" errors
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     const result = await this.hardwareWalletManager.initializeTrezor();
     if (result) {
       this.initialized = true;
@@ -123,16 +127,40 @@ export class TrezorKeyring {
   ): Promise<T> {
     // Ensure initialization first
     if (!this.initialized) {
-      await this.init();
+      const initResult = await this.init();
+      if (!initResult) {
+        throw new Error('Failed to initialize Trezor');
+      }
     }
 
-    // Use hardware wallet manager's retry mechanism
-    return this.hardwareWalletManager.retryOperation(operation, operationName, {
-      maxRetries: 3,
+    // For Trezor operations, use reduced retry config to prevent popup spam
+    const trezorRetryConfig = {
+      maxRetries: 1, // Only retry once
       baseDelay: 1000,
       maxDelay: 5000,
       backoffMultiplier: 2,
-    });
+    };
+
+    // Use hardware wallet manager's retry mechanism with custom config
+    return this.hardwareWalletManager
+      .retryOperation(operation, operationName, trezorRetryConfig)
+      .catch((error) => {
+        // Clean up Trezor state on failure
+        if (
+          error.message?.includes('Popup closed') ||
+          error.message?.includes('cancelled') ||
+          error.message?.includes('denied')
+        ) {
+          this.initialized = false;
+          // Dispose Trezor connection to clean up
+          try {
+            TrezorConnect.dispose();
+          } catch (disposeError) {
+            console.log('Failed to dispose Trezor on error:', disposeError);
+          }
+        }
+        throw error;
+      });
   }
 
   /**
@@ -162,6 +190,34 @@ export class TrezorKeyring {
 
       if (hdPath) this.hdPath = hdPath;
 
+      // For EVM networks, getAccountInfo is not supported
+      // We need to use getAddress instead
+      if (slip44 === 60) {
+        const addressResponse = await TrezorConnect.getAddress({
+          path: this.hdPath,
+          coin: 'eth',
+          showOnTrezor: false,
+        });
+
+        if (!addressResponse.success) {
+          throw new Error(
+            addressResponse.payload.error || 'Failed to get EVM address'
+          );
+        }
+
+        // Return a compatible AccountInfo structure
+        return {
+          descriptor: addressResponse.payload.address,
+          balance: '0', // Balance is fetched separately for EVM
+          empty: true,
+          history: {
+            total: 0,
+            unconfirmed: 0,
+          },
+        } as AccountInfo;
+      }
+
+      // For UTXO networks, use the standard getAccountInfo
       const response = await TrezorConnect.getAccountInfo({
         coin,
         path: this.hdPath,
@@ -191,7 +247,17 @@ export class TrezorKeyring {
    */
 
   public dispose() {
-    TrezorConnect.dispose();
+    try {
+      TrezorConnect.dispose();
+      this.initialized = false;
+      // Clear any cached data
+      this.publicKey = Buffer.from('', 'hex');
+      this.chainCode = Buffer.from('', 'hex');
+      this.hdPath = '';
+      this.paths = {};
+    } catch (error) {
+      console.log('Error disposing Trezor:', error);
+    }
   }
 
   /**
@@ -898,7 +964,14 @@ export class TrezorKeyring {
    * Clean up resources
    */
   public async destroy() {
-    await this.hardwareWalletManager.destroy();
-    this.initialized = false;
+    try {
+      // First dispose Trezor Connect
+      this.dispose();
+      // Then destroy hardware wallet manager
+      await this.hardwareWalletManager.destroy();
+      this.initialized = false;
+    } catch (error) {
+      console.error('Error destroying Trezor keyring:', error);
+    }
   }
 }

@@ -1392,19 +1392,10 @@ export class KeyringManager implements IKeyringManager {
     // For EVM networks, we need to get the actual address from Trezor
     let address: string;
     if (isEVM) {
-      // For EVM, the descriptor from getAccountInfo is actually the address
-      // But we should get it properly from getAddress to ensure consistency
-      const trezorAddress = await this.trezorSigner.getAddress({
-        coin: trezorCoin,
-        slip44,
-        index: index,
-      });
-      if (!trezorAddress) {
-        throw new Error('Failed to get EVM address from Trezor');
-      }
-      address = trezorAddress;
+      // For EVM, the descriptor from getAccountInfo is the address
+      address = xpub;
 
-      // Also get the public key for EVM
+      // Get the public key for EVM
       const response = await this.trezorSigner.getPublicKey({
         coin: trezorCoin,
         slip44,
@@ -1432,7 +1423,7 @@ export class KeyringManager implements IKeyringManager {
 
     if (accountAlreadyExists)
       throw new Error('Account already exists on your Wallet.');
-    if (!xpub || !balance || !address)
+    if (!xpub || !address)
       throw new Error(
         'Something wrong happened. Please, try again or report it'
       );
@@ -1443,7 +1434,7 @@ export class KeyringManager implements IKeyringManager {
     const trezorAccount = {
       ...this.initialTrezorAccountState,
       balances: {
-        syscoin: +balance / 1e8,
+        syscoin: isEVM ? 0 : +balance / 1e8,
         ethereum: 0,
       },
       address,
