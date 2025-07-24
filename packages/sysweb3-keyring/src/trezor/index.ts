@@ -193,9 +193,8 @@ export class TrezorKeyring {
       // For EVM networks, getAccountInfo is not supported
       // We need to use getAddress instead
       if (slip44 === 60) {
-        const addressResponse = await TrezorConnect.getAddress({
+        const addressResponse = await TrezorConnect.ethereumGetAddress({
           path: this.hdPath,
-          coin: 'eth',
           showOnTrezor: false,
         });
 
@@ -330,6 +329,28 @@ export class TrezorKeyring {
     if (hdPath) this.hdPath = hdPath;
 
     try {
+      // For EVM networks, use ethereumGetPublicKey
+      if (slip44 === 60) {
+        const { success, payload } = await TrezorConnect.ethereumGetPublicKey({
+          path: this.hdPath,
+          showOnTrezor: false,
+        });
+
+        if (success) {
+          const { publicKey } = payload;
+          // For Ethereum, we don't get chainCode from ethereumGetPublicKey
+          this.publicKey = Buffer.from(publicKey, 'hex');
+
+          return {
+            publicKey: `0x${publicKey}`,
+            chainCode: '', // Ethereum doesn't use chainCode in the same way
+          };
+        }
+
+        return { success: false, payload };
+      }
+
+      // For UTXO networks, use standard getPublicKey
       const { success, payload } = await TrezorConnect.getPublicKey({
         coin: coin,
         path: this.hdPath,
@@ -866,6 +887,19 @@ export class TrezorKeyring {
       );
 
       try {
+        // For EVM networks, use ethereumGetAddress
+        if (slip44 === 60) {
+          const { payload, success } = await TrezorConnect.ethereumGetAddress({
+            path: fullPath,
+            showOnTrezor: false,
+          });
+          if (success) {
+            return payload.address;
+          }
+          throw new Error(payload.error || 'Failed to get Ethereum address');
+        }
+
+        // For UTXO networks, use standard getAddress
         const { payload, success } = await TrezorConnect.getAddress({
           path: fullPath,
           coin,
@@ -892,6 +926,27 @@ export class TrezorKeyring {
   }): Promise<string[] | undefined> {
     return this.executeWithRetry(async () => {
       try {
+        // For EVM networks, use ethereumGetAddress with bundle
+        if (slip44 === 60) {
+          const { payload, success } = await TrezorConnect.ethereumGetAddress({
+            bundle: indexArray.map((index) => ({
+              path: getAddressDerivationPath(
+                coin,
+                slip44,
+                0,
+                isChangeAddress,
+                Number(index)
+              ),
+              showOnTrezor: false,
+            })),
+          });
+          if (success) {
+            return payload.map((item: any) => item.address);
+          }
+          throw new Error('Failed to get Ethereum addresses');
+        }
+
+        // For UTXO networks, use standard getAddress with bundle
         const { payload, success } = await TrezorConnect.getAddress({
           bundle: indexArray.map((index) => ({
             // currently only used by EVM so accountIndex going into the last parameter

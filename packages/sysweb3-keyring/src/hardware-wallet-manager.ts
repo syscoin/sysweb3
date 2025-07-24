@@ -246,7 +246,6 @@ export class HardwareWalletManager extends EventEmitter {
           transports: ['BridgeTransport', 'WebUsbTransport'],
           debug: false, // Disable debug mode to prevent extra logs
           coreMode: 'popup', // Use popup mode for webUSB support in Chrome extension
-          env: 'webextension',
         });
 
         entry.status = ConnectionStatus.CONNECTED;
