@@ -2,15 +2,12 @@
 /* eslint-disable import/no-named-as-default */
 /* eslint-disable import/order */
 import Transport from '@ledgerhq/hw-transport';
-import HIDTransport from '@ledgerhq/hw-transport-webhid';
-import { listen } from '@ledgerhq/logs';
 import SysUtxoClient, { DefaultWalletPolicy } from './bitcoin_client';
 import {
   DESCRIPTOR,
   RECEIVING_ADDRESS_INDEX,
   WILL_NOT_DISPLAY,
 } from './consts';
-import { getXpubWithDescriptor } from './utils';
 import { fromBase58 } from '@trezor/utxo-lib/lib/bip32';
 import { IEvmMethods, IUTXOMethods, MessageTypes } from './types';
 import LedgerEthClient, { ledgerService } from '@ledgerhq/hw-app-eth';
@@ -21,69 +18,77 @@ import {
   isEvmCoin,
 } from '../utils/derivation-paths';
 import { Transaction } from 'syscoinjs-lib';
+import {
+  HardwareWalletManager,
+  HardwareWalletType,
+} from '../hardware-wallet-manager';
 
 export class LedgerKeyring {
-  public ledgerUtxoClient: SysUtxoClient;
-  public ledgerEVMClient: LedgerEthClient;
-  public ledgerTransport: Transport;
-  public utxo: IUTXOMethods;
+  public ledgerEVMClient!: LedgerEthClient;
+  public ledgerUtxoClient!: SysUtxoClient;
+  private hdPath = "m/44'/57'/0'/0/0";
   public evm: IEvmMethods;
-  public hdPath = '';
+  public utxo: IUTXOMethods;
+  public transport: Transport | null = null;
+  private hardwareWalletManager: HardwareWalletManager;
 
   constructor() {
-    this.utxo = {
-      getUtxoAddress: this.getUtxoAddress,
-      getXpub: this.getXpub,
-      verifyUtxoAddress: this.verifyUtxoAddress,
-    };
+    this.hardwareWalletManager = new HardwareWalletManager();
+
+    // Set up event listeners
+    this.hardwareWalletManager.on('connected', ({ type }) => {
+      if (type === HardwareWalletType.LEDGER) {
+        console.log('Ledger connected');
+      }
+    });
+
+    this.hardwareWalletManager.on('disconnected', ({ type }) => {
+      if (type === HardwareWalletType.LEDGER) {
+        console.log('Ledger disconnected');
+        this.transport = null;
+        // Clear clients on disconnect
+        this.ledgerEVMClient = null as any;
+        this.ledgerUtxoClient = null as any;
+      }
+    });
+
+    this.hardwareWalletManager.on('connectionFailed', ({ type, error }) => {
+      if (type === HardwareWalletType.LEDGER) {
+        console.error('Ledger connection failed:', error);
+      }
+    });
+
     this.evm = {
       getEvmAddressAndPubKey: this.getEvmAddressAndPubKey,
       signEVMTransaction: this.signEVMTransaction,
       signPersonalMessage: this.signPersonalMessage,
       signTypedData: this.signTypedData,
     };
+
+    this.utxo = {
+      getUtxoAddress: this.getUtxoAddress,
+      getXpub: this.getXpub,
+      verifyUtxoAddress: this.verifyUtxoAddress,
+    };
   }
 
-  public isConnected = (): boolean => {
-    return !!(
-      this.ledgerTransport &&
-      this.ledgerUtxoClient &&
-      this.ledgerEVMClient
+  /**
+   * Ensure Ledger is connected with automatic retry
+   * Note: This is automatically called by all operations through executeWithRetry
+   * External callers don't need to call this directly
+   */
+  public async ensureConnection(): Promise<void> {
+    await this.hardwareWalletManager.ensureConnection(
+      HardwareWalletType.LEDGER
     );
-  };
+    this.transport = await this.hardwareWalletManager.getLedgerConnection();
 
-  public ensureConnection = async (): Promise<void> => {
-    // Check if all clients are properly initialized
-    if (!this.isConnected()) {
-      await this.connectToLedgerDevice();
+    // Create clients if transport is available
+    if (this.transport && (!this.ledgerEVMClient || !this.ledgerUtxoClient)) {
+      this.ledgerEVMClient = new LedgerEthClient(this.transport);
+      this.ledgerUtxoClient = new SysUtxoClient(this.transport);
     }
-
-    // Additional check: Try a simple operation to verify connection is still active
-    try {
-      if (this.ledgerUtxoClient) {
-        // Try to get master fingerprint as a connection test
-        await this.ledgerUtxoClient.getMasterFingerprint();
-      }
-    } catch (error) {
-      // Connection lost, reconnect
-      console.log('Ledger connection lost, reconnecting...');
-      await this.connectToLedgerDevice();
-    }
-  };
-
-  public connectToLedgerDevice = async () => {
-    try {
-      const connectionResponse = await HIDTransport.create();
-      listen((log) => console.log(log));
-
-      this.ledgerUtxoClient = new SysUtxoClient(connectionResponse);
-      this.ledgerEVMClient = new LedgerEthClient(connectionResponse);
-      this.ledgerTransport = connectionResponse;
-      return connectionResponse;
-    } catch (error) {
-      throw new Error(error);
-    }
-  };
+  }
 
   private getUtxoAddress = async ({
     coin,
@@ -96,11 +101,8 @@ export class LedgerKeyring {
     showInLedger?: boolean;
     slip44: number;
   }) => {
-    try {
-      // Ensure Ledger is connected before attempting operations
-      await this.ensureConnection();
-
-      const fingerprint = await this.getMasterFingerprint();
+    return this.executeWithRetry(async () => {
+      const fingerprint = await this.ledgerUtxoClient.getMasterFingerprint();
       const xpub = await this.getXpub({ index, coin, slip44 });
       this.setHdPath(coin, index, slip44);
 
@@ -122,9 +124,7 @@ export class LedgerKeyring {
       );
 
       return address;
-    } catch (error) {
-      throw error;
-    }
+    }, 'getUtxoAddress');
   };
 
   private verifyUtxoAddress = async (
@@ -143,46 +143,35 @@ export class LedgerKeyring {
     index,
     coin,
     slip44,
-    withDescriptor,
   }: {
     coin: string;
     index: number;
     slip44: number;
-    withDescriptor?: boolean;
-  }) => {
-    try {
-      // Ensure Ledger is connected before attempting operations
-      await this.ensureConnection();
-
-      const fingerprint = await this.getMasterFingerprint();
+  }): Promise<string> => {
+    return this.executeWithRetry(async () => {
       this.setHdPath(coin, index, slip44);
-      const xpub = await this.ledgerUtxoClient.getExtendedPubkey(this.hdPath);
-      const xpubWithDescriptor = getXpubWithDescriptor(
-        xpub,
+      const xpub = await this.ledgerUtxoClient.getExtendedPubkey(
         this.hdPath,
-        fingerprint
+        WILL_NOT_DISPLAY
       );
 
-      return withDescriptor ? xpubWithDescriptor : xpub;
-    } catch (error) {
-      throw error;
-    }
+      // Always return raw xpub - descriptor format is built inline where needed
+      return xpub;
+    }, 'getXpub');
   };
 
+  /**
+   * Sign a UTXO message - public method used by transaction classes
+   */
   public signUtxoMessage = async (path: string, message: string) => {
-    try {
-      // Ensure Ledger is connected before attempting to sign
-      await this.ensureConnection();
-
+    return this.executeWithRetry(async () => {
       const bufferMessage = Buffer.from(message);
       const signature = await this.ledgerUtxoClient.signMessage(
         bufferMessage,
         path
       );
       return signature;
-    } catch (error) {
-      throw error;
-    }
+    }, 'signUtxoMessage');
   };
 
   private signEVMTransaction = async ({
@@ -192,19 +181,18 @@ export class LedgerKeyring {
     accountIndex: number;
     rawTx: string;
   }) => {
-    // Ensure Ledger is connected before attempting to sign
-    await this.ensureConnection();
+    return this.executeWithRetry(async () => {
+      this.setHdPath('eth', accountIndex, 60);
+      const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
 
-    this.setHdPath('eth', accountIndex, 60);
-    const resolution = await ledgerService.resolveTransaction(rawTx, {}, {});
+      const signature = await this.ledgerEVMClient.signTransaction(
+        this.hdPath,
+        rawTx,
+        resolution
+      );
 
-    const signature = await this.ledgerEVMClient.signTransaction(
-      this.hdPath,
-      rawTx,
-      resolution
-    );
-
-    return signature;
+      return signature;
+    }, 'signEVMTransaction');
   };
 
   private signPersonalMessage = async ({
@@ -214,17 +202,16 @@ export class LedgerKeyring {
     accountIndex: number;
     message: string;
   }) => {
-    // Ensure Ledger is connected before attempting to sign
-    await this.ensureConnection();
+    return this.executeWithRetry(async () => {
+      this.setHdPath('eth', accountIndex, 60);
 
-    this.setHdPath('eth', accountIndex, 60);
+      const signature = await this.ledgerEVMClient.signPersonalMessage(
+        this.hdPath,
+        message
+      );
 
-    const signature = await this.ledgerEVMClient.signPersonalMessage(
-      this.hdPath,
-      message
-    );
-
-    return `0x${signature.r}${signature.s}${signature.v.toString(16)}`;
+      return `0x${signature.r}${signature.s}${signature.v.toString(16)}`;
+    }, 'signPersonalMessage');
   };
 
   private sanitizeData(data: any): any {
@@ -289,19 +276,14 @@ export class LedgerKeyring {
     accountIndex,
   }: {
     accountIndex: number;
-  }) => {
-    // Ensure Ledger is connected before attempting operations
-    await this.ensureConnection();
-
-    this.setHdPath('eth', accountIndex, 60);
-    try {
+  }): Promise<{ address: string; publicKey: string }> => {
+    return this.executeWithRetry(async () => {
+      this.setHdPath('eth', accountIndex, 60);
       const { address, publicKey } = await this.ledgerEVMClient.getAddress(
         this.hdPath
       );
-      return { address, publicKey: `0x${publicKey}` };
-    } catch (error) {
-      throw error;
-    }
+      return { address, publicKey };
+    }, 'getEvmAddressAndPubKey');
   };
 
   private signTypedData = async ({
@@ -313,21 +295,20 @@ export class LedgerKeyring {
     data: any;
     version: Version;
   }) => {
-    // Ensure Ledger is connected before attempting to sign
-    await this.ensureConnection();
+    return this.executeWithRetry(async () => {
+      this.setHdPath('eth', accountIndex, 60);
+      const dataWithHashes = this.transformTypedData(data, version === 'V4');
 
-    this.setHdPath('eth', accountIndex, 60);
-    const dataWithHashes = this.transformTypedData(data, version === 'V4');
+      const { domain_separator_hash, message_hash } = dataWithHashes;
 
-    const { domain_separator_hash, message_hash } = dataWithHashes;
+      const signature = await this.ledgerEVMClient.signEIP712HashedMessage(
+        this.hdPath,
+        domain_separator_hash,
+        message_hash ? message_hash : ''
+      );
 
-    const signature = await this.ledgerEVMClient.signEIP712HashedMessage(
-      this.hdPath,
-      domain_separator_hash,
-      message_hash ? message_hash : ''
-    );
-
-    return `0x${signature.r}${signature.s}${signature.v.toString(16)}`;
+      return `0x${signature.r}${signature.s}${signature.v.toString(16)}`;
+    }, 'signTypedData');
   };
 
   private getMasterFingerprint = async () => {
@@ -341,34 +322,36 @@ export class LedgerKeyring {
     }
   };
 
-  private setHdPath = (coin: string, accountIndex: number, slip44: number) => {
-    // Use dynamic coin type detection instead of hardcoded checks
+  private setHdPath(coin: string, accountIndex: number, slip44: number) {
     if (isEvmCoin(coin, slip44)) {
-      // For EVM, use address-level derivation path
+      // For EVM, the "accountIndex" parameter is actually used as the address index
+      // EVM typically uses account 0, and different addresses are at different address indices
       this.hdPath = getAddressDerivationPath(
         coin,
         slip44,
-        0,
-        false,
-        accountIndex || 0
+        0, // account is always 0 for EVM
+        false, // not a change address
+        accountIndex // this is actually the address index for EVM
       );
     } else {
       // For UTXO, use account-level derivation path
       this.hdPath = getAccountDerivationPath(coin, slip44, accountIndex);
     }
-  };
+  }
 
-  // Convert PSBT to Ledger-compatible format by adding bip32Derivation
-  public convertToLedgerFormat = async (
+  /**
+   * Convert PSBT to Ledger format with retry logic
+   */
+  public async convertToLedgerFormat(
     psbt: any,
     accountXpub: string,
     accountId: number,
     currency: string,
     slip44: number
-  ): Promise<any> => {
-    try {
+  ): Promise<any> {
+    return this.executeWithRetry(async () => {
       // Ensure Ledger is connected before attempting operations
-      await this.ensureConnection();
+      // This is now handled by executeWithRetry
 
       // Create BIP32 node from account xpub
       const accountNode = fromBase58(accountXpub);
@@ -445,10 +428,42 @@ export class LedgerKeyring {
       }
 
       return psbt;
-    } catch (error) {
-      console.error('Error converting PSBT to Ledger format:', error);
-      // Return original PSBT if conversion fails
-      return psbt;
-    }
-  };
+    }, 'convertToLedgerFormat');
+  }
+
+  /**
+   * Execute operation with automatic retry
+   */
+  private async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string
+  ): Promise<T> {
+    // Ensure connection first
+    await this.ensureConnection();
+
+    // Use hardware wallet manager's retry mechanism
+    return this.hardwareWalletManager.retryOperation(operation, operationName, {
+      maxRetries: 3,
+      baseDelay: 1000,
+      maxDelay: 5000,
+      backoffMultiplier: 2,
+    });
+  }
+
+  /**
+   * Get hardware wallet status
+   */
+  public getStatus() {
+    return this.hardwareWalletManager
+      .getStatus()
+      .find((s) => s.type === HardwareWalletType.LEDGER);
+  }
+
+  /**
+   * Clean up resources
+   */
+  public async destroy() {
+    await this.hardwareWalletManager.destroy();
+    this.transport = null;
+  }
 }

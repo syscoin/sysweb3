@@ -15,10 +15,6 @@ import { TrezorKeyring } from './trezor';
 import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
 import { ITxid } from '@pollum-io/sysweb3-utils';
 
-export interface ITrezorWallet {
-  createHardwareWallet: () => Promise<IKeyringAccountState>;
-}
-
 export interface ISendTransaction {
   amount: number;
   gasLimit?: number;

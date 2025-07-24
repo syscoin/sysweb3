@@ -7,15 +7,22 @@ import {
 import { setupMocks } from '../../helpers/setup';
 import { INetworkType } from '@pollum-io/sysweb3-network';
 
-describe('KeyringManager - Initialization', () => {
+describe('KeyringManager Initialization', () => {
   let keyringManager: KeyringManager;
   let mockVaultStateGetter: jest.Mock;
   let currentVaultState: any;
 
   beforeEach(async () => {
     setupMocks();
-    // Set up vault-keys that would normally be created by Pali's MainController
+    // Set up vault-keys
     await setupTestVault(FAKE_PASSWORD);
+  });
+
+  afterEach(async () => {
+    // Clean up resources
+    if (keyringManager) {
+      await keyringManager.destroy();
+    }
   });
 
   describe('Seed Management', () => {
@@ -564,10 +571,7 @@ describe('KeyringManager - Initialization', () => {
         mockVaultStateGetter
       );
 
-      // Mock Ledger device connection
-      keyringManager.ledgerSigner.connectToLedgerDevice = jest
-        .fn()
-        .mockResolvedValue(true);
+      // Mock Ledger ensureConnection
       keyringManager.ledgerSigner.ensureConnection = jest
         .fn()
         .mockResolvedValue(undefined);
@@ -618,10 +622,7 @@ describe('KeyringManager - Initialization', () => {
       const newMockVaultStateGetter = jest.fn(() => currentVaultState);
       newKeyringManager.setVaultStateGetter(newMockVaultStateGetter);
 
-      // Mock Ledger device connection for new keyring
-      newKeyringManager.ledgerSigner.connectToLedgerDevice = jest
-        .fn()
-        .mockResolvedValue(true);
+      // Mock Ledger ensureConnection for new keyring
       newKeyringManager.ledgerSigner.ensureConnection = jest
         .fn()
         .mockResolvedValue(undefined);

@@ -79,13 +79,14 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       activeNetwork: INetwork;
     },
     getAddress: (xpub: string, isChangeAddress: boolean) => Promise<string>,
-    ledgerSigner: LedgerKeyring
+    ledgerSigner: LedgerKeyring,
+    trezorSigner: TrezorKeyring
   ) {
     this.getSigner = getSyscoinSigner;
     this.getReadOnlySigner = getReadOnlySigner;
     this.getState = getState;
     this.getAddress = getAddress;
-    this.trezor = new TrezorKeyring(this.getSigner);
+    this.trezor = trezorSigner;
     this.ledger = ledgerSigner;
   }
 
@@ -264,9 +265,6 @@ export class SyscoinTransactions implements ISyscoinTransactions {
       this.getState();
 
     if (isLedger) {
-      // Ensure Ledger is connected before attempting to sign
-      await this.ledger.ensureConnection();
-
       // CRITICAL: Enhance PSBT with required Ledger fields
       const account = accounts[activeAccountType]?.[activeAccountId];
       if (!account) {

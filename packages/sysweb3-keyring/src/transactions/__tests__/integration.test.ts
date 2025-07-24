@@ -48,12 +48,19 @@ describe('PSBT Transaction Flow Integration', () => {
 
     const mockGetAddress = jest.fn().mockResolvedValue('change-address');
 
+    const mockTrezor = {
+      init: jest.fn(),
+      convertToTrezorFormat: jest.fn(),
+      signUtxoTransaction: jest.fn(),
+    } as any;
+
     syscoinTransactions = new SyscoinTransactions(
       () => mockSigner,
       () => mockSigner, // getReadOnlySigner - same mock for testing
       () => mockState,
       mockGetAddress,
-      mockLedger
+      mockLedger,
+      mockTrezor
     );
   });
 

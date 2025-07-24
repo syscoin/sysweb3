@@ -156,11 +156,9 @@ describe('SyscoinTransactions', () => {
       mockGetSigner,
       mockGetState,
       mockGetAddress,
-      mockLedger
+      mockLedger,
+      mockTrezor
     );
-
-    // Inject mocked Trezor
-    (syscoinTransactions as any).trezor = mockTrezor;
   });
 
   describe('getEstimateSysTransactionFee', () => {

@@ -30,15 +30,13 @@ describe('Ledger Hardware Wallet', () => {
       mockVaultStateGetter
     );
 
-    // Mock Ledger device connection
-    keyringManager.ledgerSigner.connectToLedgerDevice = jest
-      .fn()
-      .mockResolvedValue(true);
-
-    // Mock ensureConnection
+    // Mock HardwareWalletManager ensureConnection
     keyringManager.ledgerSigner.ensureConnection = jest
       .fn()
       .mockResolvedValue(undefined);
+
+    // Mock transport property
+    keyringManager.ledgerSigner.transport = {} as any;
 
     // Mock ledgerUtxoClient for getMasterFingerprint calls
     keyringManager.ledgerSigner.ledgerUtxoClient = {
@@ -50,6 +48,13 @@ describe('Ledger Hardware Wallet', () => {
     keyringManager.getAddress = jest
       .fn()
       .mockResolvedValue('sys1qmock_ledger_address');
+  });
+
+  afterEach(async () => {
+    // Clean up hardware wallet connections
+    if (keyringManager) {
+      await keyringManager.destroy();
+    }
   });
 
   describe('Account Import', () => {
@@ -425,18 +430,20 @@ describe('Ledger Hardware Wallet', () => {
         evmVaultStateGetter
       );
 
-      // Mock Ledger as disconnected (all clients undefined)
-      evmKeyring.ledgerSigner.ledgerTransport = undefined as any;
-      evmKeyring.ledgerSigner.ledgerUtxoClient = undefined as any;
-      evmKeyring.ledgerSigner.ledgerEVMClient = undefined as any;
+      // Mock Ledger as disconnected
+      evmKeyring.ledgerSigner.transport = null;
+      evmKeyring.ledgerSigner.ledgerUtxoClient = null as any;
+      evmKeyring.ledgerSigner.ledgerEVMClient = null as any;
 
-      // Mock connectToLedgerDevice to simulate successful reconnection
+      // Mock transport for reconnection
       const mockTransport = { close: jest.fn() } as any;
-      evmKeyring.ledgerSigner.connectToLedgerDevice = jest
+
+      // Mock ensureConnection to simulate successful reconnection
+      evmKeyring.ledgerSigner.ensureConnection = jest
         .fn()
         .mockImplementation(async () => {
           // Simulate successful reconnection
-          evmKeyring.ledgerSigner.ledgerTransport = mockTransport;
+          evmKeyring.ledgerSigner.transport = mockTransport;
           evmKeyring.ledgerSigner.ledgerUtxoClient = {
             getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
           } as any;
@@ -457,7 +464,6 @@ describe('Ledger Hardware Wallet', () => {
               .fn()
               .mockResolvedValue('0xmocked_typed_signature'),
           } as any;
-          return mockTransport;
         });
 
       // Import Ledger account
@@ -488,9 +494,7 @@ describe('Ledger Hardware Wallet', () => {
       });
 
       // Verify reconnection happened
-      expect(
-        evmKeyring.ledgerSigner.connectToLedgerDevice
-      ).toHaveBeenCalledTimes(1);
+      expect(evmKeyring.ledgerSigner.ensureConnection).toHaveBeenCalledTimes(1);
 
       // Verify the signature was returned
       expect(result).toEqual({
@@ -500,7 +504,7 @@ describe('Ledger Hardware Wallet', () => {
       });
 
       // Verify Ledger is now connected
-      expect(evmKeyring.ledgerSigner.isConnected()).toBe(true);
+      expect(evmKeyring.ledgerSigner.transport).toBeTruthy();
     });
 
     it('should handle EVM transaction signing for Ledger', async () => {

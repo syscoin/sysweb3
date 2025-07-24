@@ -27,7 +27,6 @@ import omit from 'lodash/omit';
 
 import { LedgerKeyring } from '../ledger';
 import { CustomJsonRpcProvider, CustomL2JsonRpcProvider } from '../providers';
-import { SyscoinHDSigner } from '../signers';
 import { TrezorKeyring } from '../trezor';
 import {
   IResponseFromSendErcSignedTransaction,
@@ -68,10 +67,7 @@ export class EthereumTransactions implements IEthereumTransactions {
     address: string;
     decryptedPrivateKey: string;
   };
-  private getSigner: () => {
-    hd: SyscoinHDSigner;
-    main: any;
-  };
+
   private getState: () => {
     accounts: {
       HDAccount: accountType;
@@ -90,10 +86,6 @@ export class EthereumTransactions implements IEthereumTransactions {
       address: string;
       decryptedPrivateKey: string;
     },
-    getSigner: () => {
-      hd: SyscoinHDSigner;
-      main: any;
-    },
     getState: () => {
       accounts: {
         HDAccount: accountType;
@@ -105,7 +97,8 @@ export class EthereumTransactions implements IEthereumTransactions {
       activeAccountType: KeyringAccountType;
       activeNetwork: INetwork;
     },
-    ledgerSigner: LedgerKeyring
+    ledgerSigner: LedgerKeyring,
+    trezorSigner: TrezorKeyring
   ) {
     this.getNetwork = getNetwork;
     this.getDecryptedPrivateKey = getDecryptedPrivateKey;
@@ -114,9 +107,8 @@ export class EthereumTransactions implements IEthereumTransactions {
     // NOTE: Defer network access until vault state getter is initialized
     // The web3Provider will be created lazily when first accessed via getters
 
-    this.getSigner = getSigner;
     this.getState = getState;
-    this.trezorSigner = new TrezorKeyring(this.getSigner);
+    this.trezorSigner = trezorSigner;
     this.ledgerSigner = ledgerSigner;
   }
 

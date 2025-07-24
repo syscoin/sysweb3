@@ -175,14 +175,15 @@ export class KeyringManager implements IKeyringManager {
       this.getReadOnlySigner,
       this.getAccountsState,
       this.getAddress,
-      this.ledgerSigner
+      this.ledgerSigner,
+      this.trezorSigner
     );
     this.ethereumTransaction = new EthereumTransactions(
       this.getNetwork,
       this.getDecryptedPrivateKey,
-      this.getSigner,
       this.getAccountsState,
-      this.ledgerSigner
+      this.ledgerSigner,
+      this.trezorSigner
     );
   }
 
@@ -248,6 +249,18 @@ export class KeyringManager implements IKeyringManager {
     if (this.sessionMnemonic) {
       this.sessionMnemonic.clear();
       this.sessionMnemonic = null;
+    }
+
+    // Clean up hardware wallet connections
+    if (this.ledgerSigner) {
+      this.ledgerSigner.destroy().catch((error) => {
+        console.error('Error destroying Ledger connection:', error);
+      });
+    }
+    if (this.trezorSigner) {
+      this.trezorSigner.destroy().catch((error) => {
+        console.error('Error destroying Trezor connection:', error);
+      });
     }
   };
 
@@ -840,10 +853,6 @@ export class KeyringManager implements IKeyringManager {
 
   public async importLedgerAccount(label?: string) {
     try {
-      // Use ensureConnection for robust connection handling
-      // This will connect if needed, or reuse existing connection
-      await this.ledgerSigner.ensureConnection();
-
       const vault = this.getVault();
       const currency = vault.activeNetwork.currency;
       if (!currency) {
@@ -1474,7 +1483,6 @@ export class KeyringManager implements IKeyringManager {
           index: index,
           coin,
           slip44,
-          withDescriptor: true,
         });
         xpub = ledgerXpub;
         // Use the generic getAddress method like Trezor does - no need to query device again
@@ -2273,5 +2281,16 @@ export class KeyringManager implements IKeyringManager {
     }
 
     return `${networkPrefix} ${accountId + 1}`;
+  }
+
+  /**
+   * Clean up all resources
+   */
+  public async destroy(): Promise<void> {
+    this.lockWallet();
+
+    // Clear any remaining references
+    this.ethereumTransaction = {} as EthereumTransactions;
+    this.syscoinTransaction = {} as SyscoinTransactions;
   }
 }
