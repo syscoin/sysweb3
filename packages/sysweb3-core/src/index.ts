@@ -6,20 +6,12 @@ interface IStateStorageClient {
   setItem(key: string, value: string): void;
 }
 
-interface IStateStorageDb {
-  setClient(client?: IStateStorageClient): void;
-  setPrefix(prefix: string): void;
-  set(key: string, value: any): void;
-  get(key: string): JSON;
-  deleteItem(key: string): void;
-}
-
 export interface IKeyValueDb {
+  deleteItem(key: string): void;
+  get(key: string): any;
+  set(key: string, value: any): void;
   setClient(client?: IStateStorageClient): void;
   setPrefix(prefix: string): void;
-  set(key: string, value: any): void;
-  get(key: string): any;
-  deleteItem(key: string): void;
 }
 
 declare let window: any;
@@ -59,7 +51,7 @@ const StateStorageDb = (
     if (!storageClient) return;
 
     if ('get' in storageClient) {
-      const value = await storageClient.get(keyPrefix + key);
+      const value = await storageClient.get([keyPrefix + key]);
       if (value) {
         const result = parseJsonRecursively(value);
         return result[keyPrefix + key];
@@ -99,9 +91,7 @@ const MemoryStorageClient = (): IStateStorageClient => {
     memory[key] = value;
   };
 
-  const getItem = (key: string): any => {
-    return memory[key];
-  };
+  const getItem = (key: string): any => memory[key];
 
   const removeItem = (key: string) => {
     memory[key] = null;
@@ -118,11 +108,9 @@ const CrossPlatformDi = () => {
   //======================
   //= State Storage =
   //======================
-  const stateStorageDb: IStateStorageDb = StateStorageDb(MemoryStorageClient());
+  const stateStorageDb: IKeyValueDb = StateStorageDb(MemoryStorageClient());
 
-  const getStateStorageDb = (): IKeyValueDb => {
-    return stateStorageDb;
-  };
+  const getStateStorageDb = (): IKeyValueDb => stateStorageDb;
 
   return {
     getStateStorageDb,
@@ -131,9 +119,8 @@ const CrossPlatformDi = () => {
 
 const SysWeb3Di = () => {
   const crossPlatformDi = CrossPlatformDi();
-  const getStateStorageDb = (): IKeyValueDb => {
-    return crossPlatformDi.getStateStorageDb();
-  };
+  const getStateStorageDb = (): IKeyValueDb =>
+    crossPlatformDi.getStateStorageDb();
 
   return {
     getStateStorageDb,

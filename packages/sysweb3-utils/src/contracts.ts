@@ -9,9 +9,7 @@ export const createContractUsingAbi = (
   AbiContract: ContractInterface,
   address: string,
   web3Provider: any
-): Contract => {
-  return new ethers.Contract(String(address), AbiContract, web3Provider);
-};
+): Contract => new ethers.Contract(String(address), AbiContract, web3Provider);
 
 export const isContractAddress = async (address: string, web3Provider: any) => {
   if (!address) return false;
@@ -21,6 +19,7 @@ export const isContractAddress = async (address: string, web3Provider: any) => {
     return Boolean(code !== '0x');
   } catch (error) {
     if (String(error).includes('bad address checksum')) return false;
+    return false; // Return false for any other error
   }
 };
 

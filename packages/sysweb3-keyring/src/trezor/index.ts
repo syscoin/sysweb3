@@ -13,18 +13,23 @@ import { Buffer } from 'buffer';
 import { TypedDataUtils, TypedMessage, Version } from 'eth-sig-util';
 import Web3 from 'web3';
 
+import {
+  HardwareWalletManager,
+  HardwareWalletType,
+} from '../hardware-wallet-manager';
 import { SyscoinHDSigner } from '../signers';
+import {
+  getAccountDerivationPath,
+  getAddressDerivationPath,
+  isEvmCoin,
+} from '../utils/derivation-paths';
 
 const { p2wsh } = payments;
 const { decompile } = script;
 const { fromBase58Check, fromBech32 } = address;
 
 const initialHDPath = `m/44'/60'/0'/0/0`;
-const DELAY_BETWEEN_POPUPS = 1000;
-const TREZOR_CONNECT_MANIFEST = {
-  appUrl: 'https://paliwallet.com/',
-  email: 'pali@pollum.io',
-};
+const DELAY_BETWEEN_POPUPS = 2000; // Increased from 1000ms to 2000ms for more reliable operation
 
 export interface TrezorControllerState {
   hdPath: string;
@@ -36,8 +41,8 @@ interface MessageTypeProperty {
   type: string;
 }
 interface MessageTypes {
-  EIP712Domain: MessageTypeProperty[];
   [additionalProperties: string]: MessageTypeProperty[];
+  EIP712Domain: MessageTypeProperty[];
 }
 
 declare global {
@@ -56,6 +61,8 @@ export class TrezorKeyring {
     hd: SyscoinHDSigner;
     main: any;
   };
+  private hardwareWalletManager: HardwareWalletManager;
+  private initialized = false;
 
   constructor(
     getSyscoinSigner: () => {
@@ -68,6 +75,23 @@ export class TrezorKeyring {
     this.hdPath = '';
     this.paths = {};
     this.getSigner = getSyscoinSigner;
+    this.hardwareWalletManager = new HardwareWalletManager();
+
+    // Set up event listeners
+    this.hardwareWalletManager.on('connected', ({ type }) => {
+      if (type === HardwareWalletType.TREZOR) {
+        console.log('Trezor connected');
+        this.initialized = true;
+      }
+    });
+
+    this.hardwareWalletManager.on('disconnected', ({ type }) => {
+      if (type === HardwareWalletType.TREZOR) {
+        console.log('Trezor disconnected');
+        this.initialized = false;
+      }
+    });
+
     TrezorConnect.on(DEVICE_EVENT, (event: any) => {
       if (event.payload.features) {
         this.model = event.payload.features.model;
@@ -77,78 +101,66 @@ export class TrezorKeyring {
 
   /**
    * Initialize Trezor script.
-   *
-   * Trezor Connect raises an error that reads "Manifest not set" if manifest is not provided. It can be either set via manifest method or passed as a param in init method.
-   * @returns true, if trezor was initialized successfully and false, if some error happen
    */
-
-  public async init() {
-    try {
-      await TrezorConnect.init({
-        manifest: TREZOR_CONNECT_MANIFEST,
-        lazyLoad: true,
-        popup: true,
-        connectSrc: 'https://connect.trezor.io/9/',
-        _extendWebextensionLifetime: true,
-        transports: ['BridgeTransport', 'WebUsbTransport'], // Transport protocols to be used
-      });
+  public async init(): Promise<boolean> {
+    if (this.initialized) {
       return true;
-    } catch (error) {
-      if (
-        error.message.includes('TrezorConnect has been already initialized')
-      ) {
-        return true;
-      }
-      return false;
     }
+
+    // Add a small delay to ensure Chrome extension context is ready
+    // This helps prevent "waiting for handshake" errors
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const result = await this.hardwareWalletManager.initializeTrezor();
+    if (result) {
+      this.initialized = true;
+    }
+    return result;
   }
 
   /**
-   * This return derivated account info based in params provided.
-   *
-   * @param index - index of account for path derivation
-   * @param slip44 - network slip44 number
-   * @param bip - BIP for derivation. Example: 44, 49, 84
-   * @param coin - network symbol. Example: eth, sys, btc
-   * @returns derivated account info or error
+   * Execute operation with automatic retry
    */
-
-  public async deriveAccount({
-    index,
-    slip44,
-    bip,
-    coin,
-  }: {
-    index: number;
-    slip44: number | string;
-    bip: number;
-    coin: string;
-  }): Promise<
-    | AccountInfo
-    | {
-        error: string;
-        code?: string;
+  private async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string
+  ): Promise<T> {
+    // Ensure initialization first
+    if (!this.initialized) {
+      const initResult = await this.init();
+      if (!initResult) {
+        throw new Error('Failed to initialize Trezor');
       }
-  > {
-    const keypath = `m/${bip}'/${slip44}'/0'/0/${index}`;
+    }
 
-    return new Promise((resolve, reject) => {
-      TrezorConnect.getAccountInfo({
-        path: keypath,
-        coin: coin,
-      })
-        .then((response: any) => {
-          if (response.success) {
-            resolve(response.payload);
+    // For Trezor operations, use reduced retry config to prevent popup spam
+    const trezorRetryConfig = {
+      maxRetries: 1, // Only retry once
+      baseDelay: 1000,
+      maxDelay: 5000,
+      backoffMultiplier: 2,
+    };
+
+    // Use hardware wallet manager's retry mechanism with custom config
+    return this.hardwareWalletManager
+      .retryOperation(operation, operationName, trezorRetryConfig)
+      .catch((error) => {
+        // Clean up Trezor state on failure
+        if (
+          error.message?.includes('Popup closed') ||
+          error.message?.includes('cancelled') ||
+          error.message?.includes('denied')
+        ) {
+          this.initialized = false;
+          // Dispose Trezor connection to clean up
+          try {
+            TrezorConnect.dispose();
+          } catch (disposeError) {
+            console.log('Failed to dispose Trezor on error:', disposeError);
           }
-          // @ts-ignore
-          reject(response.payload.error);
-        })
-        .catch((error: any) => {
-          console.error('TrezorConnectError', error);
-          reject(error);
-        });
-    });
+        }
+        throw error;
+      });
   }
 
   /**
@@ -156,7 +168,7 @@ export class TrezorKeyring {
    *
    * @param coin - network symbol. Example: eth, sys, btc
    * @param slip44 - network slip44 number
-   * @param hdPath - path derivation. Example: m/44'/57'/0'/0/0
+   * @param hdPath - path derivation. Example: m/84'/57'/0'
    * @param index - index of account for path derivation
    * @returns derivated account info or error
    */
@@ -168,36 +180,53 @@ export class TrezorKeyring {
     index,
   }: {
     coin: string;
-    slip44: string;
     hdPath?: string;
-    index?: string;
+    index?: number;
+    slip44: number;
   }): Promise<AccountInfo> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/${index}'`;
-        break;
-      case 'btc':
-        this.hdPath = `m/84'/0'/${index}'`;
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0/${index ? index : 0}`;
-        break;
-    }
+    return this.executeWithRetry(async () => {
+      // Use dynamic path generation instead of hardcoded switch
+      this.setHdPath(coin, index || 0, slip44);
 
-    if (hdPath) this.hdPath === hdPath;
+      if (hdPath) this.hdPath = hdPath;
 
-    const response = await TrezorConnect.getAccountInfo({
-      coin,
-      path: this.hdPath,
-    });
+      // For EVM networks, getAccountInfo is not supported
+      // We need to use getAddress instead
+      if (slip44 === 60) {
+        const addressResponse = await TrezorConnect.ethereumGetAddress({
+          path: this.hdPath,
+          showOnTrezor: false,
+        });
 
-    if (response.success) {
-      return response.payload;
-    }
-    return response.payload as any;
+        if (!addressResponse.success) {
+          throw new Error(
+            addressResponse.payload.error || 'Failed to get EVM address'
+          );
+        }
+
+        // Return a compatible AccountInfo structure
+        return {
+          descriptor: addressResponse.payload.address,
+          balance: '0', // Balance is fetched separately for EVM
+          empty: true,
+          history: {
+            total: 0,
+            unconfirmed: 0,
+          },
+        } as AccountInfo;
+      }
+
+      // For UTXO networks, use the standard getAccountInfo
+      const response = await TrezorConnect.getAccountInfo({
+        coin,
+        path: this.hdPath,
+      });
+
+      if (response.success) {
+        return response.payload;
+      }
+      throw new Error(response.payload.error);
+    }, 'getAccountInfo');
   }
 
   /**
@@ -217,7 +246,17 @@ export class TrezorKeyring {
    */
 
   public dispose() {
-    TrezorConnect.dispose();
+    try {
+      TrezorConnect.dispose();
+      this.initialized = false;
+      // Clear any cached data
+      this.publicKey = Buffer.from('', 'hex');
+      this.chainCode = Buffer.from('', 'hex');
+      this.hdPath = '';
+      this.paths = {};
+    } catch (error) {
+      console.log('Error disposing Trezor:', error);
+    }
   }
 
   /**
@@ -236,12 +275,12 @@ export class TrezorKeyring {
     message,
     signature,
   }: {
-    coin: string;
     address: string;
+    coin: string;
     message: string;
     signature: string;
   }) {
-    try {
+    return this.executeWithRetry(async () => {
       let method = '';
       switch (coin) {
         case 'eth':
@@ -261,10 +300,8 @@ export class TrezorKeyring {
       if (success) {
         return { success, payload };
       }
-      return { success: false, payload };
-    } catch (error) {
-      return { error };
-    }
+      throw new Error(payload.error);
+    }, 'verifyMessage');
   }
 
   /**
@@ -283,28 +320,39 @@ export class TrezorKeyring {
     index,
   }: {
     coin: string;
-    slip44: string;
-    index?: number;
     hdPath?: string;
+    index?: number;
+    slip44: number;
   }) {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'`;
-        break;
-    }
+    this.setHdPath(coin, index || 0, slip44);
 
     if (hdPath) this.hdPath = hdPath;
 
+    await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_POPUPS));
+
     try {
+      // For EVM networks, use ethereumGetPublicKey
+      if (slip44 === 60) {
+        const { success, payload } = await TrezorConnect.ethereumGetPublicKey({
+          path: this.hdPath,
+          showOnTrezor: false,
+        });
+
+        if (success) {
+          const { publicKey } = payload;
+          // For Ethereum, we don't get chainCode from ethereumGetPublicKey
+          this.publicKey = Buffer.from(publicKey, 'hex');
+
+          return {
+            publicKey: `0x${publicKey}`,
+            chainCode: '', // Ethereum doesn't use chainCode in the same way
+          };
+        }
+
+        return { success: false, payload };
+      }
+
+      // For UTXO networks, use standard getPublicKey
       const { success, payload } = await TrezorConnect.getPublicKey({
         coin: coin,
         path: this.hdPath,
@@ -342,8 +390,7 @@ export class TrezorKeyring {
    */
 
   public async signUtxoTransaction(utxoTransaction: any, psbt: any) {
-    // console.log({ utxoTransaction, psbt });
-    try {
+    return this.executeWithRetry(async () => {
       const { payload, success } = await TrezorConnect.signTransaction(
         utxoTransaction
       );
@@ -351,7 +398,7 @@ export class TrezorKeyring {
       if (success) {
         const tx = Transaction.fromHex(payload.serializedTx);
         for (const i of this.range(psbt.data.inputs.length)) {
-          if (tx.ins[i].witness === (undefined || null)) {
+          if (tx.ins[i].witness == null) {
             throw new Error(
               'Please move your funds to a Segwit address: https://wiki.trezor.io/Account'
             );
@@ -375,8 +422,23 @@ export class TrezorKeyring {
       } else {
         throw new Error('Trezor sign failed: ' + payload.error);
       }
-    } catch (error) {
-      return { error };
+    }, 'signUtxoTransaction');
+  }
+
+  private setHdPath(coin: string, accountIndex: number, slip44: number) {
+    if (isEvmCoin(coin, slip44)) {
+      // For EVM, the "accountIndex" parameter is actually used as the address index
+      // EVM typically uses account 0, and different addresses are at different address indices
+      this.hdPath = getAddressDerivationPath(
+        coin,
+        slip44,
+        0, // account is always 0 for EVM
+        false, // not a change address
+        accountIndex // this is actually the address index for EVM
+      );
+    } else {
+      // For UTXO, use account-level derivation path
+      this.hdPath = getAccountDerivationPath(coin, slip44, accountIndex);
     }
   }
 
@@ -398,7 +460,6 @@ export class TrezorKeyring {
     return addressN;
   }
   public isScriptHash(address: string, networkInfo: any) {
-    // console.log({ address, networkInfo });
     if (!this.isBech32(address)) {
       const decoded = fromBase58Check(address);
       if (decoded.version === networkInfo.pubKeyHash) {
@@ -494,7 +555,6 @@ export class TrezorKeyring {
 
     for (let i = 0; i < psbt.txOutputs.length; i++) {
       const output = psbt.txOutputs[i];
-      // console.log({ output });
       const outputItem: any = {};
       const chunks = decompile(output.script);
       outputItem.amount = output.value.toString();
@@ -538,23 +598,31 @@ export class TrezorKeyring {
   public async signEthTransaction({
     tx,
     index,
+    coin,
+    slip44,
   }: {
-    tx: EthereumTransaction | EthereumTransactionEIP1559;
     index: string;
+    tx: EthereumTransaction | EthereumTransactionEIP1559;
+    coin: string;
+    slip44: number;
   }) {
-    try {
-      const { success, payload } = await TrezorConnect.ethereumSignTransaction({
-        path: `m/44'/60'/0'/0/${index}`,
+    return this.executeWithRetry(async () => {
+      // Wait between popups
+      await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_POPUPS));
+
+      // Use dynamic path generation based on actual network parameters
+      this.setHdPath(coin, Number(index) || 0, slip44);
+
+      const response = await TrezorConnect.ethereumSignTransaction({
+        path: this.hdPath,
         transaction: tx,
       });
 
-      if (success) {
-        return { success, payload };
+      if (response.success) {
+        return response;
       }
-      return { success: false, payload };
-    } catch (error) {
-      return { success: false, payload: error };
-    }
+      throw new Error(response.payload.error);
+    }, 'signEthTransaction');
   }
 
   /**
@@ -574,45 +642,41 @@ export class TrezorKeyring {
     slip44,
     address,
   }: {
+    address: string;
+    coin: string;
     index?: number;
     message?: string;
-    coin: string;
-    slip44?: string;
-    address: string;
+    slip44: number; // Required, not optional
   }) {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/0/${index ? index : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = `m/84'/0'/0'/0/${index ? index : 0}`;
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0/${index ? index : 0}`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0/${index ? index : 0}`;
-        break;
-    }
+    return this.executeWithRetry(async () => {
+      // Wait between popups
+      await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_POPUPS));
 
-    if (coin === 'eth' && `${index ? index : 0}` && message) {
-      return this._signEthPersonalMessage(Number(index), message, address);
-    }
-    return this._signUtxoPersonalMessage({ coin, hdPath: this.hdPath });
+      if (isEvmCoin(coin, slip44) && `${index ? index : 0}` && message) {
+        return this._signEthPersonalMessage(Number(index), message, address);
+      }
+      return this._signUtxoPersonalMessage({ coin, index, slip44, message });
+    }, 'signMessage');
   }
 
   private async _signUtxoPersonalMessage({
     coin,
-    hdPath,
+    index,
+    slip44,
+    message,
   }: {
     coin: string;
-    hdPath: string;
+    index?: number;
+    slip44: number;
+    message?: string;
   }) {
     try {
+      // Use dynamic path generation instead of hardcoded switch
+      this.setHdPath(coin, index || 0, slip44);
       const { success, payload } = await TrezorConnect.signMessage({
-        path: hdPath,
+        path: this.hdPath,
         coin: coin,
-        message: 'UTXO example message',
+        message: message,
       });
 
       if (success) {
@@ -632,31 +696,38 @@ export class TrezorKeyring {
   ) {
     return new Promise((resolve, reject) => {
       setTimeout(async () => {
-        TrezorConnect.ethereumSignMessage({
-          path: `m/44'/60'/0'/0/${index}`,
-          message: Web3.utils.stripHexPrefix(message),
-          hex: true,
-        })
-          .then((response: any) => {
-            if (response.success) {
-              if (
-                address &&
-                response.payload.address.toLowerCase() !== address.toLowerCase()
-              ) {
-                reject(new Error('signature doesnt match the right address'));
-              }
-              const signature = `0x${response.payload.signature}`;
-              resolve({ signature, success: true });
-            } else {
-              reject(
-                // @ts-ignore
-                new Error(response.payload.error || 'Unknown error')
-              );
-            }
+        try {
+          this.setHdPath('eth', index, 60);
+
+          TrezorConnect.ethereumSignMessage({
+            path: this.hdPath,
+            message: Web3.utils.stripHexPrefix(message),
+            hex: true,
           })
-          .catch((e: any) => {
-            reject(new Error(e.toString() || 'Unknown error'));
-          });
+            .then((response: any) => {
+              if (response.success) {
+                if (
+                  address &&
+                  response.payload.address.toLowerCase() !==
+                    address.toLowerCase()
+                ) {
+                  reject(new Error('signature doesnt match the right address'));
+                }
+                const signature = `0x${response.payload.signature}`;
+                resolve({ signature, success: true });
+              } else {
+                reject(
+                  // @ts-ignore
+                  new Error(response.payload.error || 'Unknown error')
+                );
+              }
+            })
+            .catch((e: any) => {
+              reject(new Error(e.toString() || 'Unknown error'));
+            });
+        } catch (error) {
+          reject(error);
+        }
         // This is necessary to avoid popup collision
         // between the unlock & sign trezor popups
       }, DELAY_BETWEEN_POPUPS);
@@ -729,140 +800,121 @@ export class TrezorKeyring {
     data,
     index,
   }: {
-    version: Version;
     address: string;
     data: any;
     index: number;
+    version: Version;
   }) {
-    const derivationPath = `m/44'/60'/0'/0/${index}`;
-    const dataWithHashes = this._transformTypedData(data, version === 'V4');
+    return this.executeWithRetry(async () => {
+      // Wait between popups
+      await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_POPUPS));
 
-    // set default values for signTypedData
-    // Trezor is stricter than @metamask/eth-sig-util in what it accepts
-    const {
-      types,
-      message = {},
-      domain = {},
-      primaryType,
-      // snake_case since Trezor uses Protobuf naming conventions here
-      domain_separator_hash, // eslint-disable-line camelcase
-      message_hash, // eslint-disable-line camelcase
-    } = dataWithHashes;
+      this.setHdPath('eth', index, 60);
+      // Use dynamic path generation for ETH (EVM) - typed data is only used for EVM
 
-    // This is necessary to avoid popup collision
-    // between the unlock & sign trezor popups
+      const dataWithHashes = this._transformTypedData(data, version === 'V4');
 
-    const response = await TrezorConnect.ethereumSignTypedData({
-      path: derivationPath,
-      data: {
-        types: {
-          ...types,
-          EIP712Domain: types.EIP712Domain ? types.EIP712Domain : [],
+      // set default values for signTypedData
+      // Trezor is stricter than @metamask/eth-sig-util in what it accepts
+      const {
+        types,
+        message = {},
+        domain = {},
+        primaryType,
+        // snake_case since Trezor uses Protobuf naming conventions here
+        domain_separator_hash, // eslint-disable-line camelcase
+        message_hash, // eslint-disable-line camelcase
+      } = dataWithHashes;
+
+      // This is necessary to avoid popup collision
+      // between the unlock & sign trezor popups
+
+      const response = await TrezorConnect.ethereumSignTypedData({
+        path: this.hdPath,
+        data: {
+          types: {
+            ...types,
+            EIP712Domain: types.EIP712Domain ? types.EIP712Domain : [],
+          },
+          message,
+          domain,
+          primaryType: primaryType as any,
         },
-        message,
-        domain,
-        primaryType: primaryType as any,
-      },
-      metamask_v4_compat: true,
-      // Trezor 1 only supports blindly signing hashes
-      domain_separator_hash,
-      message_hash: message_hash ? message_hash : '',
-    });
+        metamask_v4_compat: true,
+        // Trezor 1 only supports blindly signing hashes
+        domain_separator_hash,
+        message_hash: message_hash ? message_hash : '',
+      });
 
-    if (response.success) {
-      if (address !== response.payload.address) {
-        throw new Error('signature doesnt match the right address');
+      if (response.success) {
+        if (address !== response.payload.address) {
+          throw new Error('signature doesnt match the right address');
+        }
+        return response.payload.signature;
       }
-      return response.payload.signature;
-    }
-    // @ts-ignore
-    throw new Error(response.payload.error || 'Unknown error');
+      // @ts-ignore
+      throw new Error(response.payload.error || 'Unknown error');
+    }, 'signTypedData');
   }
 
   /**
-   * Gets account address based in index of account in path derivation.
-   *
-   * @param coin - network symbol. Example: eth, sys, btc
-   * @param slip44 - network slip44 number
-   * @param index - index of account for path derivation
-   * @returns account address
+   * Verify UTXO address by displaying it on the Trezor device
+   * @param accountIndex - The account index
+   * @param currency - The currency (coin type)
+   * @param slip44 - The slip44 value for the network
+   * @returns The verified address
    */
+  public async verifyUtxoAddress(
+    accountIndex: number,
+    currency: string,
+    slip44: number
+  ): Promise<string | undefined> {
+    return this.executeWithRetry(async () => {
+      const fullPath = getAddressDerivationPath(
+        currency,
+        slip44,
+        accountIndex,
+        false, // Not a change address
+        0
+      );
 
-  public async getAddress({
-    coin,
-    slip44,
-    index,
-    isChangeAddress,
-  }: {
-    coin: string;
-    index: string | number;
-    slip44?: string;
-    isChangeAddress?: boolean;
-  }): Promise<string | undefined> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/${isChangeAddress ? 1 : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0`;
-        break;
-    }
-    try {
-      const { payload, success } = await TrezorConnect.getAddress({
-        path: `${this.hdPath}/${index}`,
-        coin,
-      });
-      if (success) {
-        return payload.address;
+      try {
+        const { payload, success } = await TrezorConnect.getAddress({
+          path: fullPath,
+          coin: currency,
+          showOnTrezor: true, // This displays the address on device for verification
+        });
+        if (success) {
+          return payload.address;
+        }
+        throw new Error('Address verification cancelled by user');
+      } catch (error) {
+        throw error;
       }
-    } catch (error) {
-      return error;
-    }
+    }, 'verifyUtxoAddress');
   }
 
-  public async getMultipleAddress({
-    coin,
-    slip44,
-    indexArray,
-    isChangeAddress,
-  }: {
-    coin: string;
-    indexArray: string[] | number[];
-    slip44?: string;
-    isChangeAddress?: boolean;
-  }): Promise<string[] | undefined> {
-    switch (coin) {
-      case 'sys':
-        this.hdPath = `m/84'/57'/0'/${isChangeAddress ? 1 : 0}`;
-        break;
-      case 'btc':
-        this.hdPath = "m/84'/0'/0'";
-        break;
-      case 'eth':
-        this.hdPath = `m/44'/60'/0'/0`;
-        break;
-      default:
-        this.hdPath = `m/84'/${slip44}'/0'/0`;
-        break;
-    }
+  /**
+   * Check Trezor status
+   */
+  public getStatus() {
+    return this.hardwareWalletManager
+      .getStatus()
+      .find((s) => s.type === HardwareWalletType.TREZOR);
+  }
+
+  /**
+   * Clean up resources
+   */
+  public async destroy() {
     try {
-      const { payload, success } = await TrezorConnect.getAddress({
-        bundle: indexArray.map((index) => ({
-          path: `${this.hdPath}/${index}`,
-          coin,
-        })),
-      });
-      if (success) {
-        return payload.map((item: any) => item.address);
-      }
+      // First dispose Trezor Connect
+      this.dispose();
+      // Then destroy hardware wallet manager
+      await this.hardwareWalletManager.destroy();
+      this.initialized = false;
     } catch (error) {
-      return error;
+      console.error('Error destroying Trezor keyring:', error);
     }
   }
 }

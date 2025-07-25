@@ -10,7 +10,5 @@
     "noImplicitAny": false,
     "strictPropertyInitialization": false
   },
-  "include": [
-    "src"
-  ]
+  "include": ["src"]
 }

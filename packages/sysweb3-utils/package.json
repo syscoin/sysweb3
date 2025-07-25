@@ -27,27 +27,22 @@
     "localTest": "yarn prebuild && yarn build && yarn build && yarn copy"
   },
   "dependencies": {
-    "@ethersproject/contracts": "^5.6.2",
+    "@ethersproject/contracts": "^5.8.0",
+    "@pollum-io/sysweb3-network": "^1.0.96",
     "axios": "^0.26.1",
     "bech32": "^2.0.0",
-    "bip32": "^3.0.1",
-    "bip44-constants": "^114.0.0",
     "bip84": "^0.2.7",
-    "bitcoinjs-lib": "^5.2.0",
     "camelcase-keys": "^7.0.2",
-    "coinselectsyscoin": "^1.0.77",
+    "coinselectsyscoin": "^1.1.8",
     "crypto-js": "^4.1.1",
-    "eth-object": "https://github.com/syscoin/eth-object.git",
-    "eth-proof": "^2.1.6",
-    "eth-util-lite": "^1.0.1",
-    "ethers": "^5.6.4",
-    "syscoinjs-lib": "^1.0.218",
-    "syscointx-js": "^1.0.106",
-    "web3": "^1.7.1"
+    "ethers": "^5.7.2",
+    "syscoinjs-lib": "^1.0.242",
+    "syscointx-js": "^1.0.118"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.1.1",
     "@types/node": "^17.0.23",
-    "jest": "^27.5.1"
+    "jest": "^27.5.1",
+    "rimraf": "^6.0.1"
   }
 }

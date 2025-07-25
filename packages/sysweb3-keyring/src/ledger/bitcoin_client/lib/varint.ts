@@ -44,7 +44,7 @@ export function sanitizeBigintToNumber(n: number | bigint): number {
 }
 
 function getVarintSize(value: number | bigint): 1 | 3 | 5 | 9 {
-  if (typeof value == 'number') {
+  if (typeof value === 'number') {
     value = sanitizeBigintToNumber(value);
   }
 
@@ -98,7 +98,7 @@ export function parseVarint(
 }
 
 export function createVarint(value: number | bigint): Buffer {
-  if (typeof value == 'number') {
+  if (typeof value === 'number') {
     value = sanitizeBigintToNumber(value);
   }
 

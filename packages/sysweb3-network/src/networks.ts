@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-import { coins } from './coins';
+import { findCoin } from './coin-utils';
 
 export const toHexFromNumber = (decimal: number) =>
   ethers.utils.hexlify(decimal);
@@ -36,95 +36,112 @@ export const getPubType = (
   };
 };
 
+/**
+ * Helper function to get network config directly from a coin object
+ * This is more efficient when you already have the coin data
+ */
+export const getNetworkConfigFromCoin = (coin: any) => {
+  if (!coin) {
+    throw new Error('Coin object is required');
+  }
+
+  const {
+    signedMessageHeader,
+    bech32Prefix,
+    xprvMagic,
+    xpubMagic,
+    addressType,
+    addressTypeP2sh,
+    wif,
+    coinName,
+    name,
+    coinLabel,
+  } = coin;
+
+  const coinDisplayName = coinName || name || coinLabel || 'Unknown';
+
+  const hexPubKeyHash = addressType;
+  const hexScriptHash = addressTypeP2sh;
+
+  if (bech32Prefix === null) {
+    throw new Error(
+      `We currently don't support ${coinDisplayName} as we don't have its bech32 prefix (or it doesn't support segwit)`
+    );
+  }
+
+  // Each coin has its own network parameters - no testnet differentiation
+  const network = {
+    messagePrefix: String(signedMessageHeader).replace(/[\r\n]/gm, ''),
+    bech32: String(bech32Prefix),
+    bip32: {
+      public: xpubMagic,
+      private: xprvMagic,
+    },
+    pubKeyHash: hexPubKeyHash,
+    scriptHash: hexScriptHash,
+    slip44: coin.slip44,
+    wif,
+  };
+
+  // For backward compatibility, provide both mainnet and testnet as the same
+  const networks = {
+    mainnet: network,
+    testnet: network,
+  };
+
+  return {
+    networks,
+    types: getPubType(network) || null,
+  };
+};
+
 export const getNetworkConfig = (slip44: number, coinName: string) => {
   try {
-    const coin = coins.find(
-      (supported: any) => supported.coinName === coinName
-    );
+    // Use the shared findCoin utility
+    const coin = findCoin({ slip44, name: coinName });
 
-    if (!(coin && coin.slip44 === slip44)) {
+    if (!coin) {
       throw `${coinName} not supported, add its network config on coins.ts at Pali repo`;
     }
-    const {
-      signedMessageHeader,
-      bech32Prefix,
-      xprvMagic,
-      xpubMagic,
-      addressType,
-      addressTypeP2sh,
-      wif,
-    } = coin;
 
-    const isTestnet = coin.name.toLowerCase().includes('test');
-
-    const hexPubKeyHash = ethers.utils.hexlify(addressType);
-    const hexScriptHash = ethers.utils.hexlify(addressTypeP2sh);
-    if (bech32Prefix === null) {
-      throw new Error(
-        `We currently don't support ${coinName} as we don't have its bech32 prefix, please if you need it supported create a pr on sysweb3-network package adding it to coins.ts  `
-      );
-    }
-    const baseNetwork = {
-      messagePrefix: String(signedMessageHeader).replace(/[\r\n]/gm, ''),
-      bech32: String(bech32Prefix),
-      bip32: {
-        public: xpubMagic,
-        private: xprvMagic,
-      },
-      pubKeyHash: hexPubKeyHash,
-      scriptHash: hexScriptHash,
-      slip44: coin.slip44,
-      wif,
-    };
-
-    const networks = {
-      mainnet: baseNetwork,
-      testnet: baseNetwork,
-    };
-
-    const useMainnet = networks.mainnet && !isTestnet;
-
-    const networkChain = useMainnet ? networks.mainnet : networks.testnet;
-
-    return {
-      networks,
-      types: getPubType(networkChain) || null,
-    };
+    // Use the helper function
+    return getNetworkConfigFromCoin(coin);
   } catch (error) {
     throw new Error(error);
   }
 };
 
 export type Bip32 = {
-  public: number;
   private: number;
+  public: number;
 };
 
 export type BitcoinNetwork = {
-  messagePrefix: string;
   bech32: string;
   bip32: Bip32;
-  pubKeyHash: string;
-  scriptHash: string;
+  messagePrefix: string;
+  pubKeyHash: number;
+  scriptHash: number;
   wif: number;
 };
 
 export type IPubTypes = {
   mainnet: { zprv: string; zpub: string };
-  testnet: { vprv: string; vpub: string };
 };
 
 export type INetwork = {
-  chainId: number;
-  url: string;
-  default?: boolean;
-  label: string;
-  key?: string;
   apiUrl?: string;
-  currency?: string;
+  chainId: number;
+  coingeckoId?: string;
+  coingeckoPlatformId?: string;
+  currency: string;
+  default?: boolean;
   explorer?: string;
-  slip44?: number;
-  isTestnet: boolean;
+  key?: string;
+  kind: INetworkType;
+  label: string;
+  slip44: number;
+  url: string;
 };
 
 export enum INetworkType {

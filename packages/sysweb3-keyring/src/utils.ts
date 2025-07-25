@@ -6,7 +6,7 @@ const errorGas = ['call', 'estimateGas'];
 function spelunk(
   value: any,
   requireData: boolean
-): null | { message: string; data: null | string } {
+): null | { data: null | string; message: string } {
   if (value == null) {
     return null;
   }

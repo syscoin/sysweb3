@@ -106,8 +106,8 @@ export class BufferReader {
   }
 
   readVarInt(): bigint {
-    const [vi, vi_size] = parseVarint(this.buffer, this.offset);
-    this.offset += vi_size;
+    const [vi, viSize] = parseVarint(this.buffer, this.offset);
+    this.offset += viSize;
     return vi;
   }
 

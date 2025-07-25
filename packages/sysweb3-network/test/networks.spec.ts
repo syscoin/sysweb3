@@ -1,8 +1,8 @@
-import { getNetworkConfig, getPubType } from '../src/networks';
 import {
   VALID_BIP44_DATA_RESPONSE,
   VALID_BITCOIN_LIKE_NETWORK,
 } from './constants';
+import { getNetworkConfig, getPubType } from '../src/networks';
 
 describe('networks tests', () => {
   it('should return formatted bitcoin like network for a given coin', () => {

@@ -1,20 +1,17 @@
 import {
-  getBip44Chain,
+  CHAIN_ID_HEX,
+  CHAIN_ID_NUMBER,
+  RPC_URL,
+  VALID_SYS_BLOCKBOOK_RESPONSE,
+  VALID_ETH_RPC_RESPONSE,
+  SYS_RPC_URL,
+} from './constants';
+import {
   isValidChainIdForEthNetworks,
   validateChainId,
   validateEthRpc,
   validateSysRpc,
 } from '../src/rpc';
-import {
-  CHAIN_ID_HEX,
-  CHAIN_ID_NUMBER,
-  RPC_URL,
-  VALID_BIP44_DATA_RESPONSE,
-  VALID_BLOCKBOOK_RPC_RESPONSE,
-  VALID_SYS_BLOCKBOOK_RESPONSE,
-  VALID_ETH_RPC_RESPONSE,
-  SYS_RPC_URL,
-} from './constants';
 import 'isomorphic-fetch';
 
 describe('rpc tests', () => {
@@ -32,7 +29,7 @@ describe('rpc tests', () => {
   });
 
   it('should validate given eth rpc', async () => {
-    const response = await validateEthRpc(RPC_URL);
+    const response = await validateEthRpc(RPC_URL, false);
 
     expect(response).toStrictEqual(VALID_ETH_RPC_RESPONSE);
   });
@@ -41,16 +38,5 @@ describe('rpc tests', () => {
     const response = await validateSysRpc(SYS_RPC_URL);
 
     expect(response).toStrictEqual(VALID_SYS_BLOCKBOOK_RESPONSE);
-  });
-
-  it('should get bip44 data for given coin', () => {
-    const isTestnet = VALID_BLOCKBOOK_RPC_RESPONSE.chain === 'test';
-
-    const response = getBip44Chain(
-      VALID_BLOCKBOOK_RPC_RESPONSE.coin,
-      isTestnet
-    );
-
-    expect(response).toStrictEqual(VALID_BIP44_DATA_RESPONSE);
   });
 });

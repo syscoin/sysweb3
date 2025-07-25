@@ -6,9 +6,6 @@ export const isBase64 = (string: string) => {
     return false;
   }
 };
-export const repairBase64 = (base64Str: string) => {
-  return base64Str.replace(/ /g, '+');
-};
 
 export const isPrefixedFormattedHexString = (value: number | string) => {
   if (typeof value !== 'string') {

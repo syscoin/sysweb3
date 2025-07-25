@@ -2,10 +2,10 @@ import { bech32 } from 'bech32';
 import { ethers } from 'ethers';
 
 import { isContractAddress } from '.';
+import { findCoin } from '@pollum-io/sysweb3-network';
 
-export const isValidEthereumAddress = (address: string) => {
-  return ethers.utils.isAddress(address);
-};
+export const isValidEthereumAddress = (address: string) =>
+  ethers.utils.isAddress(address);
 
 //TODO: this function needs to be refactorated to validate with descriptors in mind
 export const isValidSYSAddress = (
@@ -19,14 +19,27 @@ export const isValidSYSAddress = (
   if (address && typeof address === 'string') {
     try {
       const decodedAddr = bech32.decode(address);
+      const prefix = decodedAddr.prefix?.toLowerCase();
 
-      if (
-        (purpose === 57 && decodedAddr.prefix === 'sys') ||
-        (purpose === 5700 && decodedAddr.prefix === 'tsys')
-      ) {
-        const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+      // Find the coin by chainId (purpose) using the shared utility
+      const coin = findCoin({ slip44: purpose });
 
-        return encode === address.toLowerCase();
+      if (coin && coin.bech32Prefix) {
+        const expectedPrefix = coin.bech32Prefix.toLowerCase();
+
+        if (prefix === expectedPrefix) {
+          const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+          return encode === address.toLowerCase();
+        }
+      } else {
+        // Fallback for legacy Syscoin networks if not found in coins
+        if (
+          (purpose === 57 && prefix === 'sys') ||
+          (purpose === 5700 && prefix === 'tsys')
+        ) {
+          const encode = bech32.encode(decodedAddr.prefix, decodedAddr.words);
+          return encode === address.toLowerCase();
+        }
       }
     } catch (error) {
       return false;

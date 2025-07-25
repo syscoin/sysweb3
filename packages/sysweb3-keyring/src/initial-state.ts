@@ -1,8 +1,6 @@
-import {
-  IKeyringAccountState,
-  IWalletState,
-  KeyringAccountType,
-} from './types';
+import { getDefaultUTXONetworks } from './network-utils';
+import { IKeyringAccountState } from './types';
+import { INetworkType } from '@pollum-io/sysweb3-network';
 
 export const initialActiveHdAccountState: IKeyringAccountState = {
   address: '',
@@ -37,30 +35,7 @@ export const initialActiveLedgerAccountState: IKeyringAccountState = {
 };
 
 export const initialNetworksState = {
-  syscoin: {
-    57: {
-      chainId: 57,
-      label: 'Syscoin Mainnet',
-      url: 'https://blockbook.syscoin.org',
-      default: true,
-      currency: 'sys',
-      apiUrl: '',
-      explorer: 'https://blockbook.syscoin.org',
-      slip44: 57,
-      isTestnet: false,
-    },
-    5700: {
-      chainId: 5700,
-      label: 'Syscoin Testnet',
-      url: 'https://blockbook-dev.syscoin.org/',
-      default: true,
-      currency: 'tsys',
-      apiUrl: '',
-      explorer: '',
-      slip44: 5700,
-      isTestnet: true,
-    },
-  },
+  syscoin: getDefaultUTXONetworks(),
   ethereum: {
     1: {
       chainId: 1,
@@ -68,9 +43,10 @@ export const initialNetworksState = {
       label: 'Ethereum Mainnet',
       default: false,
       currency: 'eth',
-      explorer: 'https://etherscan.io/',
+      explorer: 'https://etherscan.io',
       apiUrl: 'https://api.etherscan.io/api',
-      isTestnet: false,
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     137: {
       chainId: 137,
@@ -79,8 +55,9 @@ export const initialNetworksState = {
       label: 'Polygon Mainnet',
       url: 'https://polygon-rpc.com',
       apiUrl: 'https://api.polygonscan.com/api',
-      explorer: 'https://polygonscan.com/',
-      isTestnet: false,
+      explorer: 'https://polygonscan.com',
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     80001: {
       chainId: 80001,
@@ -89,8 +66,9 @@ export const initialNetworksState = {
       label: 'Mumbai Testnet',
       url: 'https://endpoints.omniatech.io/v1/matic/mumbai/public',
       apiUrl: 'https://api-testnet.polygonscan.com/api',
-      explorer: 'https://mumbai.polygonscan.com/',
-      isTestnet: true,
+      explorer: 'https://mumbai.polygonscan.com',
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     57: {
       chainId: 57,
@@ -99,8 +77,9 @@ export const initialNetworksState = {
       label: 'Syscoin NEVM',
       url: 'https://rpc.syscoin.org',
       apiUrl: 'https://explorer.syscoin.org/api',
-      explorer: 'https://explorer.syscoin.org/',
-      isTestnet: false,
+      explorer: 'https://explorer.syscoin.org',
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     570: {
       chainId: 570,
@@ -109,8 +88,9 @@ export const initialNetworksState = {
       label: 'Rollux',
       url: 'https://rpc.rollux.com',
       apiUrl: 'https://explorer.rollux.com/api',
-      explorer: 'https://explorer.rollux.com/',
-      isTestnet: false,
+      explorer: 'https://explorer.rollux.com',
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
     5700: {
       chainId: 5700,
@@ -118,37 +98,10 @@ export const initialNetworksState = {
       default: false,
       label: 'Tanenbaum Testnet',
       url: 'https://rpc.tanenbaum.io',
-      apiUrl: 'https://tanenbaum.io/api',
-      explorer: 'https://tanenbaum.io/',
-      isTestnet: true,
+      apiUrl: 'https://explorer.tanenbaum.io/api',
+      explorer: 'https://explorer.tanenbaum.io',
+      slip44: 60,
+      kind: INetworkType.Ethereum,
     },
-  },
-};
-
-export const initialWalletState: IWalletState = {
-  accounts: {
-    [KeyringAccountType.HDAccount]: {
-      [initialActiveHdAccountState.id]: initialActiveHdAccountState,
-    },
-    [KeyringAccountType.Imported]: {
-      [initialActiveImportedAccountState.id]: initialActiveImportedAccountState,
-    },
-    [KeyringAccountType.Trezor]: {
-      [initialActiveTrezorAccountState.id]: initialActiveTrezorAccountState,
-    },
-    [KeyringAccountType.Ledger]: {
-      [initialActiveTrezorAccountState.id]: initialActiveLedgerAccountState,
-    },
-  },
-  activeAccountId: 0,
-  activeAccountType: KeyringAccountType.HDAccount,
-  networks: initialNetworksState,
-  activeNetwork: {
-    chainId: 57,
-    label: 'Syscoin Mainnet',
-    url: 'https://blockbook.syscoin.org/',
-    default: true,
-    currency: 'sys',
-    isTestnet: false,
   },
 };

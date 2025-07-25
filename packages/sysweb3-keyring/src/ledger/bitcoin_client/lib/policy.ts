@@ -45,9 +45,7 @@ export class WalletPolicy {
    * @returns the serialized wallet policy
    */
   serialize(): Buffer {
-    const keyBuffers = this.keys.map((k) => {
-      return Buffer.from(k, 'ascii');
-    });
+    const keyBuffers = this.keys.map((k) => Buffer.from(k, 'ascii'));
     const m = new Merkle(keyBuffers.map((k) => hashLeaf(k)));
 
     const buf = new BufferWriter();

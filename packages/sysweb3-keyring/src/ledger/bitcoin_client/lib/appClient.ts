@@ -10,7 +10,7 @@ import { hashLeaf, Merkle } from './merkle';
 import { WalletPolicy } from './policy';
 import { PsbtV2 } from './psbtv2';
 import { createVarint, parseVarint } from './varint';
-import { SYSCOIN_NETWORKS } from '../../../ledger/consts';
+import { findCoin, getNetworkConfigFromCoin } from '@pollum-io/sysweb3-network';
 
 const CLA_BTC = 0xe1;
 const CLA_FRAMEWORK = 0xf8;
@@ -125,9 +125,9 @@ export class AppClient {
    * @returns an object with app name, version and device status flags.
    */
   public async getAppAndVersion(): Promise<{
+    flags: number | Buffer;
     name: string;
     version: string;
-    flags: number | Buffer;
   }> {
     const r = await this.transport.send(0xb0, 0x01, 0x00, 0x00);
     let i = 0;
@@ -427,16 +427,15 @@ export class AppClient {
     if (addressIndex < 0 || !Number.isInteger(addressIndex))
       throw new Error('Invalid address index');
     const appAndVer = await this.getAppAndVersion();
-    let network;
-    if (appAndVer.name === 'Syscoin Test') {
-      network = SYSCOIN_NETWORKS.testnet;
-    } else if (appAndVer.name === 'Syscoin') {
-      network = SYSCOIN_NETWORKS.mainnet;
-    } else {
+
+    // Map Ledger app names to network configurations
+    const network = this.getNetworkFromAppName(appAndVer.name);
+    if (!network) {
       throw new Error(
-        `Invalid network: ${appAndVer.name}. Expected 'Syscoin Test' or 'Syscoin'.`
+        `Unsupported Ledger app: ${appAndVer.name}. Please install the correct app for your network.`
       );
     }
+
     let expression = walletPolicy.descriptorTemplate;
     // Replace change:
     expression = expression.replace(/\/\*\*/g, `/<0;1>/*`);
@@ -483,6 +482,39 @@ export class AppClient {
       console.log(
         `Third party address validation mismatch: ${address} != ${thirdPartyGeneratedAddress}`
       );
+  }
+
+  /**
+   * Maps Ledger app names to network configurations
+   * This allows support for multiple UTXO networks beyond just Syscoin
+   */
+  private getNetworkFromAppName(appName: string): any {
+    // Extract the coin name from the app name
+    // Ledger apps typically follow the pattern: "Bitcoin", "Bitcoin Test", "Litecoin", etc.
+    const isTestnet = appName.toLowerCase().includes('test');
+    const baseName = appName.replace(/\s+Test$/i, '').trim();
+
+    try {
+      // Use findCoin to look up the coin by name
+      const coin = findCoin({ name: baseName });
+
+      if (!coin) {
+        console.error(`No coin found for Ledger app: ${appName}`);
+        return null;
+      }
+
+      // Get the network configuration from the coin
+      const networkConfig = getNetworkConfigFromCoin(coin);
+
+      // Return the appropriate network (mainnet or testnet)
+      // For testnets, the network config is the same as mainnet in coins.ts
+      return isTestnet
+        ? networkConfig.networks.testnet
+        : networkConfig.networks.mainnet;
+    } catch (error) {
+      console.error(`Failed to get network config for ${appName}:`, error);
+      return null;
+    }
   }
 }
 

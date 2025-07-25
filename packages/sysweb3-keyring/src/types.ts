@@ -10,104 +10,91 @@ import {
 } from 'web3-core';
 
 import { LedgerKeyring } from './ledger';
+import { SyscoinHDSigner } from './signers';
 import { TrezorKeyring } from './trezor';
 import { INetwork, INetworkType } from '@pollum-io/sysweb3-network';
-import {
-  ITokenMint,
-  ITokenSend,
-  ITokenUpdate,
-  ITxid,
-} from '@pollum-io/sysweb3-utils';
-
-export interface ITrezorWallet {
-  createHardwareWallet: () => Promise<IKeyringAccountState>;
-}
+import { ITxid } from '@pollum-io/sysweb3-utils';
 
 export interface ISendTransaction {
-  sender: string;
-  receivingAddress: string;
   amount: number;
   gasLimit?: number;
   gasPrice?: number;
+  receivingAddress: string;
+  sender: string;
   token?: any;
 }
 export type SimpleTransactionRequest = {
-  to: string;
+  accessList?: ethers.utils.AccessListish;
+  ccipReadEnabled?: boolean;
+  chainId: number;
+  customData?: Record<string, any>;
+  data?: ethers.BytesLike;
+
   from: string;
-  nonce?: ethers.BigNumberish;
   gasLimit?: ethers.BigNumberish;
   gasPrice?: ethers.BigNumberish;
 
-  data?: ethers.BytesLike;
-  value?: ethers.BigNumberish;
-  chainId: number;
-
-  type?: number;
-  accessList?: ethers.utils.AccessListish;
-
-  maxPriorityFeePerGas: ethers.BigNumberish;
   maxFeePerGas: ethers.BigNumberish;
+  maxPriorityFeePerGas: ethers.BigNumberish;
 
-  customData?: Record<string, any>;
-  ccipReadEnabled?: boolean;
-  v?: string;
+  nonce?: ethers.BigNumberish;
   r?: string;
+
   s?: string;
+  to: string;
+  type?: number;
+  v?: string;
+  value?: ethers.BigNumberish;
 };
 
 export declare type Version = 'V1' | 'V2' | 'V3' | 'V4';
 
 export interface IEthereumTransactions {
+  cancelSentTransaction: (
+    txHash: string,
+    isLegacy?: boolean
+  ) => Promise<{
+    error?: boolean;
+    isCanceled: boolean;
+    transaction?: TransactionResponse;
+  }>;
+  decryptMessage: (msgParams: string[]) => string;
+  ethSign: (params: string[]) => Promise<string>;
+  getBalance: (address: string) => Promise<number>;
+  getEncryptedPubKey: () => string;
+  getErc20TokensByAddress?: (
+    address: string,
+    isSupported: boolean,
+    apiUrl: string
+  ) => Promise<any[]>;
+  getFeeByType: (type: string) => Promise<string>;
+  getFeeDataWithDynamicMaxPriorityFeePerGas: () => Promise<any>;
+  getGasLimit: (toAddress: string) => Promise<number>;
+  getGasOracle?: () => Promise<any>;
+  getRecommendedNonce: (address: string) => Promise<number>;
   signTypedData: (
     addr: string,
     typedData: TypedData | TypedMessage<any>,
     version: Version
   ) => Promise<string>;
-  ethSign: (params: string[]) => Promise<string>;
-  signPersonalMessage: (params: string[]) => Promise<string>;
-  parsePersonalMessage: (hexMsg: string) => string;
-  decryptMessage: (msgParams: string[]) => string;
-  verifyPersonalMessage: (msg: string, sign: string) => string;
-  verifyTypedSignature: (
-    data: TypedData | TypedMessage<any>,
-    signature: string,
-    version: Version
-  ) => string;
-  cancelSentTransaction: (
-    txHash: string,
-    isLegacy?: boolean
-  ) => Promise<{
-    isCanceled: boolean;
-    transaction?: TransactionResponse;
-    error?: boolean;
-  }>;
   sendTransaction: (data: ISendTransaction) => Promise<TransactionResponse>;
+  importAccount: (mnemonicOrPrivKey: string) => ethers.Wallet;
+  parsePersonalMessage: (hexMsg: string) => string;
   sendFormattedTransaction: (
     params: SimpleTransactionRequest,
     isLegacy?: boolean
   ) => Promise<TransactionResponse>;
-  sendTransactionWithEditedFee: (
-    txHash: string,
-    isLegacy?: boolean
-  ) => Promise<{
-    isSpeedUp: boolean;
-    transaction?: TransactionResponse;
-    error?: boolean;
-  }>;
-  getRecommendedNonce: (address: string) => Promise<number>;
-  getFeeByType: (type: string) => Promise<string>;
-  getFeeDataWithDynamicMaxPriorityFeePerGas: () => Promise<any>;
-  getGasLimit: (toAddress: string) => Promise<number>;
-  getTxGasLimit: (tx: SimpleTransactionRequest) => Promise<ethers.BigNumber>;
-  getRecommendedGasPrice: (formatted?: boolean) => Promise<
-    | string
-    | {
-        gwei: string;
-        ethers: string;
-      }
-  >;
-  getGasOracle?: () => Promise<any>;
-  getEncryptedPubKey: () => string;
+  sendSignedErc1155Transaction: ({
+    receiver,
+    tokenAddress,
+    tokenId,
+    isLegacy,
+    gasPrice,
+    gasLimit,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+  }: ISendSignedErcTransactionProps) => Promise<IResponseFromSendErcSignedTransaction>;
+  verifyPersonalMessage: (msg: string, sign: string) => string;
   toBigNumber: (aBigNumberish: string | number) => ethers.BigNumber;
   sendSignedErc20Transaction: ({
     networkUrl,
@@ -123,162 +110,207 @@ export interface IEthereumTransactions {
     tokenId,
   }: ISendSignedErcTransactionProps) => Promise<IResponseFromSendErcSignedTransaction>;
 
-  sendSignedErc1155Transaction: ({
-    receiver,
-    tokenAddress,
-    tokenId,
-    isLegacy,
-    gasPrice,
-    gasLimit,
-    maxFeePerGas,
-    maxPriorityFeePerGas,
-  }: ISendSignedErcTransactionProps) => Promise<IResponseFromSendErcSignedTransaction>;
+  sendTransactionWithEditedFee: (
+    txHash: string,
+    isLegacy?: boolean
+  ) => Promise<{
+    isSpeedUp: boolean;
+    transaction?: TransactionResponse;
+    error?: boolean;
+  }>;
 
-  getBalance: (address: string) => Promise<number>;
-  getErc20TokensByAddress?: (
-    address: string,
-    isSupported: boolean,
-    apiUrl: string
-  ) => Promise<any[]>;
+  signPersonalMessage: (params: string[]) => Promise<string>;
+  verifyTypedSignature: (
+    data: TypedData | TypedMessage<any>,
+    signature: string,
+    version: Version
+  ) => string;
   setWeb3Provider: (network: INetwork) => void;
-  importAccount: (mnemonicOrPrivKey: string) => ethers.Wallet;
+  getRecommendedGasPrice: (formatted?: boolean) => Promise<
+    | string
+    | {
+        ethers: string;
+        gwei: string;
+      }
+  >;
   web3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
-  contentScriptWeb3Provider: CustomJsonRpcProvider | CustomL2JsonRpcProvider;
+  getTxGasLimit: (tx: SimpleTransactionRequest) => Promise<ethers.BigNumber>;
+}
+
+/**
+ * Error structure for Syscoin transaction operations.
+ * This interface documents the error format that consumers (like Pali) should expect
+ * when catching errors from ISyscoinTransactions methods.
+ *
+ * @example
+ * try {
+ *   const result = await syscoinTransaction.getEstimateSysTransactionFee({...});
+ * } catch (error: unknown) {
+ *   const sysError = error as ISyscoinTransactionError;
+ *   if (sysError.code === 'INSUFFICIENT_FUNDS') {
+ *     console.log(`Short by ${sysError.shortfall} SYS`);
+ *   }
+ * }
+ */
+export interface ISyscoinTransactionError {
+  error: boolean;
+  code:
+    | 'INSUFFICIENT_FUNDS'
+    | 'INVALID_FEE_RATE'
+    | 'INVALID_AMOUNT'
+    | 'INVALID_MEMO'
+    | 'INVALID_BLOB'
+    | 'INVALID_OUTPUT_COUNT'
+    | 'INVALID_ASSET_ALLOCATION'
+    | 'INVALID_PARENT_NODES'
+    | 'INVALID_TX_VALUE'
+    | 'INVALID_RECEIPT_VALUE'
+    | 'SUBTRACT_FEE_FAILED'
+    | 'TRANSACTION_CREATION_FAILED'
+    | 'TRANSACTION_SEND_FAILED';
+  message: string;
+  fee?: number; // in SYS (not satoshis)
+  remainingFee?: number; // in SYS (not satoshis)
+  shortfall?: number; // in SYS (not satoshis)
+  details?: {
+    inputTotal?: any; // BN object in satoshis
+    outputTotal?: any; // BN object in satoshis
+    requiredFee?: any; // BN object in satoshis
+    message?: string; // Additional context about the error
+    markedOutputs?: number; // For SUBTRACT_FEE_FAILED
+    removedOutputs?: number; // For SUBTRACT_FEE_FAILED
+    guid?: string; // For INVALID_ASSET_ALLOCATION
+  };
 }
 
 export interface ISyscoinTransactions {
   getEstimateSysTransactionFee: ({
+    txOptions,
     amount,
     receivingAddress,
+    feeRate,
+    token,
+    isMax,
   }: {
     amount: number;
+    feeRate?: number;
     receivingAddress: string;
-  }) => Promise<number>;
-  confirmNftCreation: (tx: any) => { success: boolean };
-  confirmTokenMint: (transaction: ITokenMint) => Promise<ITxid>;
-  confirmTokenCreation: (transaction: any) => Promise<{
-    transactionData: any;
-    txid: string;
-    confirmations: number;
-    guid: string;
-  }>;
-  transferAssetOwnership: (transaction: any) => Promise<ITxid>;
-  confirmUpdateToken: (transaction: ITokenUpdate) => Promise<ITxid>;
+    token?: { guid: string; symbol?: string } | null;
+    txOptions?: any;
+    isMax?: boolean | false;
+  }) => Promise<{ fee: number; psbt: any }>; // Returns UNSIGNED psbt - may throw ISyscoinTransactionError
   getRecommendedFee: (explorerUrl: string) => Promise<number>;
-  sendTransaction: (
-    transaction: ITokenSend,
-    isTrezor: boolean,
-    isLedger: boolean
-  ) => Promise<ITxid>;
-  signTransaction: (
-    data: { psbt: string; assets: string },
-    isSendOnly: boolean,
-    pathIn?: string
-  ) => Promise<any>;
+  decodeRawTransaction: (psbtOrHex: any, isRawHex?: boolean) => any;
+  // Sign PSBT separately
+  sendTransaction: (psbt: any) => Promise<ITxid>;
+  signPSBT: ({
+    psbt,
+    isTrezor,
+    isLedger,
+    pathIn,
+  }: {
+    isLedger?: boolean;
+    isTrezor?: boolean;
+    pathIn?: string;
+    psbt: any;
+  }) => Promise<any>;
 }
 
 export interface IKeyringManager {
+  // Core keyring functionality
   addNewAccount: (label?: string) => Promise<IKeyringAccountState>;
-  createKeyringVault: () => Promise<IKeyringAccountState>;
-  forgetMainWallet: (password: string) => void;
+  ethereumTransaction: IEthereumTransactions;
+  forgetMainWallet: (pwd: string) => void;
   getAccountById: (
     id: number,
     accountType: KeyringAccountType
   ) => Omit<IKeyringAccountState, 'xprv'>;
   getAccountXpub: () => string;
-  getEncryptedXprv: () => string;
-  importTrezorAccount(
-    coin: string,
-    slip44: string,
-    index: string
-  ): Promise<IKeyringAccountState>;
-  getNetwork: () => INetwork;
-  getPrivateKeyByAccountId: (
-    id: number,
-    acountType: KeyringAccountType,
-    pwd: string
-  ) => string;
-  getSeed: (password: string) => string;
+  getEncryptedXprv: (hd: SyscoinHDSigner) => string;
   unlock: (
     password: string,
     isForPvtKey?: boolean
   ) => Promise<{
     canLogin: boolean;
-    wallet?: IWalletState | null;
+    needsAccountCreation?: boolean;
   }>;
   isUnlocked: () => boolean;
   logout: () => void;
   ledgerSigner: LedgerKeyring;
   trezorSigner: TrezorKeyring;
-  setActiveAccount: (
-    accountId: number,
-    accountType: KeyringAccountType
-  ) => void;
-  setSignerNetwork: (
-    network: INetwork,
-    chain: string
-  ) => Promise<{
-    sucess: boolean;
-    wallet?: IWalletState;
-    activeChain?: INetworkType;
+  setSignerNetwork: (network: INetwork) => Promise<{
+    success: boolean;
   }>;
-  addCustomNetwork: (chain: INetworkType, network: INetwork) => void;
-  removeNetwork: (
-    chain: INetworkType,
-    chainId: number,
-    rpcUrl: string,
-    label: string,
-    key?: string
-  ) => void;
-  updateNetworkConfig: (network: INetwork, chainType: INetworkType) => void;
-  setWalletPassword: (password: string) => void;
-  isSeedValid: (seed: string) => boolean;
-  setSeed: (seed: string) => void;
-  createNewSeed: () => string;
+  getPrivateKeyByAccountId: (
+    id: number,
+    accountType: KeyringAccountType,
+    pwd: string
+  ) => Promise<string>;
   setStorage: (client: any) => void;
-  ethereumTransaction: IEthereumTransactions;
   syscoinTransaction: ISyscoinTransactions;
-  verifyIfIsTestnet: () => boolean | undefined;
-  updateAccountLabel: (
-    label: string,
-    accountId: number,
-    accountType: KeyringAccountType
-  ) => void;
+  isSeedValid: (seedPhrase: string) => boolean;
+  getSeed: (pwd: string) => Promise<string>;
+  importTrezorAccount: (label?: string) => Promise<IKeyringAccountState>;
   utf8Error: boolean;
-  validateZprv: (zprv: string) => IValidateZprvResponse;
+  validateZprv: (
+    zprv: string,
+    targetNetwork?: INetwork
+  ) => IValidateZprvResponse;
+  // Account management
+  importAccount: (
+    privKey: string,
+    label?: string
+  ) => Promise<IKeyringAccountState>;
+  getNewChangeAddress: () => Promise<string>;
+  getChangeAddress: (id: number) => Promise<string>;
+  getPubkey: (id: number, isChangeAddress: boolean) => Promise<string>;
+  getBip32Path: (id: number, isChangeAddress: boolean) => Promise<string>;
+  updateReceivingAddress: () => Promise<string>;
+  getActiveAccount: () => {
+    activeAccount: Omit<IKeyringAccountState, 'xprv'>;
+    activeAccountType: KeyringAccountType;
+  };
+  importWeb3Account: (mnemonicOrPrivKey: string) => any;
+  createNewSeed: () => string;
+  getUTXOState: () => any;
+  importLedgerAccount: (
+    label?: string
+  ) => Promise<IKeyringAccountState | undefined>;
+  getActiveUTXOAccountState: () => any;
+  createEthAccount: (privateKey: string) => any;
+  getAddress: (xpub: string, isChangeAddress: boolean) => Promise<string>;
+  // Secure initialization and password management
+  initializeWalletSecurely: (
+    seedPhrase: string,
+    password: string,
+    prvPassword?: string
+  ) => Promise<IKeyringAccountState>;
+  // NEW: Separated initialization methods
+  initializeSession: (seedPhrase: string, password: string) => Promise<void>;
+  createFirstAccount: (label?: string) => Promise<IKeyringAccountState>;
+  transferSessionTo: (targetKeyring: IKeyringManager) => void;
+  receiveSessionOwnership: (sessionPassword: any, sessionMnemonic: any) => void;
+  lockWallet: () => void;
+  // NEW: Store access for stateless keyring
+  setVaultStateGetter: (getter: () => any) => void;
 }
 
 export enum KeyringAccountType {
-  Trezor = 'Trezor',
-  Imported = 'Imported',
   HDAccount = 'HDAccount',
+  Imported = 'Imported',
   Ledger = 'Ledger',
+  Trezor = 'Trezor',
 }
 
 export type IKeyringDApp = {
+  active: boolean;
   id: number;
   url: string;
-  active: boolean;
 };
 
 export type accountType = {
   [id: number]: IKeyringAccountState;
 };
-
-export interface IWalletState {
-  accounts: { [key in KeyringAccountType]: accountType };
-  activeAccountId: number;
-  activeAccountType: KeyringAccountType;
-  networks: {
-    [INetworkType.Ethereum]: {
-      [chainId: number | string]: INetwork;
-    };
-    [INetworkType.Syscoin]: {
-      [chainId: number | string]: INetwork;
-    };
-  };
-  activeNetwork: INetwork;
-}
 
 export type IKeyringBalances = {
   [INetworkType.Syscoin]: number;
@@ -286,99 +318,107 @@ export type IKeyringBalances = {
 };
 
 export interface IWeb3Account extends IKeyringAccountState {
+  encrypt: (password: string) => EncryptedKeystoreV3Json;
+  sign: (data: string) => Sign;
   signTransaction: (
     transactionConfig: TransactionConfig,
     callback?: (signTransaction: SignedTransaction) => void
   ) => Promise<SignedTransaction>;
-  sign: (data: string) => Sign;
-  encrypt: (password: string) => EncryptedKeystoreV3Json;
 }
 
-type IsBitcoinBased = {
-  isBitcoinBased?: boolean;
-};
-
-type IOriginNetwork = INetwork & IsBitcoinBased;
+interface INetworkParams {
+  bech32: string;
+  bip32: {
+    private: number;
+    public: number;
+  };
+  messagePrefix: string;
+  pubKeyHash: number;
+  scriptHash: number;
+  slip44: number;
+  wif: number;
+}
 
 interface IValidateZprvResponse {
   isValid: boolean;
   message: string;
+  network?: INetworkParams | null;
+  node?: any;
 }
 
 export interface IKeyringAccountState {
   address: string;
+  balances: IKeyringBalances;
   id: number;
-  isTrezorWallet: boolean;
+  isImported: boolean;
   isLedgerWallet: boolean;
+  isTrezorWallet: boolean;
   label: string;
   xprv: string;
-  balances: IKeyringBalances;
   xpub: string;
-  isImported: boolean;
-  originNetwork?: IOriginNetwork;
 }
 
 export interface ISyscoinBackendAccount {
-  page: number;
-  totalPages: number;
-  itemsOnPage: number;
   address: string;
   balance: string;
+  itemsOnPage: number;
+  page: number;
+  totalPages: number;
   totalReceived: string;
   totalSent: string;
+  txs: number;
   unconfirmedBalance: string;
   unconfirmedTxs: number;
-  txs: number;
 }
 
 export interface ILatestUpdateForSysAccount {
-  xpub: any;
   balances: {
-    syscoin: number;
     ethereum: number;
+    syscoin: number;
   };
   receivingAddress: any;
+  xpub: any;
 }
 
 export interface ISendSignedErcTransactionProps {
+  decimals?: number;
+  gasLimit?: BigNumberish;
+  gasPrice?: BigNumberish;
+  isLegacy?: boolean;
+  maxFeePerGas?: BigNumberish;
+  maxPriorityFeePerGas?: BigNumberish;
   networkUrl: string;
   receiver: string;
-  tokenAddress: string;
-  isLegacy?: boolean;
-  maxPriorityFeePerGas?: BigNumberish;
-  maxFeePerGas?: BigNumberish;
-  gasPrice?: BigNumberish;
-  gasLimit?: BigNumberish;
-  tokenAmount?: string;
-  decimals?: number;
-  tokenId?: number;
   saveTrezorTx?: (tx: any) => void;
+  tokenAddress: string;
+  tokenAmount?: string;
+  tokenId?: number;
 }
 
 export interface IResponseFromSendErcSignedTransaction {
-  type: number;
-  chainId: number;
-  nonce: number;
-  maxPriorityFeePerGas: BigNumber;
-  maxFeePerGas: BigNumber;
-  gasPrice: BigNumber | null;
-  gasLimit: BigNumber;
-  to: string;
-  value: BigNumber;
-  data: string;
   accessList: any[];
+  chainId: number;
+  confirmations: number | null;
+  data: string;
+  from: string;
+  gasLimit: BigNumber;
+  gasPrice: BigNumber | null;
   hash: string;
-  v: number | null;
+  maxFeePerGas: BigNumber;
+  maxPriorityFeePerGas: BigNumber;
+  nonce: number;
   r: string;
   s: string;
-  from: string;
-  confirmations: number | null;
+  to: string;
+  type: number;
+  v: number | null;
+  value: BigNumber;
   wait: any;
 }
 
 export interface IGasParams {
+  gasLimit?: BigNumber;
+  gasPrice?: BigNumber;
   maxFeePerGas?: BigNumber;
   maxPriorityFeePerGas?: BigNumber;
-  gasPrice?: BigNumber;
-  gasLimit?: BigNumber;
 }

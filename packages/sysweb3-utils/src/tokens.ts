@@ -1,13 +1,13 @@
-import axios from 'axios';
 import camelcaseKeys from 'camelcase-keys';
 import { ethers as ethersModule } from 'ethers';
+import * as sys from 'syscoinjs-lib';
 
 import { createContractUsingAbi } from '.';
 import ABI1155 from './abi/erc1155.json';
 import abi20 from './abi/erc20.json';
 import ABI721 from './abi/erc721.json';
-import * as sys from './syscoints';
 import tokens from './tokens.json';
+import { retryableFetch } from '@pollum-io/sysweb3-network';
 
 import type {
   Contract,
@@ -19,13 +19,13 @@ import type { BaseProvider, JsonRpcProvider } from '@ethersproject/providers';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
 type NftMetadataMixedInJsonSchema = {
+  properties: {
+    description: { description: string; type: 'string' };
+    image: { description: string; type: 'string' };
+    name: { description: string; type: 'string' };
+  };
   title: string;
   type: 'object';
-  properties: {
-    name: { type: 'string'; description: string };
-    image: { type: 'string'; description: string };
-    description: { type: 'string'; description: string };
-  };
 };
 
 export const RARIBLE_MATCH_RE =
@@ -46,56 +46,14 @@ export const parseNftUrl = (url: string): [string, string] | null => {
   return null;
 };
 
-export const fetchImage = (src: string): Promise<HTMLImageElement> => {
-  return new Promise((resolve, reject) => {
+export const fetchImage = (src: string): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
     const image = new Image();
     image.src = src;
     image.crossOrigin = '';
     image.onload = () => resolve(image);
     image.onerror = (error) => reject(error);
   });
-};
-
-export const normalizeOpenSeaUrl = (url: string, tokenId: string): string => {
-  try {
-    const _url = new URL(url);
-
-    const { host, pathname, searchParams } = _url;
-
-    // 0x%7Bid%7D" = 0x{id} (url encoded)
-    if (
-      (host !== 'api.opensea.io' && host !== 'testnets-api.opensea.io') ||
-      !pathname.includes('0x%7Bid%7D')
-    ) {
-      return url;
-    }
-
-    _url.pathname = pathname.replace(/0x%7Bid%7D/g, tokenId);
-    searchParams.set('format', 'json');
-
-    return String(_url);
-  } catch (error) {
-    return url;
-  }
-};
-
-export const normalizeNiftyGatewayUrl = (url: string): string => {
-  try {
-    const _url = new URL(url);
-
-    if (_url.host !== 'api.niftygateway.com') {
-      return url;
-    }
-
-    // Without final slash, the Nifty Gateway API server
-    // doesn’t set the CORS headers properly.
-    _url.pathname = _url.pathname + '/';
-
-    return String(_url);
-  } catch (error) {
-    return url;
-  }
-};
 
 export const normalizeTokenUrl = (url: string): string =>
   String(url).replace('ipfs://', 'https://ipfs.io/ipfs/');
@@ -127,18 +85,18 @@ export const ERC20ABI = [
 ];
 
 type NftContract = InstanceType<typeof Contract> & {
+  balanceOf: ContractFunction<number>;
   ownerOf: ContractFunction<string>;
   tokenURI: ContractFunction<string>;
   uri: ContractFunction<string>;
-  balanceOf: ContractFunction<number>;
 };
 
 type TokenContract = InstanceType<typeof Contract> & {
+  Transfer: Event;
   balanceOf: ContractFunction<number>;
   decimals: ContractFunction<number>;
   symbol: ContractFunction<string>;
   transfer: ContractFunction<any>;
-  Transfer: Event;
 };
 
 export const url = async (
@@ -150,7 +108,7 @@ export const url = async (
     contract.uri(tokenId),
   ]).catch((error: Error) => {
     throw new Error(
-      `An error occurred while trying to fetch the token URI from the NFT contract. Error: ${error}`
+      `An error occurred while trying to fetch the token URI from the NFT contract. ${error}`
     );
   });
 
@@ -208,7 +166,7 @@ export const getERC1155StandardBalance = async (
     );
   } catch (error) {
     throw new Error(
-      `Verify current network or the contract address. Set the same network of token contract. Error: ${error}`
+      `Verify current network or the contract address. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -225,7 +183,7 @@ export const getERC721StandardBalance = async (
     return await fetchBalanceOfERC721Contract(contractAddress, address, loaded);
   } catch (error) {
     throw new Error(
-      `Verify current network or the contract address. Set the same network of token contract. Error: ${error}`
+      `Verify current network or the contract address. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -247,8 +205,27 @@ export const fetchStandardNftContractData = async (
 
   return {
     name,
-    symbol,
+    symbol: cleanTokenSymbol(symbol),
   };
+};
+
+/**
+ * Clean token symbol by removing spam content
+ * @param symbol - Raw token symbol that may contain spam
+ * @returns Cleaned symbol with spam content removed
+ */
+export const cleanTokenSymbol = (symbol: string): string => {
+  if (!symbol) return symbol;
+
+  // Find first occurrence of common spam separators (: is most common)
+  const separatorMatch = symbol.match(/[:\s|/\\()[\]{}<>=+&%#@!?;~`"'-]/);
+  if (separatorMatch) {
+    const cleanSymbol = symbol.substring(0, separatorMatch.index).trim();
+    // Return cleaned symbol if it's valid, otherwise fallback to original
+    return cleanSymbol.length > 0 ? cleanSymbol : symbol;
+  }
+
+  return symbol;
 };
 
 export const fetchStandardTokenContractData = async (
@@ -271,7 +248,7 @@ export const fetchStandardTokenContractData = async (
   return {
     balance,
     decimals,
-    tokenSymbol: symbol,
+    tokenSymbol: cleanTokenSymbol(symbol),
   };
 };
 
@@ -365,16 +342,13 @@ export const isNftMetadata = (data: unknown): data is NftMetadata => {
 export const addressesEqual = (
   address: Address,
   addressToCompare: Address
-): boolean => {
-  return address.toLowerCase() === addressToCompare.toLowerCase();
-};
+): boolean => address.toLowerCase() === addressToCompare.toLowerCase();
 
 // Promise.any() implementation from https://github.com/m0ppers/promise-any
-export const promiseAny = (promises: Promise<any>[]): Promise<any> => {
-  return reversePromise(
+export const promiseAny = (promises: Promise<any>[]): Promise<any> =>
+  reversePromise(
     Promise.all([...promises].map(reversePromise))
   ) as Promise<any>;
-};
 
 export const reversePromise = (promise: Promise<unknown>): Promise<unknown> =>
   new Promise((resolve, reject) => {
@@ -414,13 +388,8 @@ export const getHost = (url: string) => {
 export const getToken = async (id: string): Promise<ICoingeckoToken> => {
   let token;
   try {
-    if (fetch) {
-      const response = await fetch(`${COINGECKO_API}/coins/${id}`);
-      token = await response.json();
-    } else {
-      const response = await axios.get(`${COINGECKO_API}/coins/${id}`);
-      token = response.data;
-    }
+    const response = await retryableFetch(`${COINGECKO_API}/coins/${id}`);
+    token = await response.json();
   } catch (error) {
     throw new Error('Unable to retrieve token data');
   }
@@ -444,7 +413,7 @@ export const getTokenStandardMetadata = async (
     );
   } catch (error) {
     throw new Error(
-      `Verify current network. Set the same network of token contract. Error: ${error}`
+      `Verify current network. Set the same network of token contract. ${error}`
     );
   }
 };
@@ -460,7 +429,7 @@ export const getNftStandardMetadata = async (
     return await fetchStandardNftContractData(contractAddress, loaded);
   } catch (error) {
     throw new Error(
-      `Verify current network. Set the same network of NFT token contract. Error: ${error}`
+      `Verify current network. Set the same network of NFT token contract. ${error}`
     );
   }
 };
@@ -479,18 +448,11 @@ export const getFiatValueByToken = async (
   fiat: string
 ): Promise<number> => {
   try {
-    if (fetch) {
-      const response = await fetch(
-        `${COINGECKO_API}/simple/price?ids=${token}&vs_currencies=${fiat}`
-      );
-      const data = await response.json();
-      return data[token][fiat];
-    } else {
-      const response = await axios.get(
-        `${COINGECKO_API}/simple/price?ids=${token}&vs_currencies=${fiat}`
-      );
-      return response.data[token][fiat];
-    }
+    const response = await retryableFetch(
+      `${COINGECKO_API}/simple/price?ids=${token}&vs_currencies=${fiat}`
+    );
+    const data = await response.json();
+    return data[token][fiat];
   } catch (error) {
     throw new Error(`Unable to retrieve ${token} price as ${fiat} `);
   }
@@ -523,14 +485,11 @@ export const getTokenBySymbol = async (
 export const getSearch = async (
   query: string
 ): Promise<ICoingeckoSearchResults> => {
-  if (fetch) {
-    const response = await fetch(`${COINGECKO_API}/search?query=${query}`);
-    const data = await response.json();
-    return camelcaseKeys(data, { deep: true });
-  } else {
-    const response = await axios.get(`${COINGECKO_API}/search?query=${query}`);
-    return camelcaseKeys(response.data, { deep: true });
-  }
+  const response = await retryableFetch(
+    `${COINGECKO_API}/search?query=${query}`
+  );
+  const data = await response.json();
+  return camelcaseKeys(data, { deep: true });
 };
 
 export const getSearchTokenAtCoingecko = async (
@@ -550,7 +509,7 @@ export const getSearchTokenAtCoingecko = async (
 };
 const isImageUrlAvailable = async (imageUrl: string) => {
   try {
-    const response = await fetch(imageUrl);
+    const response = await retryableFetch(imageUrl);
 
     return response.status === 200;
   } catch (error) {
@@ -572,7 +531,7 @@ export const getSearchTokenAtSysGithubRepo = async (tokenSymbol: string) => {
       ? `${imageUrl}.png`
       : `${imageUrl}.svg`;
 
-    const tokenData = await fetch(dataUrl);
+    const tokenData = await retryableFetch(dataUrl);
 
     const formattedTokenData = await tokenData.json();
 
@@ -596,87 +555,6 @@ export const getSearchTokenAtSysGithubRepo = async (tokenSymbol: string) => {
   }
 };
 
-export const getTokenInfoBasedOnNetwork = async (
-  token: ITokenEthProps,
-  networkChainId: number
-): Promise<ITokenEthProps> => {
-  const rolluxChainIds = [570, 57000];
-
-  const isRolluxNetwork = rolluxChainIds.some(
-    (rolluxChain) => rolluxChain === networkChainId
-  );
-
-  //Fill the let with the default values that can't be different / edited
-  let web3Token: ITokenEthProps = {
-    ...token,
-    tokenSymbol: token.editedSymbolToUse
-      ? token.editedSymbolToUse
-      : token.tokenSymbol,
-    balance: token.balance ? token.balance : 0,
-    id: token.contractAddress,
-    isNft: token.isNft,
-    chainId: networkChainId,
-  };
-
-  switch (isRolluxNetwork) {
-    case true: {
-      const fetchTokenData = await getSearchTokenAtSysGithubRepo(
-        token.tokenSymbol
-      );
-
-      if (fetchTokenData?.token !== null && fetchTokenData?.imageUrl !== '') {
-        web3Token = {
-          ...web3Token,
-          name: fetchTokenData?.token.name || token?.name,
-          logo: fetchTokenData?.imageUrl || token?.logo,
-        };
-      } else {
-        const tokenResult = await getSearchTokenAtCoingecko(token.tokenSymbol);
-
-        if (tokenResult !== null && tokenResult !== undefined) {
-          const { name, thumb } = tokenResult;
-
-          web3Token = {
-            ...web3Token,
-            name: token?.name ? token.name : name,
-            logo: token?.logo ? token.logo : thumb,
-          };
-        } else {
-          web3Token = {
-            ...web3Token,
-            name: token.tokenSymbol,
-            logo: token?.logo ? token.logo : '', //Return empty string to use fill it up with Pali Logo at Pali Side
-          };
-        }
-      }
-      break;
-    }
-
-    case false: {
-      const tokenResult = await getSearchTokenAtCoingecko(token.tokenSymbol);
-
-      if (tokenResult !== null && tokenResult !== undefined) {
-        const { name, thumb } = tokenResult;
-
-        web3Token = {
-          ...web3Token,
-          name: token?.name ? token.name : name,
-          logo: token?.logo ? token.logo : thumb,
-        };
-      } else {
-        web3Token = {
-          ...web3Token,
-          name: token.tokenSymbol,
-          logo: token?.logo ? token.logo : '', //Return empty string to use fill it up with Pali Logo at Pali Side
-        };
-      }
-      break;
-    }
-  }
-
-  return web3Token;
-};
-
 /**
  *
  * @param contractAddress Contract address of the token to get info from
@@ -686,17 +564,10 @@ export const getTokenByContract = async (
 ): Promise<ICoingeckoToken> => {
   let token;
   try {
-    if (fetch) {
-      const response = await fetch(
-        `${COINGECKO_API}/coins/ethereum/contract/${contractAddress}`
-      );
-      token = await response.json();
-    } else {
-      const response = await axios.get(
-        `${COINGECKO_API}/coins/ethereum/contract/${contractAddress}`
-      );
-      token = response.data;
-    }
+    const response = await retryableFetch(
+      `${COINGECKO_API}/coins/ethereum/contract/${contractAddress}`
+    );
+    token = await response.json();
   } catch (error) {
     throw new Error('Token not found');
   }
@@ -748,20 +619,53 @@ export const getAsset = async (
       contract: string;
       decimals: number;
       maxSupply: string;
-      pubData: any;
+      metaData?: string; // Syscoin 5 - general metadata field
       symbol: string;
       totalSupply: string;
-      updateCapabilityFlags: number;
     }
   | undefined
 > => {
   try {
+    // Validate inputs before API call
+    if (!explorerUrl || !assetGuid) {
+      throw new Error('Explorer URL and Asset GUID are required');
+    }
+
+    // Validate asset GUID format (should be numeric)
+    if (!/^\d+$/.test(assetGuid)) {
+      throw new Error('Invalid Asset GUID format');
+    }
+
     const asset = await sys.utils.fetchBackendAsset(explorerUrl, assetGuid);
 
-    if (!asset) throw new Error(`Asset with guid ${assetGuid} not found`);
+    if (!asset) {
+      throw new Error(`Asset with guid ${assetGuid} not found`);
+    }
+
+    // Validate that this is not an invalid/unknown asset
+    if (asset.symbol && asset.symbol.startsWith('UNKNOWN-')) {
+      throw new Error(
+        `Asset ${assetGuid} is invalid or unknown (${asset.symbol})`
+      );
+    }
+
+    if (asset.metaData && asset.metaData === 'Unknown Asset Type') {
+      throw new Error(`Asset ${assetGuid} is of unknown type`);
+    }
+
+    // Ensure symbol exists (required for Syscoin 5)
+    if (!asset.symbol) {
+      throw new Error(`Asset ${assetGuid} has no symbol`);
+    }
+
+    // Additional validation for proper asset
+    if (!asset.symbol || asset.symbol.trim() === '') {
+      throw new Error(`Asset ${assetGuid} has empty symbol`);
+    }
 
     return asset;
   } catch (error) {
+    console.error('getAsset error:', error);
     return;
   }
 };
@@ -776,50 +680,50 @@ export const countDecimals = (x: number) => {
 
 // the source is in snake case
 export interface ICoingeckoToken {
-  id: string;
-  symbol: string;
-  name: string;
   assetPlatformId: string;
-  platforms: object;
   blockTimeInMinutes: number;
-  hashingAlgorithm?: string;
   categories: string[];
-  localization: object;
+  coingeckoRank: number;
+  coingeckoScore: number;
+  communityData: object;
+  communityScore: number;
+  contractAddress?: string;
+  countryOrigin: string;
   description: object;
-  links: object;
+  developerData: object;
+  developerScore: number;
+  genesisDate?: string;
+  localization: object;
+  icoData?: object;
+  id: string;
+  sentimentVotesDownPercentage: number;
+  name: string;
+  marketCapRank: number;
+  liquidityScore: number;
+  platforms: object;
   image: {
     thumb: string;
     small: string;
     large: string;
   };
-  countryOrigin: string;
-  genesisDate?: string;
-  contractAddress?: string;
-  sentimentVotesUpPercentage: number;
-  sentimentVotesDownPercentage: number;
-  icoData?: object;
-  marketCapRank: number;
-  coingeckoRank: number;
-  coingeckoScore: number;
-  developerScore: number;
-  communityScore: number;
-  liquidityScore: number;
-  publicInterestScore: number;
   marketData: {
+    circulatingSupply: number;
     currentPrice: { [fiat: string]: number };
-    marketCap: { [fiat: string]: number };
-    totalVolume: { [fiat: string]: number };
+    fdvToTvlRatio?: number;
     fullyDilutedValuation: object;
     totalValueLocked?: object;
-    fdvToTvlRatio?: number;
+    totalVolume: { [fiat: string]: number };
     mcapToTvlRatio?: number;
-    circulatingSupply: number;
+    marketCap: { [fiat: string]: number };
     totalSupply?: number;
     maxSupply?: number;
     priceChange24H: number;
   };
-  communityData: object;
-  developerData: object;
+  sentimentVotesUpPercentage: number;
+  publicInterestScore: number;
+  hashingAlgorithm?: string;
+  symbol: string;
+  links: object;
   publicInterestStats: object;
   lastUpdated: string;
   tickers: object[];
@@ -827,28 +731,28 @@ export interface ICoingeckoToken {
 
 export interface ICoingeckoSearchResultToken {
   id: string;
+  large: string;
+  marketCapRank: number;
   name: string;
   symbol: string;
-  marketCapRank: number;
   thumb: string;
-  large: string;
 }
 
 export interface ICoingeckoSearchResults {
+  categories: object[];
   coins: ICoingeckoSearchResultToken[];
   exchanges: object[];
   icos: object[];
-  categories: object[];
   nfts: object[];
 }
 
 export type EthTokenDetails = {
-  id: string;
-  symbol: string;
-  name: string;
+  contract: string;
   decimals: number;
   description: string;
-  contract: string;
+  id: string;
+  name: string;
+  symbol: string;
 };
 
 export type IEthereumAddress = {
@@ -872,46 +776,46 @@ export type IEthereumTokensResponse = {
 
 export type IEthereumToken = {
   id: string;
+  large: string;
+  market_cap_rank: number;
   name: string;
   symbol: string;
-  market_cap_rank: number;
   thumb: string;
-  large: string;
 };
 
 export type TokenIcon = {
-  thumbImage: string;
   largeImage: string;
+  thumbImage: string;
 };
 
 export type NftResultDone = {
-  status: 'done';
-  loading: false;
   error: undefined;
+  loading: false;
   nft: NftMetadata;
   reload: () => Promise<boolean>;
+  status: 'done';
 };
 
 export interface IEtherscanNFT {
-  blockNumber: string;
-  timeStamp: string;
-  hash: string;
-  nonce: string;
   blockHash: string;
-  from: string;
+  blockNumber: string;
+  confirmations: string;
   contractAddress: string;
-  to: string;
-  tokenID: string;
-  tokenName: string;
-  tokenSymbol: string;
-  tokenDecimal: string;
-  transactionIndex: string;
+  cumulativeGasUsed: string;
+  from: string;
   gas: string;
   gasPrice: string;
   gasUsed: string;
-  cumulativeGasUsed: string;
+  hash: string;
   input: string;
-  confirmations: string;
+  nonce: string;
+  transactionIndex: string;
+  to: string;
+  tokenDecimal: string;
+  tokenID: string;
+  tokenName: string;
+  tokenSymbol: string;
+  timeStamp: string;
 }
 
 export interface NftMetadata {
@@ -920,36 +824,30 @@ export interface NftMetadata {
 }
 
 export type IErc20Token = {
+  decimals: number;
   name: string;
   symbol: string;
-  decimals: number;
 };
 
-export enum IKeyringTokenType {
-  SYS = 'SYS',
-  ETH = 'ETH',
-  ERC20 = 'ERC20',
-}
-
 export type ISyscoinToken = {
-  type: string;
+  balance: number;
+  decimals: number;
   name: string;
   path: string;
-  tokenId: string;
-  transfers: number;
   symbol: string;
-  decimals: number;
-  balance: number;
+  tokenId: string;
   totalReceived: string;
   totalSent: string;
+  transfers: number;
+  type: string;
 };
 
 export type IAddressMap = {
   changeAddress: string;
   outputs: [
     {
-      value: number;
       address: string;
+      value: number;
     }
   ];
 };
@@ -975,19 +873,19 @@ export type EthereumProviderEip1193 = {
 export type Address = string;
 
 export type NftResultLoading = {
-  status: 'loading';
-  loading: true;
   error: undefined;
+  loading: true;
   nft: undefined;
   reload: () => Promise<boolean>;
+  status: 'loading';
 };
 
 export type NftResultError = {
-  status: 'error';
-  loading: false;
   error: Error;
+  loading: false;
   nft: undefined;
   reload: () => Promise<boolean>;
+  status: 'error';
 };
 
 export type IQueryFilterResult = Promise<Array<Event>>;
@@ -1003,33 +901,9 @@ export type NftJsonMetadata = {
 
 export type ContractMethod = {
   address: string;
-  methodName: string;
-  methodHash: string;
   humanReadableAbi: [string];
+  methodHash: string;
+  methodName: string;
 };
 
-interface ITokenEthProps {
-  balance: number;
-  chainId?: number;
-  collection?: IERC1155Collection[];
-  collectionName?: string;
-  contractAddress: string;
-  decimals: string | number;
-  editedSymbolToUse?: string;
-  id?: string;
-  is1155?: boolean;
-  isNft: boolean;
-  logo?: string;
-  name?: string;
-  tokenId?: number | string;
-  tokenSymbol: string;
-}
-
-interface IERC1155Collection {
-  balance: number;
-  tokenId: number;
-  tokenSymbol: string;
-}
-
-export type ITokenMap = Map<string, IAddressMap>;
 /** end */
