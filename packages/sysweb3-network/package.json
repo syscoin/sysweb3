@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "eth-chains": "^1.0.0",
-    "ethers": "^5.6.9"
+    "ethers": "^5.7.2"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.191",

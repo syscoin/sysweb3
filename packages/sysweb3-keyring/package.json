@@ -52,13 +52,12 @@
     "eth-json-rpc-filters": "^4.2.2",
     "eth-sig-util": "^3.0.1",
     "ethereumjs-util": "^7.1.5",
-    "ethers": "^5.6.8",
+    "ethers": "^5.7.2",
     "ledger-bitcoin": "^0.2.3",
     "lodash": "^4.17.21",
     "satoshi-bitcoin": "^1.0.5",
     "syscoinjs-lib": "^1.0.242",
     "syscointx-js": "^1.0.118",
-    "web3": "^1.7.1",
     "zksync-ethers": "5"
   },
   "devDependencies": {
