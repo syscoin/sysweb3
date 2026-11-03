@@ -92,7 +92,28 @@ export class TrezorKeyring {
   public model?: string;
   private hardwareWalletManager: HardwareWalletManager;
   private initialized = false;
+  private lifecycleGeneration = 0;
   private unsubscribeTrezor?: () => void;
+  private readonly onTrezorConnected = ({
+    type,
+  }: {
+    type: HardwareWalletType;
+  }) => {
+    if (type === HardwareWalletType.TREZOR) {
+      console.log('Trezor connected');
+      this.initialized = true;
+    }
+  };
+  private readonly onTrezorDisconnected = ({
+    type,
+  }: {
+    type: HardwareWalletType;
+  }) => {
+    if (type === HardwareWalletType.TREZOR) {
+      console.log('Trezor disconnected');
+      this.initialized = false;
+    }
+  };
 
   constructor() {
     this.publicKey = Buffer.from('', 'hex');
@@ -101,35 +122,35 @@ export class TrezorKeyring {
     this.paths = {};
     this.hardwareWalletManager = new HardwareWalletManager();
 
-    // Set up event listeners
-    this.hardwareWalletManager.on('connected', ({ type }) => {
-      if (type === HardwareWalletType.TREZOR) {
-        console.log('Trezor connected');
-        this.initialized = true;
-      }
-    });
-
-    this.hardwareWalletManager.on('disconnected', ({ type }) => {
-      if (type === HardwareWalletType.TREZOR) {
-        console.log('Trezor disconnected');
-        this.initialized = false;
-      }
-    });
-
     this.observeTrezor();
   }
 
   private observeTrezor(): void {
-    if (this.unsubscribeTrezor) return;
-    this.unsubscribeTrezor = subscribeTrezorEvents((event) => {
-      if (event.type === 'model') this.model = event.model;
-    });
+    // Manager destruction removes its listeners. Reusing an unlocked keyring
+    // must restore these same callbacks without multiplying them on each init.
+    if (
+      !this.hardwareWalletManager
+        .listeners('connected')
+        .includes(this.onTrezorConnected)
+    )
+      this.hardwareWalletManager.on('connected', this.onTrezorConnected);
+    if (
+      !this.hardwareWalletManager
+        .listeners('disconnected')
+        .includes(this.onTrezorDisconnected)
+    )
+      this.hardwareWalletManager.on('disconnected', this.onTrezorDisconnected);
+    if (!this.unsubscribeTrezor)
+      this.unsubscribeTrezor = subscribeTrezorEvents((event) => {
+        if (event.type === 'model') this.model = event.model;
+      });
   }
 
   /**
    * Initialize Trezor script.
    */
   public async init(): Promise<boolean> {
+    const generation = this.lifecycleGeneration;
     this.observeTrezor();
     if (this.initialized) {
       return true;
@@ -138,8 +159,10 @@ export class TrezorKeyring {
     // Add a small delay to ensure Chrome extension context is ready
     // This helps prevent "waiting for handshake" errors
     await new Promise((resolve) => setTimeout(resolve, 100));
+    if (generation !== this.lifecycleGeneration) return false;
 
     const result = await this.hardwareWalletManager.initializeTrezor();
+    if (generation !== this.lifecycleGeneration) return false;
     if (result) {
       this.initialized = true;
     }
@@ -274,6 +297,7 @@ export class TrezorKeyring {
    */
 
   public dispose() {
+    this.lifecycleGeneration++;
     try {
       void TrezorConnect.dispose().catch((error) => {
         console.log('Error disposing Trezor:', error);
