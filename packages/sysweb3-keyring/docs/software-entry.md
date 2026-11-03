@@ -72,6 +72,93 @@ Native secure storage, entropy/WebCrypto/Buffer compatibility, biometric policy,
 backup flows and React Native bundler/device qualification are separate work.
 Do not claim this Node-verified entry establishes those properties.
 
+## Prepared EVM signing (unreleased 2.0.0)
+
+`SoftwareKeyring.signPreparedEvmTransaction(request, { assertCurrent })` signs a
+complete type-0 or type-2 transaction synchronously. It does not contact an RPC,
+estimate fees, select a nonce, resolve names, fill omitted fields or broadcast.
+Only an unlocked software HD/imported account is supported. Hardware,
+smart-account and watch-only records reject before key use.
+
+```ts
+const signed = keyring.signPreparedEvmTransaction(
+  {
+    account: {
+      id: 0,
+      type: 'HDAccount',
+      expectedAddress: reviewedAddress,
+    },
+    network: {
+      kind: 'ethereum',
+      chainId: '1',
+      slip44: 60,
+      url: reviewedRpcUrl,
+    },
+    transaction: {
+      type: 2,
+      from: reviewedAddress,
+      to: reviewedRecipient,
+      chainId: '1',
+      nonce: '7',
+      value: '1000000000000000',
+      gasLimit: '21000',
+      data: '0x',
+      maxFeePerGas: '30000000000',
+      maxPriorityFeePerGas: '1000000000',
+    },
+  },
+  {
+    // Host-owned check: reject expired/replaced approval, lock, account/network
+    // change, or a conflicting pending submission. Must return undefined.
+    assertCurrent() {
+      assertReviewStillCurrent();
+    },
+  }
+);
+```
+
+All quantities are canonical unsigned decimal strings. Nonce is limited to
+`Number.MAX_SAFE_INTEGER`; gas limit to uint64; value and fee arithmetic to
+uint256. Type 0 requires `gasPrice` and rejects EIP-1559 fields; type 2 requires
+both maximum and priority fees and rejects `gasPrice`. Recipient and sender
+must be nonzero hex addresses. Valid address casing is normalized, but invalid
+mixed-case checksums reject. Calldata is even-length `0x` hex, at most 16 KiB.
+Contract creation, access lists and other transaction types are unsupported.
+Unknown, hidden, accessor and asynchronous field values reject.
+
+The request is detached before host callbacks. Its account, address, chain,
+SLIP44 and exact configured endpoint must match the selected keyring context.
+`assertCurrent` must be synchronous and return `undefined`; returning a Promise
+rejects rather than deferring consent. The shared keyring also checks its
+session/account/network identity before and after signing. The decoded signed
+envelope, recovered sender, unsigned digest and transaction hash are verified
+against the admitted request. The returned object and canonical transaction
+fields are frozen.
+
+**Returned signed bytes are already authorized transactions.** Anyone receiving
+those bytes can submit them. A later lock cannot invalidate a returned signature.
+Keep them inside the host authority and do not send them to telemetry, logs,
+ordinary UI state or arbitrary application callbacks.
+
+The host owns durable submission and recovery:
+
+1. Check balance, chain identity, fees, nonce, review expiry and explicit user
+   authorization before signing; this signing API does not establish those facts.
+2. Durably store the signed bytes and locally computed hash before network I/O.
+   Use bounded journal fields: raw transaction, hash and a small public summary.
+   Avoid duplicating the full calldata in the same record; a maximum-size result
+   serialized wholesale can exceed a 64 KiB host storage-record limit.
+3. Durably mark submission attempted, recheck current authority, and broadcast
+   those exact bytes. If journal persistence fails, do not broadcast.
+4. Verify the returned hash against `signed.hash`. On timeout, lost acknowledgement
+   or restart, reconcile that local hash. An uncertain broadcast is not a failed
+   transaction and must not trigger a newly signed transaction automatically.
+
+The endpoint field binds configuration identity only. No network is contacted
+by this API, so it cannot authenticate that endpoint or establish its live chain.
+JS private-key strings retain the existing best-effort lifetime guarantees;
+this API does not promise provable memory erasure.
+
 ## Validation
 
 `test/unit/keyring-manager/software-entry.spec.ts` covers independent encrypted
@@ -84,7 +171,7 @@ After building, run `node test/software-entry-runtime.cjs` from the package
 folder. Pass an alternate absolute path to the unpacked `cjs/software.js` as its
 argument to verify packed output. This plain Node probe uses no Jest mocks or
 TypeScript loader: it rejects global-DI/device module loads and any timers or fetch calls, then
-exercises separate encrypted stores, software message signing, lock/unlock,
+exercises separate encrypted stores, software message and prepared-transaction signing, lock/unlock,
 missing-device rejection and restart with browser globals absent. Test KDF
 iterations are reduced by the existing test configuration; production KDF
 qualification remains covered separately.

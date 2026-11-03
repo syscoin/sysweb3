@@ -4,6 +4,11 @@ import { createVaultPersistence } from './storage-core';
 
 import type { KeyringStoragePort } from './keyring-core';
 import type { VaultPersistence } from './storage-core';
+import type {
+  PreparedEvmSigningOptions,
+  PreparedSoftwareEvmSigningRequest,
+  SignedPreparedEvmTransaction,
+} from './transactions/prepared-evm';
 
 declare const softwareHostBrand: unique symbol;
 /** Opaque handle minted by createSoftwareKeyringHost; no injectable persistence. */
@@ -50,6 +55,18 @@ export class SoftwareKeyring extends KeyringCore<undefined, undefined> {
     });
   }
 
+  /**
+   * Sign exactly the prepared envelope without RPC, fee/nonce discovery or
+   * broadcasting. The host must journal the result before submitting it.
+   * A later lock cannot revoke already returned signed bytes.
+   */
+  public signPreparedEvmTransaction(
+    request: PreparedSoftwareEvmSigningRequest,
+    options: PreparedEvmSigningOptions
+  ): SignedPreparedEvmTransaction {
+    return this.signPreparedSoftwareEvmTransaction(request, options);
+  }
+
   /** Software authorities cannot rebind their backing store after creation. */
   public override setStorage = (client: any): never => {
     void client;
@@ -82,3 +99,10 @@ export { INetworkType } from '@sidhujag/sysweb3-network';
 export type { INetwork } from '@sidhujag/sysweb3-network';
 export type { KeyringStoragePort } from './keyring-core';
 export type { IKeyringAccountState } from './types';
+
+export type {
+  PreparedEvmTransaction,
+  PreparedEvmSigningOptions,
+  PreparedSoftwareEvmSigningRequest,
+  SignedPreparedEvmTransaction,
+} from './transactions/prepared-evm';
