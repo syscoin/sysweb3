@@ -1785,8 +1785,8 @@ export class EthereumTransactions<
             txFormattedForEthers,
             formattedSignature
           );
-          assertBeforeBroadcast();
           assertHardwareTransactionSender(signedTx, activeAccount.address);
+          assertBeforeBroadcast();
           const finalTx = await provider.sendTransaction(signedTx);
 
           return finalTx;
@@ -1906,8 +1906,8 @@ export class EthereumTransactions<
             txFormattedForEthers,
             trezorSignature(signature.payload)
           );
-          assertBeforeBroadcast();
           assertHardwareTransactionSender(signedTx, activeAccount.address);
+          assertBeforeBroadcast();
           const finalTx = await provider.sendTransaction(signedTx);
 
           return finalTx;
@@ -2207,8 +2207,8 @@ export class EthereumTransactions<
             formattedSignature
           );
           assertSignedSender(signedTx);
-          assertBeforeBroadcast();
           assertHardwareTransactionSender(signedTx, activeAccount.address);
+          assertBeforeBroadcast();
           const transactionResponse = await provider.sendTransaction(signedTx);
           return {
             isSpeedUp: true,
@@ -2297,8 +2297,8 @@ export class EthereumTransactions<
             trezorSignature(signature.payload)
           );
           assertSignedSender(signedTx);
-          assertBeforeBroadcast();
           assertHardwareTransactionSender(signedTx, activeAccount.address);
+          assertBeforeBroadcast();
           const transactionResponse = await provider.sendTransaction(signedTx);
           return {
             isSpeedUp: true,

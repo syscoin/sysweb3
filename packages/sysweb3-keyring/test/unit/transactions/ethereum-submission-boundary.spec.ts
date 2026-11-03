@@ -132,6 +132,26 @@ describe('formatted EVM transaction submission boundary', () => {
     }
   );
 
+  it.each([KeyringAccountType.Trezor, KeyringAccountType.Ledger])(
+    'marks a mismatched %s signature as definitely not broadcast',
+    async (type) => {
+      state.activeAccountType = type;
+      state.accounts[type][0].address = new Wallet(
+        `0x${'11'.repeat(32)}`
+      ).address;
+      await expect(
+        transaction.sendFormattedTransaction(
+          { ...request(), from: state.accounts[type][0].address },
+          true
+        )
+      ).rejects.toMatchObject({
+        code: 'HARDWARE_ACCOUNT_MISMATCH',
+        transactionNotBroadcast: true,
+      });
+      expect(provider.sendTransaction).not.toHaveBeenCalled();
+    }
+  );
+
   it('marks a local signer chain-verification failure as definitely not broadcast', async () => {
     provider.verifyConfiguredChainId.mockRejectedValueOnce(
       Error('RPC chain id changed')
