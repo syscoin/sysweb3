@@ -69,6 +69,7 @@ jobs:
         run: |
           NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent \
             test/unit/hardware/trezor-connect-adapter.spec.ts \
+            test/unit/hardware/trezor-manager-lifecycle.spec.ts \
             test/unit/hardware/trezor-suite-connect.spec.ts \
             test/unit/hardware/trezor-address.spec.ts \
             test/unit/hardware/trezor-witness.spec.ts \
