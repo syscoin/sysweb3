@@ -319,3 +319,43 @@ collection rather than guaranteed memory erasure.
 ## License
 
 MIT License
+
+### Ledger platform host
+
+Ledger device access uses the Device Management Kit. The regular and software
+entries do not load a Ledger transport or device SDK. Browser integrations must
+create the heavy host from `@sidhujag/sysweb3-keyring/esm/ledger-host` in a visible
+extension page and inject its semantic `LedgerHost` port into the wallet authority:
+
+```ts
+// Visible device page only:
+import { createLedgerDmkHost } from '@sidhujag/sysweb3-keyring/esm/ledger-host';
+const host = createLedgerDmkHost({
+  confirmBlindSigning: async (intent, signal) => {
+    // Show the exact immutable intent and an explicit blind-signing warning.
+    // Return true only after a fresh user decision; cancellation must return false.
+    return showTrustedWalletConfirmation(intent, signal);
+  },
+});
+
+// Wallet authority: use a secured semantic port to that page, not a raw APDU port.
+const wallet = new KeyringManager(undefined, authorizedLedgerHostPort);
+```
+
+Use only the ESM host entry with a browser bundler and its required platform
+polyfills. `cjs/ledger-host` is not a supported entry. A service worker cannot own
+the WebHID device picker. The platform must bind the host to its own trusted page,
+revoke pending operations on lock/close, and never expose this port to dapps.
+A missing host fails with `HARDWARE_SIGNER_UNAVAILABLE`; there is no legacy
+LedgerJS fallback. Pass either a shared hardware manager or a Ledger host to
+`KeyringManager`, not both.
+
+The default host performs no remote metadata lookup, transaction checks, or
+signing telemetry. The current Ethereum signer library can fall back to blind
+signing, so transaction and typed-data signing require per-request approval
+through the trusted `confirmBlindSigning` callback. Omitting it fails closed.
+Personal-message signing and address retrieval remain available offline.
+Signatures are checked against the expected account; UTXO signatures must also
+match the approved PSBT and its requested sighash coverage. The custom UTXO host
+supports the existing Syscoin and Bitcoin app protocols. Physical-device and
+firmware qualification remain separate from source and mocked-device tests.

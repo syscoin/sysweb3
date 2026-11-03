@@ -12,6 +12,7 @@ import {
 import { TrezorKeyring } from './trezor';
 
 import type { IKeyringManager } from './types';
+import type { LedgerHost } from './ledger/host-types';
 
 export type { ISysAccount } from './keyring-core';
 
@@ -23,13 +24,23 @@ export class KeyringManager
   extends KeyringCore<LedgerKeyring, TrezorKeyring>
   implements IKeyringManager
 {
-  constructor(sharedHardwareWalletManager?: HardwareWalletManager) {
+  constructor(
+    sharedHardwareWalletManager?: HardwareWalletManager,
+    ledgerHost?: LedgerHost
+  ) {
+    if (sharedHardwareWalletManager && ledgerHost) {
+      throw new Error(
+        'Supply a shared hardware manager or a Ledger host, not both'
+      );
+    }
     const storage = sysweb3.sysweb3Di.getStateStorageDb();
     const hardwareManager =
       sharedHardwareWalletManager ||
-      HardwareWalletManagerSingleton.getInstance();
+      (ledgerHost
+        ? new HardwareWalletManager(ledgerHost)
+        : HardwareWalletManagerSingleton.getInstance());
     const trezorSigner = new TrezorKeyring();
-    const ledgerSigner = new LedgerKeyring(hardwareManager);
+    const ledgerSigner = new LedgerKeyring(hardwareManager, ledgerHost);
     super({
       authority: legacyAuthority,
       storage,

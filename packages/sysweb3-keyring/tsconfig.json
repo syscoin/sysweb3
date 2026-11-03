@@ -3,6 +3,20 @@
   "compilerOptions": {
     "rootDir": "src",
     "baseUrl": "src",
+    "paths": {
+      "@ledgerhq/device-management-kit": [
+        "../node_modules/@ledgerhq/device-management-kit/lib/types/index.d.ts"
+      ],
+      "@ledgerhq/device-transport-kit-web-hid": [
+        "../node_modules/@ledgerhq/device-transport-kit-web-hid/lib/types/index.d.ts"
+      ],
+      "@ledgerhq/device-signer-kit-ethereum": [
+        "../node_modules/@ledgerhq/device-signer-kit-ethereum/lib/types/index.d.ts"
+      ],
+      "@ledgerhq/context-module": [
+        "../node_modules/@ledgerhq/context-module/lib/types/index.d.ts"
+      ]
+    },
     "allowJs": true,
     "outDir": "dist/cjs",
     "declarationDir": "dist/types",
@@ -11,5 +25,6 @@
     "strictPropertyInitialization": false,
     "isolatedModules": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/ledger-host.ts", "src/ledger/dmk-*.ts"]
 }

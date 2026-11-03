@@ -35,6 +35,18 @@
       ],
       "cjs/keyring-core.js": [
         "types/keyring-core.d.ts"
+      ],
+      "esm/ledger-host": [
+        "types/ledger-host.d.ts"
+      ],
+      "esm/ledger-host.js": [
+        "types/ledger-host.d.ts"
+      ],
+      "cjs/ledger/host-types": [
+        "types/ledger/host-types.d.ts"
+      ],
+      "cjs/ledger/host-types.js": [
+        "types/ledger/host-types.d.ts"
       ]
     }
   },
@@ -50,7 +62,7 @@
   },
   "scripts": {
     "prebuild": "rimraf dist/",
-    "build": "tsc && tsc -p tsconfig.json",
+    "build": "tsc && tsc -p tsconfig-ledger-host.json",
     "prerelease": "yarn build",
     "copy": "node ../../scripts/package/copy",
     "release:npm": "yarn publish ./dist --access=public --no-git-tag-version",
@@ -64,9 +76,10 @@
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.2.0",
-    "@ledgerhq/hw-app-eth": "^6.47.1",
-    "@ledgerhq/hw-transport-webhid": "^6.30.5",
-    "@ledgerhq/logs": "^6.10.1",
+    "@ledgerhq/context-module": "2.8.0",
+    "@ledgerhq/device-management-kit": "1.11.0",
+    "@ledgerhq/device-signer-kit-ethereum": "1.18.2",
+    "@ledgerhq/device-transport-kit-web-hid": "1.2.4",
     "@metamask/eth-sig-util": "^8.2.0",
     "@sidhujag/sysweb3-core": "^1.0.29",
     "@sidhujag/sysweb3-network": "^1.0.109",
@@ -79,6 +92,7 @@
     "bs58check": "^3.0.1",
     "crypto-js": "^4.1.1",
     "ethers": "^6.17.0",
+    "rxjs": "7.8.2",
     "varuint-bitcoin": "^2.0.0"
   },
   "peerDependencies": {

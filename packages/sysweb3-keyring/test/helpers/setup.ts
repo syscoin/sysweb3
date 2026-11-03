@@ -744,7 +744,8 @@ export const setupMocks = () => {
 export const createFreshTestKeyring = async (
   seed: string,
   password: string,
-  vaultStateGetter: () => any
+  vaultStateGetter: () => any,
+  ledgerHost?: import('../../src/ledger/host-types').LedgerHost
 ): Promise<KeyringManager> => {
   const { sysweb3Di } = jest.requireMock('@sidhujag/sysweb3-core');
   const storage = sysweb3Di.getStateStorageDb();
@@ -762,6 +763,12 @@ export const createFreshTestKeyring = async (
         : originalRandomBytes(size)
     );
   try {
+    if (ledgerHost) {
+      const keyring = new KeyringManager(undefined, ledgerHost);
+      keyring.setVaultStateGetter(vaultStateGetter);
+      await keyring.initializeWalletSecurely(seed, password);
+      return keyring;
+    }
     return await KeyringManager.createInitialized(
       seed,
       password,

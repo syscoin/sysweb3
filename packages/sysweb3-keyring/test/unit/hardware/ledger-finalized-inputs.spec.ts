@@ -5,6 +5,7 @@ import { payments, Psbt, Transaction } from 'bitcoinjs-lib';
 
 import { LedgerKeyring } from '../../../src/ledger';
 import { PsbtV2 } from '../../../src/ledger/bitcoin_client';
+import { prepareLedgerPsbt } from '../../../src/ledger/prepare-psbt';
 import { SyscoinTransactions } from '../../../src/transactions/syscoin';
 import { KeyringAccountType } from '../../../src/types';
 import { PsbtUtils } from '../../../src/utils/psbt';
@@ -121,13 +122,20 @@ const fixture = (scriptType = 'p2wpkh', sameWallet = false) => {
     ],
   });
 
-  const ledger: any = Object.create(LedgerKeyring.prototype);
-  ledger.executeWithRetry = async (callback: () => Promise<unknown>) =>
-    callback();
   const fingerprint = Buffer.from(root.fingerprint).toString('hex');
-  ledger.getMasterFingerprint = jest.fn(async () => fingerprint);
-  ledger.getOrRegisterHmac = jest.fn(async () => null);
-  const signPsbt = jest.fn(async (v2: PsbtV2) => {
+  const devicePsbts: PsbtV2[] = [];
+  const signPsbt = jest.fn(async (request: any) => {
+    const prepared = actual.utils.bitcoinjs.Psbt.fromBase64(request.psbtBase64);
+    prepareLedgerPsbt(
+      prepared,
+      account.xpub,
+      0,
+      activeNetwork.currency,
+      1,
+      fingerprint
+    );
+    const v2 = new PsbtV2().fromBitcoinJS(prepared);
+    devicePsbts.push(v2);
     const decoded = new PsbtV2();
     decoded.deserialize(v2.serialize());
     expect(decoded.getGlobalInputCount()).toBe(2);
@@ -142,13 +150,25 @@ const fixture = (scriptType = 'p2wpkh', sameWallet = false) => {
     ).toBeDefined();
     const signed = unsigned.clone();
     signed.signInput(0, ownedKey);
-    return [[0, signed.data.inputs[0].partialSig![0]]] as any;
+    const signature = signed.data.inputs[0].partialSig![0];
+    return {
+      fingerprint,
+      signatures: [
+        {
+          inputIndex: 0,
+          pubkeyHex: Buffer.from(signature.pubkey).toString('hex'),
+          signatureHex: Buffer.from(signature.signature).toString('hex'),
+        },
+      ],
+    };
   });
-  ledger.ledgerUtxoClient = {
-    getMasterFingerprint: jest.fn(async () => fingerprint),
-    getExtendedPubkey: jest.fn(async () => account.xpub),
-    signPsbt,
-  };
+  const ledger = new LedgerKeyring(undefined, {
+    getStatus: () => ({ connected: true }),
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+    evm: {} as any,
+    utxo: { signPsbt } as any,
+  });
   const state = {
     activeNetwork,
     activeAccountId: 0,
@@ -178,6 +198,7 @@ const fixture = (scriptType = 'p2wpkh', sameWallet = false) => {
     finalScriptSig,
     finalScriptWitness,
     signPsbt,
+    devicePsbts,
     getSigner,
   };
 };
@@ -202,7 +223,7 @@ describe('Ledger finalized external inputs with real PSBT data', () => {
 
       expect(getRawTransaction).not.toHaveBeenCalled();
       expect(test.signPsbt).toHaveBeenCalledTimes(1);
-      const devicePsbt = test.signPsbt.mock.calls[0][0];
+      const devicePsbt = test.devicePsbts[0];
       expect(devicePsbt.getInputNonWitnessUtxo(1)).toBeUndefined();
       expect(devicePsbt.getInputWitnessUtxo(1)).toEqual({
         amount: 100000,
@@ -307,9 +328,20 @@ describe('Ledger finalized external inputs with real PSBT data', () => {
     const test = fixture();
     const signed = test.unsigned.clone();
     signed.signInput(1, test.foreignKey);
-    test.signPsbt.mockImplementationOnce(
-      async () => [[1, signed.data.inputs[1].partialSig![0]]] as any
-    );
+    test.signPsbt.mockImplementationOnce(async () => ({
+      fingerprint: '12345678',
+      signatures: [
+        {
+          inputIndex: 1,
+          pubkeyHex: Buffer.from(
+            signed.data.inputs[1].partialSig![0].pubkey
+          ).toString('hex'),
+          signatureHex: Buffer.from(
+            signed.data.inputs[1].partialSig![0].signature
+          ).toString('hex'),
+        },
+      ],
+    }));
     await expect(
       test.tx.signPSBT({ psbt: PsbtUtils.toPali(test.psbt) })
     ).rejects.toThrow('PSBT input is outside the approved account');
@@ -320,6 +352,8 @@ describe('Ledger finalized external inputs with real PSBT data', () => {
     await expect(
       test.tx.signPSBT({ psbt: PsbtUtils.toPali(test.unsigned) })
     ).rejects.toThrow('Missing bip32Derivation');
-    expect(test.signPsbt).not.toHaveBeenCalled();
+    // The scoped parser strips unsupported foreign hints. The host preparation
+    // still refuses that unfinished input before producing any signature.
+    expect(test.signPsbt).toHaveBeenCalledTimes(1);
   });
 });

@@ -193,10 +193,16 @@ test('injected hardware completion is rejected after a session cycle', async () 
   expect(f.getSigner).not.toHaveBeenCalled();
 });
 
-test.each([false, true])(
-  'legacy Ledger adapter validates returned keys (foreign key: %s)',
-  async (foreignKey) => {
-    // Exercise the old public constructor through real PSBT conversion/finalization.
+test.each([
+  'valid',
+  'foreign-key',
+  'wrong-transaction',
+  'unexpected-sighash',
+  'requested-sighash',
+])(
+  'semantic Ledger adapter validates returned signatures (%s)',
+  async (response) => {
+    // Exercise the public constructor through real PSBT conversion/finalization.
     // Only physical device I/O is replaced with a deterministic signature fixture.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const {
@@ -206,28 +212,29 @@ test.each([false, true])(
     f.state.activeAccountType = KeyringAccountType.Ledger;
     f.state.accounts.Ledger[0] = { ...f.account };
     const deviceSignature = f.makePsbt();
-    deviceSignature.signInput(0, f.child);
+    if (response === 'wrong-transaction') deviceSignature.setLocktime(1);
+    if (response.endsWith('sighash')) {
+      deviceSignature.updateInput(0, { sighashType: Transaction.SIGHASH_NONE });
+      deviceSignature.signInput(0, f.child, [Transaction.SIGHASH_NONE]);
+    } else {
+      deviceSignature.signInput(0, f.child);
+    }
     const signature = deviceSignature.data.inputs[0].partialSig![0];
     const getRawTransaction = jest.fn();
-    const signPsbt = jest.fn(async () => [
-      [
-        0,
+    const signPsbt = jest.fn(async () => ({
+      fingerprint: Buffer.from(f.root.fingerprint).toString('hex'),
+      signatures: [
         {
-          ...signature,
-          pubkey: foreignKey ? Buffer.alloc(33, 2) : signature.pubkey,
+          inputIndex: 0,
+          pubkeyHex:
+            response === 'foreign-key'
+              ? Buffer.alloc(33, 2).toString('hex')
+              : Buffer.from(signature.pubkey).toString('hex'),
+          signatureHex: Buffer.from(signature.signature).toString('hex'),
         },
       ],
-    ]);
-    const ledger = {
-      convertToLedgerFormat: jest.fn(async (psbt) => psbt),
-      ledgerUtxoClient: {
-        getMasterFingerprint: jest.fn(async () =>
-          f.root.fingerprint.toString('hex')
-        ),
-        getExtendedPubkey: jest.fn(async () => f.account.xpub),
-        signPsbt,
-      },
-    };
+    }));
+    const ledger = { signPsbt };
     const tx = new SyscoinTransactions(
       f.getSigner,
       () => ({ main: {} }),
@@ -237,14 +244,21 @@ test.each([false, true])(
       undefined
     );
     jest.spyOn(tx, 'txUtilsFunctions').mockReturnValue({ getRawTransaction });
+    const approvedPsbt = f.makePsbt();
+    if (response === 'requested-sighash')
+      approvedPsbt.updateInput(0, { sighashType: Transaction.SIGHASH_NONE });
     const pending = tx.signPSBT({
-      psbt: PsbtUtils.toPali(f.makePsbt()),
+      psbt: PsbtUtils.toPali(approvedPsbt),
       isLedger: false,
     });
-    if (foreignKey) {
+    if (response === 'foreign-key') {
       await expect(pending).rejects.toThrow(
         'PSBT input is outside the approved account'
       );
+    } else if (response === 'wrong-transaction') {
+      await expect(pending).rejects.toThrow(/invalid.*signature/i);
+    } else if (response === 'unexpected-sighash') {
+      await expect(pending).rejects.toThrow(/sighash|signature/i);
     } else {
       const result = PsbtUtils.fromPali(await pending, network);
       expect(result.data.inputs[0].finalScriptWitness).toBeDefined();
@@ -264,6 +278,7 @@ test('software transaction entries do not import browser hardware or Ledger prot
   jest.resetModules();
   const forbidden = [
     '../../../src/ledger',
+    '../../../src/ledger-host',
     '../../../src/trezor',
     '../../../src/hardware-wallet-manager',
     '../../../src/hardware-wallet-manager-singleton',
@@ -274,11 +289,19 @@ test('software transaction entries do not import browser hardware or Ledger prot
     '@trezor/connect-web',
     '@trezor/connect-webextension',
     '@ledgerhq/hw-transport-webhid',
+    '@ledgerhq/device-management-kit',
+    '@ledgerhq/device-transport-kit-web-hid',
+    '@ledgerhq/device-signer-kit-ethereum',
+    '@ledgerhq/context-module',
   ];
   for (const module of forbidden)
-    jest.doMock(module, () => {
-      throw new Error('Browser hardware imported');
-    });
+    jest.doMock(
+      module,
+      () => {
+        throw new Error('Browser hardware imported');
+      },
+      { virtual: true }
+    );
   try {
     jest.isolateModules(() => {
       // Test the runtime graph rather than relying on erased type imports.
@@ -300,4 +323,3 @@ test('software transaction entries do not import browser hardware or Ledger prot
     });
   }
 });
-

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "outDir": "dist/esm",
+    "declarationDir": "dist/types"
+  },
+  "include": ["src/ledger-host.ts", "src/ethers-subpaths.d.ts", "src/declare.d.ts"],
+  "exclude": []
+}

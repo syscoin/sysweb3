@@ -1,922 +1,357 @@
+import { SignTypedDataVersion, TypedDataUtils } from '@metamask/eth-sig-util';
 import { INetworkType } from '@sidhujag/sysweb3-network';
+import { Transaction, Wallet } from 'ethers';
 
 import { KeyringManager, KeyringAccountType } from '../../../src';
+import { LedgerKeyring } from '../../../src/ledger';
 import { FAKE_PASSWORD, PEACE_SEED_PHRASE } from '../../helpers/constants';
 import { createFreshTestKeyring, setupMocks } from '../../helpers/setup';
 
-// Use global createMockVaultState
-const createMockVaultState = (global as any).createMockVaultState;
+import type { LedgerHost } from '../../../src/ledger/host-types';
 
-describe('Ledger Hardware Wallet', () => {
-  let keyringManager: KeyringManager;
-  const additionalKeyrings: KeyringManager[] = [];
-  let mockVaultStateGetter: jest.Mock;
-  let currentVaultState: any;
+const wallet = new Wallet(`0x${'11'.repeat(32)}`);
+const transactionHex = Transaction.from({
+  type: 2,
+  chainId: 1,
+  nonce: 0,
+  gasLimit: 21000,
+  maxFeePerGas: 100,
+  maxPriorityFeePerGas: 1,
+  to: `0x${'22'.repeat(20)}`,
+  value: 1,
+}).unsignedSerialized.slice(2);
+const signDigest = (digest: string) => {
+  const signature = wallet.signingKey.sign(digest);
+  return {
+    r: signature.r.slice(2),
+    s: signature.s.slice(2),
+    v: signature.v.toString(16),
+  };
+};
+
+const mockHost = () => {
+  let connected = true;
+  const host = {
+    connect: jest.fn(async () => {
+      connected = true;
+    }),
+    disconnect: jest.fn(async () => {
+      connected = false;
+    }),
+    getStatus: jest.fn(() => ({ connected })),
+    evm: {
+      getAddress: jest.fn().mockResolvedValue({
+        address: wallet.address,
+        publicKey: wallet.signingKey.publicKey.slice(2),
+      }),
+      signTransaction: jest.fn(async ({ unsignedTxHex }) =>
+        signDigest(
+          Transaction.from(`0x${unsignedTxHex.replace(/^0x/, '')}`).unsignedHash
+        )
+      ),
+      signPersonalMessage: jest.fn(async ({ messageHex }) =>
+        wallet.signMessage(Buffer.from(messageHex, 'hex'))
+      ),
+      signTypedData: jest.fn(
+        async ({ data, version }) =>
+          wallet.signingKey.sign(
+            `0x${TypedDataUtils.eip712Hash(data, version).toString('hex')}`
+          ).serialized
+      ),
+    },
+    utxo: {
+      getXpub: jest
+        .fn()
+        .mockResolvedValue(
+          'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
+        ),
+      getAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
+      getAccount: jest.fn(),
+      signMessage: jest.fn().mockResolvedValue('signed-message'),
+      signPsbt: jest
+        .fn()
+        .mockResolvedValue({ fingerprint: '12345678', signatures: [] }),
+    },
+  };
+  return {
+    host,
+    setConnected: (value: boolean) => {
+      connected = value;
+    },
+  };
+};
+
+describe('Ledger semantic host integration', () => {
+  let keyring: KeyringManager;
+  let state: any;
+  let fixture: ReturnType<typeof mockHost>;
+  const additional: KeyringManager[] = [];
 
   beforeEach(async () => {
     setupMocks();
     await global.setupTestVault(FAKE_PASSWORD);
-
-    // Set up UTXO vault state
-    currentVaultState = createMockVaultState({
+    fixture = mockHost();
+    state = global.createMockVaultState({
       activeAccountId: 0,
       activeAccountType: KeyringAccountType.HDAccount,
       networkType: INetworkType.Syscoin,
       chainId: 57,
     });
-    mockVaultStateGetter = jest.fn(() => currentVaultState);
-
-    keyringManager = await createFreshTestKeyring(
+    keyring = await createFreshTestKeyring(
       PEACE_SEED_PHRASE,
       FAKE_PASSWORD,
-      mockVaultStateGetter
+      () => state,
+      fixture.host as LedgerHost
     );
-
-    // Mock HardwareWalletManager ensureConnection
-    keyringManager.ledgerSigner.ensureConnection = jest
-      .fn()
-      .mockResolvedValue(undefined);
-
-    // Mock transport property
-    keyringManager.ledgerSigner.transport = {} as any;
-
-    // Mock ledgerUtxoClient for getMasterFingerprint calls
-    keyringManager.ledgerSigner.ledgerUtxoClient = {
-      getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
-      signPsbt: jest.fn(),
-    } as any;
-
-    // Mock getAddress to return our mocked addresses
-    keyringManager.getAddress = jest
+    keyring.getAddress = jest
       .fn()
       .mockResolvedValue('sys1qmock_ledger_address');
   });
 
   afterEach(async () => {
-    for (const keyring of additionalKeyrings.splice(0)) await keyring.destroy();
-    // Clean up hardware wallet connections
-    if (keyringManager) {
-      await keyringManager.destroy();
-    }
+    for (const item of additional.splice(0)) await item.destroy();
+    await keyring?.destroy();
   });
 
-  describe('Account Import', () => {
-    it('should import Ledger account when connected', async () => {
-      // Mock complete UTXO interface
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        verifyUtxoAddress: jest
-          .fn()
-          .mockResolvedValue('sys1qmock_ledger_address'),
-      };
-
-      const account = await keyringManager.importLedgerAccount('My Ledger');
-
-      expect(account).toBeDefined();
-      if (account) {
-        expect(account.id).toBe(0); // First imported Ledger account gets ID 0
-        expect(account.label).toBe('My Ledger');
-        expect(account.isLedgerWallet).toBe(true);
-        expect(account.isTrezorWallet).toBe(false);
-        expect(account.isImported).toBe(false);
-        expect(account.xprv).toBe(''); // Hardware wallets don't expose private keys
-        expect(account.address).toBe('sys1qmock_ledger_address');
-      }
+  it('imports a UTXO account through the injected host without private keys', async () => {
+    const account = await keyring.importLedgerAccount('My Ledger');
+    expect(account).toMatchObject({
+      id: 0,
+      label: 'My Ledger',
+      isLedgerWallet: true,
+      xprv: '',
+      address: 'sys1qmock_ledger_address',
     });
-
-    it('should fail if Ledger connection fails', async () => {
-      // Mock connection failure in ensureConnection
-      keyringManager.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockRejectedValue(new Error('Failed to connect to device'));
-
-      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
-        'Failed to connect to device'
-      );
-    });
-
-    it('should handle Ledger import for EVM networks', async () => {
-      // Set up EVM vault state
-      const evmVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Ethereum,
-        chainId: 1,
-      });
-      const evmVaultStateGetter = jest.fn(() => evmVaultState);
-
-      // Create EVM keyring
-      const evmKeyring = await createFreshTestKeyring(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        evmVaultStateGetter
-      );
-      additionalKeyrings.push(evmKeyring);
-
-      // Mock ensureConnection for EVM keyring
-      evmKeyring.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockResolvedValue(undefined);
-
-      // Mock complete EVM interface
-      evmKeyring.ledgerSigner.evm = {
-        getEvmAddressAndPubKey: jest.fn().mockResolvedValue({
-          address: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bd9F',
-          publicKey: '0x04...',
-        }),
-        signEVMTransaction: jest.fn().mockResolvedValue({
-          r: '123456789abcdef123456789abcdef123456789abcdef123456789abcdef12345678',
-          s: '987654321fedcba987654321fedcba987654321fedcba987654321fedcba987654',
-          v: '1c',
-        }),
-        signPersonalMessage: jest.fn().mockResolvedValue('0xmocked_signature'),
-        signTypedData: jest.fn().mockResolvedValue('0xmocked_typed_signature'),
-      };
-
-      const account = await evmKeyring.importLedgerAccount('Ledger ETH');
-
-      expect(account).toBeDefined();
-      if (account) {
-        expect(account.address.startsWith('0x')).toBe(true);
-        expect(account.isLedgerWallet).toBe(true);
-      }
-    });
-
-    it('should reject duplicate Ledger addresses', async () => {
-      // Mock getAddress to return the expected addresses
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1q_first_address');
-
-      // First import with unique address
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
-        verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
-      };
-
-      const firstAccount = await keyringManager.importLedgerAccount();
-
-      // Update vault state with first account
-      if (firstAccount) {
-        currentVaultState.accounts[KeyringAccountType.Ledger][firstAccount.id] =
-          {
-            id: firstAccount.id,
-            label: firstAccount.label,
-            address: firstAccount.address,
-            xpub: firstAccount.xpub,
-            xprv: '',
-            isImported: false,
-            isTrezorWallet: false,
-            isLedgerWallet: true,
-            balances: { syscoin: 0, ethereum: 0 },
-            assets: { syscoin: [], ethereum: [] },
-          };
-      }
-
-      // Mock Ledger returning same address for next account (simulate duplicate)
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'), // Same as first!
-        verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_first_address'),
-      };
-
-      // Should reject duplicate - this tests the actual business logic
-      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
-        'Account already exists'
-      );
+    expect(fixture.host.utxo.getXpub).toHaveBeenCalledWith({
+      currency: state.activeNetwork.currency,
+      slip44: state.activeNetwork.slip44,
+      accountIndex: 0,
     });
   });
 
-  describe('Account Management', () => {
-    beforeEach(async () => {
-      // Mock complete Ledger methods
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        verifyUtxoAddress: jest
-          .fn()
-          .mockResolvedValue('sys1qmock_ledger_address'),
-      };
+  it('propagates connection failure without retrying', async () => {
+    fixture.setConnected(false);
+    fixture.host.connect.mockRejectedValue(new Error('Device unavailable'));
+    await expect(keyring.importLedgerAccount()).rejects.toThrow(
+      'Device unavailable'
+    );
+    expect(fixture.host.connect).toHaveBeenCalledTimes(1);
+    expect(fixture.host.utxo.getXpub).not.toHaveBeenCalled();
+  });
 
-      // Import a Ledger account
-      const account = await keyringManager.importLedgerAccount('Test Ledger');
-
-      // Update vault state with imported account
-      if (account) {
-        currentVaultState.accounts[KeyringAccountType.Ledger][account.id] = {
-          id: account.id,
-          label: account.label,
-          address: account.address,
-          xpub: account.xpub,
-          xprv: '',
-          isImported: false,
-          isTrezorWallet: false,
-          isLedgerWallet: true,
-          balances: { syscoin: 0, ethereum: 0 },
-          assets: { syscoin: [], ethereum: [] },
-        };
-      }
+  it('imports an EVM account from the host address and public key', async () => {
+    const evmState = global.createMockVaultState({
+      activeAccountId: 0,
+      activeAccountType: KeyringAccountType.HDAccount,
+      networkType: INetworkType.Ethereum,
+      chainId: 1,
     });
-
-    it('should switch to Ledger account', async () => {
-      // Update vault state to set Ledger as active
-      currentVaultState.activeAccount = {
-        id: 0,
-        type: KeyringAccountType.Ledger,
-      };
-
-      // Account switch is handled by vault state update
-
-      const { activeAccount, activeAccountType } =
-        keyringManager.getActiveAccount();
-      expect(activeAccountType).toBe(KeyringAccountType.Ledger);
-      expect(activeAccount.isLedgerWallet).toBe(true);
-      expect(activeAccount.label).toBe('Test Ledger');
+    const evm = await createFreshTestKeyring(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      () => evmState,
+      fixture.host as LedgerHost
+    );
+    additional.push(evm);
+    const account = await evm.importLedgerAccount('Ledger ETH');
+    expect(account).toMatchObject({
+      id: 0,
+      label: 'Ledger ETH',
+      isLedgerWallet: true,
+      xprv: '',
+      address: wallet.address,
     });
-
-    it('should get Ledger account xpub', async () => {
-      // Update vault state to set Ledger as active
-      currentVaultState.activeAccount = {
-        id: 0,
-        type: KeyringAccountType.Ledger,
-      };
-
-      // Account switch is handled by vault state update
-
-      const xpub = keyringManager.getAccountXpub();
-      expect(xpub).toBeDefined();
-      expect(xpub).toBe(
-        'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-      );
-    });
-
-    it('should handle mixed account types with Ledger', async () => {
-      // Add HD account
-      const hdAccount = await keyringManager.addNewAccount('HD Account 2');
-
-      // Update vault state with HD account
-      currentVaultState.accounts[KeyringAccountType.HDAccount][hdAccount.id] = {
-        id: hdAccount.id,
-        label: hdAccount.label,
-        address: hdAccount.address,
-        xpub: hdAccount.xpub,
-        xprv: '',
-        isImported: false,
-        isTrezorWallet: false,
-        isLedgerWallet: false,
-        balances: { syscoin: 0, ethereum: 0 },
-        assets: { syscoin: [], ethereum: [] },
-      };
-
-      // Switch between them using actual account IDs
-      currentVaultState.activeAccount = {
-        id: 0,
-        type: KeyringAccountType.HDAccount,
-      };
-      // Account switch is handled by vault state update
-      expect(keyringManager.getActiveAccount().activeAccountType).toBe(
-        KeyringAccountType.HDAccount
-      );
-
-      // Switch to Ledger account
-      currentVaultState.activeAccount = {
-        id: 0,
-        type: KeyringAccountType.Ledger,
-      };
-      // Account switch is handled by vault state update
-      expect(keyringManager.getActiveAccount().activeAccountType).toBe(
-        KeyringAccountType.Ledger
-      );
+    expect(fixture.host.evm.getAddress).toHaveBeenCalledWith({
+      accountIndex: 0,
     });
   });
 
-  describe('Transaction Signing', () => {
-    beforeEach(async () => {
-      // Complete mock setup for transaction signing tests
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1qmock_ledger_address'),
-        verifyUtxoAddress: jest
-          .fn()
-          .mockResolvedValue('sys1qmock_ledger_address'),
-      };
+  it('rejects duplicate imported addresses', async () => {
+    const account = await keyring.importLedgerAccount();
+    state.accounts[KeyringAccountType.Ledger][account.id] = account;
+    await expect(keyring.importLedgerAccount()).rejects.toThrow(
+      'Account already exists'
+    );
+  });
 
-      const account = await keyringManager.importLedgerAccount('Signing Test');
-      if (account) {
-        // Update vault state to set Ledger as active
-        currentVaultState.accounts[KeyringAccountType.Ledger][account.id] = {
-          id: account.id,
-          label: account.label,
-          address: account.address,
-          xpub: account.xpub,
-          xprv: '',
-          isImported: false,
-          isTrezorWallet: false,
-          isLedgerWallet: true,
-          balances: { syscoin: 0, ethereum: 0 },
-          assets: { syscoin: [], ethereum: [] },
-        };
-        currentVaultState.activeAccount = {
-          id: account.id,
-          type: KeyringAccountType.Ledger,
-        };
+  it('keeps Ledger accounts separate and uses the next account index', async () => {
+    const first = await keyring.importLedgerAccount();
+    state.accounts[KeyringAccountType.Ledger][first.id] = first;
+    (keyring.getAddress as jest.Mock).mockResolvedValue('sys1q_second_ledger');
+    const second = await keyring.importLedgerAccount('Second');
+    expect(second.id).toBe(1);
+    expect(fixture.host.utxo.getXpub).toHaveBeenLastCalledWith(
+      expect.objectContaining({ accountIndex: 1 })
+    );
+    expect(
+      Object.keys(state.accounts[KeyringAccountType.HDAccount])
+    ).toHaveLength(1);
+    expect(state.accounts[KeyringAccountType.HDAccount][0].isLedgerWallet).toBe(
+      false
+    );
+  });
 
-        // Account switch is handled by vault state update
-      }
-
-      // Mock getAddress to return our mocked addresses
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1qmock_ledger_address');
-
-      // Mock Ledger UTXO client for transaction signing
-      keyringManager.ledgerSigner.ledgerUtxoClient = {
-        getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
-        signPsbt: jest.fn().mockResolvedValue([
-          [
-            0,
-            {
-              pubkey: Buffer.from('mock_pubkey'),
-              signature: Buffer.from('mock_signature'),
-            },
-          ],
-        ]),
-        // Add minimal required properties to satisfy interface
-        transport: {} as any,
-        makeRequest: jest.fn(),
-        getAppAndVersion: jest.fn(),
-        getExtendedPubkey: jest.fn(),
-        // Return a deterministic HMAC so getOrRegisterHmac() can cache it
-        registerWallet: jest
-          .fn()
-          .mockResolvedValue([Buffer.alloc(32, 1), Buffer.alloc(32, 2)]),
-        getWalletAddress: jest.fn(),
-        signMessage: jest.fn(),
-      } as any;
-
-      // Mock convertToLedgerFormat to return a proper PSBT mock with toBase64 method
-      keyringManager.ledgerSigner.convertToLedgerFormat = jest
-        .fn()
-        .mockResolvedValue({
-          toBase64: jest
-            .fn()
-            .mockReturnValue(
-              'cHNidP8BAHECAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=='
-            ),
-          extractTransaction: jest.fn().mockReturnValue({
-            getId: jest.fn().mockReturnValue('mock_transaction_id'),
-          }),
-          updateInput: jest.fn(),
-          finalizeAllInputs: jest.fn(),
-        });
+  it('selects the imported account and returns its stored public xpub', async () => {
+    const account = await keyring.importLedgerAccount('Selected');
+    state.accounts[KeyringAccountType.Ledger][account.id] = account;
+    state.activeAccount = { id: account.id, type: KeyringAccountType.Ledger };
+    expect(keyring.getActiveAccount().activeAccount).toMatchObject({
+      label: 'Selected',
+      isLedgerWallet: true,
     });
+    expect(keyring.getAccountXpub()).toBe(account.xpub);
+  });
 
-    it('should prepare a scoped PSBT for Ledger signing', async () => {
-      const bitcoinjs = require('syscoinjs-lib').utils.bitcoinjs;
-      const PsbtUtils = require('../../../src/utils/psbt').PsbtUtils;
-      const signer = (keyringManager as any).createOnDemandUTXOSigner(0);
-      const root = signer.getRootNode();
-      const path = `m/84'/${currentVaultState.activeNetwork.slip44}'/0'/0/0`;
-      const child = root.derivePath(path);
-      const network = signer.Signer.network;
-      const payment = bitcoinjs.payments.p2wpkh({
-        pubkey: child.publicKey,
-        network,
-      });
-      const account = currentVaultState.accounts[KeyringAccountType.Ledger][0];
-      account.xpub = signer.getAccountXpub();
-      account.address = payment.address;
-      const previous = new bitcoinjs.Transaction();
-      previous.addInput(Buffer.alloc(32), 0xffffffff);
-      previous.addOutput(payment.output, 100000n);
-      const psbt = new bitcoinjs.Psbt({ network });
-      psbt.addInput({
-        hash: previous.getId(),
-        index: 0,
-        nonWitnessUtxo: previous.toBuffer(),
-        bip32Derivation: [
-          {
-            masterFingerprint: root.fingerprint,
-            path,
-            pubkey: child.publicKey,
-          },
-        ],
-      });
-      psbt.addOutput({ script: payment.output, value: 99000n });
-      const tx = keyringManager.syscoinTransaction as any;
-      const originalUtils = tx.txUtilsFunctions();
-      const rawTransaction = jest
-        .spyOn(tx, 'txUtilsFunctions')
-        .mockReturnValue({
-          ...originalUtils,
-          getRawTransaction: jest.fn().mockResolvedValue(previous.toHex()),
-        });
-      // This test covers preparation, not device signatures. Preserve the real
-      // input data through every scope check, then skip signature finalization.
-      (
-        keyringManager.ledgerSigner.convertToLedgerFormat as jest.Mock
-      ).mockImplementation(async (prepared) => {
-        jest.spyOn(prepared, 'finalizeInput').mockReturnValue(prepared);
-        return prepared;
-      });
-      (
-        keyringManager.ledgerSigner.ledgerUtxoClient.signPsbt as jest.Mock
-      ).mockResolvedValue([]);
-      try {
-        const result = await keyringManager.syscoinTransaction.signPSBT({
-          psbt: PsbtUtils.toPali(psbt),
-          isTrezor: false,
-          isLedger: true,
-        });
-        expect(result).toBeDefined();
-        expect(tx.txUtilsFunctions().getRawTransaction).not.toHaveBeenCalled();
-        expect(
-          keyringManager.ledgerSigner.ledgerUtxoClient.signPsbt
-        ).toHaveBeenCalledTimes(1);
-        expect(
-          keyringManager.ledgerSigner.convertToLedgerFormat
-        ).toHaveBeenCalledWith(
-          expect.objectContaining({
-            data: expect.objectContaining({ inputs: expect.any(Array) }),
-          }),
-          account.xpub,
-          0,
-          currentVaultState.activeNetwork.currency,
-          currentVaultState.activeNetwork.slip44
-        );
-      } finally {
-        rawTransaction.mockRestore();
-      }
+  it('uses testnet identity without changing the account index', async () => {
+    const testState = global.createMockVaultState({
+      activeAccountId: 0,
+      activeAccountType: KeyringAccountType.HDAccount,
+      networkType: INetworkType.Syscoin,
+      chainId: 5700,
     });
+    const testnet = await createFreshTestKeyring(
+      PEACE_SEED_PHRASE,
+      FAKE_PASSWORD,
+      () => testState,
+      fixture.host as LedgerHost
+    );
+    additional.push(testnet);
+    testnet.getAddress = jest.fn().mockResolvedValue('tsys1qledger');
+    await testnet.importLedgerAccount();
+    expect(fixture.host.utxo.getXpub).toHaveBeenCalledWith({
+      currency: testState.activeNetwork.currency,
+      slip44: testState.activeNetwork.slip44,
+      accountIndex: 0,
+    });
+  });
 
-    it('should reconnect to Ledger when connection is lost during EVM transaction signing', async () => {
-      // Set up EVM vault state
-      const evmVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.Ledger,
-        networkType: INetworkType.Ethereum,
-        chainId: 1,
-      });
-      const evmVaultStateGetter = jest.fn(() => evmVaultState);
+  it('cannot export a Ledger private key', async () => {
+    const account = await keyring.importLedgerAccount('Private key isolation');
+    state.accounts[KeyringAccountType.Ledger][account.id] = account;
+    await expect(
+      keyring.getPrivateKeyByAccountId(
+        account.id,
+        KeyringAccountType.Ledger,
+        FAKE_PASSWORD
+      )
+    ).rejects.toThrow();
+    expect(account.xprv).toBe('');
+  });
 
-      // Create EVM keyring with Ledger
-      const evmKeyring = await createFreshTestKeyring(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        evmVaultStateGetter
-      );
-      additionalKeyrings.push(evmKeyring);
+  it('does not retry hardware refusal or malformed import output', async () => {
+    fixture.host.utxo.getXpub.mockRejectedValue(new Error('User rejected'));
+    await expect(keyring.importLedgerAccount()).rejects.toThrow(
+      'User rejected'
+    );
+    expect(fixture.host.utxo.getXpub).toHaveBeenCalledTimes(1);
+    fixture.host.utxo.getXpub.mockResolvedValue('');
+    await expect(keyring.importLedgerAccount()).rejects.toThrow();
+  });
+});
 
-      // Mock Ledger as disconnected
-      evmKeyring.ledgerSigner.transport = null;
-      evmKeyring.ledgerSigner.ledgerUtxoClient = null as any;
-      evmKeyring.ledgerSigner.ledgerEVMClient = null as any;
+describe('Ledger authority facade', () => {
+  const address = wallet.address;
+  it('fails closed without an injected host', async () => {
+    const ledger = new LedgerKeyring();
+    await expect(
+      ledger.evm.getEvmAddressAndPubKey({ accountIndex: 0 })
+    ).rejects.toMatchObject({ code: 'HARDWARE_SIGNER_UNAVAILABLE' });
+  });
 
-      // Mock transport for reconnection
-      const mockTransport = { close: jest.fn() } as any;
+  it('reconnects only through the authorized host and preserves approved EVM identity', async () => {
+    const { host, setConnected } = mockHost();
+    setConnected(false);
+    const ledger = new LedgerKeyring(undefined, host as LedgerHost);
+    const request = {
+      accountIndex: 2,
+      rawTx: transactionHex,
+      expectedAddress: address,
+    };
+    await expect(ledger.evm.signEVMTransaction(request)).resolves.toEqual(
+      signDigest(Transaction.from(`0x${transactionHex}`).unsignedHash)
+    );
+    expect(host.connect).toHaveBeenCalledWith({ useGrantedDevices: true });
+    expect(host.evm.signTransaction).toHaveBeenCalledWith({
+      accountIndex: 2,
+      unsignedTxHex: transactionHex,
+      expectedAddress: address,
+    });
+  });
 
-      // Mock ensureConnection to simulate successful reconnection
-      evmKeyring.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockImplementation(async () => {
-          // Simulate successful reconnection
-          evmKeyring.ledgerSigner.transport = mockTransport;
-          evmKeyring.ledgerSigner.ledgerUtxoClient = {
-            getMasterFingerprint: jest.fn().mockResolvedValue('12345678'),
-          } as any;
-          evmKeyring.ledgerSigner.ledgerEVMClient = {
-            signTransaction: jest.fn().mockResolvedValue({
-              r: '123456789abcdef',
-              s: '987654321fedcba',
-              v: '00',
-            }),
-            getAddress: jest.fn().mockResolvedValue({
-              address: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
-              publicKey: '0x04...',
-            }),
-            signPersonalMessage: jest
-              .fn()
-              .mockResolvedValue('0xmocked_signature'),
-            signEIP712HashedMessage: jest
-              .fn()
-              .mockResolvedValue('0xmocked_typed_signature'),
-          } as any;
-        });
+  it('forwards message bytes and typed-data version without changing their payload', async () => {
+    const { host } = mockHost();
+    const ledger = new LedgerKeyring(undefined, host as LedgerHost);
+    await ledger.evm.signPersonalMessage({
+      accountIndex: 1,
+      message: '00ff',
+      expectedAddress: address,
+    });
+    expect(host.evm.signPersonalMessage).toHaveBeenCalledWith({
+      accountIndex: 1,
+      messageHex: '00ff',
+      expectedAddress: address,
+    });
+    const data = {
+      domain: {},
+      types: { EIP712Domain: [] },
+      primaryType: 'EIP712Domain',
+      message: {},
+    };
+    await ledger.evm.signTypedData({
+      accountIndex: 1,
+      data,
+      version: SignTypedDataVersion.V4,
+      expectedAddress: address,
+    });
+    expect(host.evm.signTypedData).toHaveBeenCalledWith({
+      accountIndex: 1,
+      data,
+      version: 'V4',
+      expectedAddress: address,
+    });
+  });
 
-      // Import Ledger account
-      const evmAccount = {
-        id: 0,
-        label: 'Ledger 1',
-        address: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
-        xpub: 'xpub...',
-      };
-
-      evmVaultState.accounts[KeyringAccountType.Ledger][0] = {
-        id: evmAccount.id,
-        label: evmAccount.label,
-        address: evmAccount.address,
-        xpub: evmAccount.xpub,
-        xprv: '',
-        isImported: false,
-        isTrezorWallet: false,
-        isLedgerWallet: true,
-        balances: { syscoin: 0, ethereum: 0 },
-        assets: { syscoin: [], ethereum: [] },
-      };
-
-      // Test that Ledger reconnects and signs successfully
-      const result = await evmKeyring.ledgerSigner.evm.signEVMTransaction({
-        rawTx: '0x1234567890',
+  it('rejects legacy typed data before reaching the host', async () => {
+    const { host } = mockHost();
+    const ledger = new LedgerKeyring(undefined, host as LedgerHost);
+    await expect(
+      ledger.evm.signTypedData({
         accountIndex: 0,
-      });
+        data: [] as any,
+        version: SignTypedDataVersion.V1,
+        expectedAddress: address,
+      })
+    ).rejects.toMatchObject({ code: 'LEDGER_INVALID_REQUEST' });
+    expect(host.evm.signTypedData).not.toHaveBeenCalled();
+  });
 
-      // Verify reconnection happened
-      expect(evmKeyring.ledgerSigner.ensureConnection).toHaveBeenCalledTimes(1);
-
-      // Verify the signature was returned
-      expect(result).toEqual({
-        r: '123456789abcdef',
-        s: '987654321fedcba',
-        v: '00',
-      });
-
-      // Verify Ledger is now connected
-      expect(evmKeyring.ledgerSigner.transport).toBeTruthy();
-    });
-
-    it('should handle EVM transaction signing for Ledger', async () => {
-      // Set up EVM vault state
-      const evmVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Ethereum,
-        chainId: 1,
-      });
-      const evmVaultStateGetter = jest.fn(() => evmVaultState);
-
-      // Create EVM keyring with Ledger
-      const evmKeyring = await createFreshTestKeyring(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        evmVaultStateGetter
-      );
-      additionalKeyrings.push(evmKeyring);
-
-      // Mock ensureConnection
-      evmKeyring.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockResolvedValue(undefined);
-
-      // Mock Ledger EVM signer
-      const mockSignEVMTransaction = jest.fn().mockResolvedValue({
-        r: '123456789abcdef123456789abcdef123456789abcdef123456789abcdef12345678',
-        s: '987654321fedcba987654321fedcba987654321fedcba987654321fedcba987654',
-        v: '00',
-      });
-
-      evmKeyring.ledgerSigner.evm = {
-        getEvmAddressAndPubKey: jest.fn().mockResolvedValue({
-          address: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
-          publicKey: '0x04...',
-        }),
-        signEVMTransaction: mockSignEVMTransaction,
-        signPersonalMessage: jest.fn().mockResolvedValue('0xmocked_signature'),
-        signTypedData: jest.fn().mockResolvedValue('0xmocked_typed_signature'),
-      };
-
-      // Import Ledger account
-      const evmAccount = await evmKeyring.importLedgerAccount('EVM Ledger');
-      if (evmAccount) {
-        // Update vault state to set Ledger as active
-        evmVaultState.accounts[KeyringAccountType.Ledger][evmAccount.id] = {
-          id: evmAccount.id,
-          label: evmAccount.label,
-          address: evmAccount.address,
-          xpub: evmAccount.xpub,
-          xprv: '',
-          isImported: false,
-          isTrezorWallet: false,
-          isLedgerWallet: true,
-          balances: { syscoin: 0, ethereum: 0 },
-          assets: { syscoin: [], ethereum: [] },
-        };
-        evmVaultState.activeAccount = {
-          id: evmAccount.id,
-          type: KeyringAccountType.Ledger,
-        };
-
-        // Account switch is handled by vault state update
-      }
-
-      // Test that Ledger signing is called - expect it to fail at serialization but verify Ledger was called
-      try {
-        await evmKeyring.ethereumTransaction.sendFormattedTransaction({
-          to: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
-          value: '0x0',
-          data: '0x',
-          gasLimit: '0x5208',
-          maxFeePerGas: '0x3b9aca00',
-          maxPriorityFeePerGas: '0x1dcd6500',
-          chainId: 1,
-          from: '0x742D35Cc6634C0532925a3b844bc9e7595f2bd9f',
-        });
-        // If it doesn't throw, that's fine too
-      } catch (error) {
-        // The mocked signature is intentionally not a real Ledger signature; the
-        // important assertion below is that Ledger signing was attempted.
-        expect(error).toBeInstanceOf(Error);
-      }
-
-      // The important part: verify that Ledger signing was attempted with correct parameters
-      expect(mockSignEVMTransaction).toHaveBeenCalled();
-      expect(mockSignEVMTransaction).toHaveBeenCalledWith({
-        rawTx: expect.any(String), // Should be a hex string of the unsigned transaction
-        accountIndex: expect.any(Number), // Should be the account index
-      });
+  it('requires on-device verification for verify address', async () => {
+    const { host } = mockHost();
+    const ledger = new LedgerKeyring(undefined, host as LedgerHost);
+    await ledger.verifyUtxoAddress(3, 'tSYS', 1);
+    expect(host.utxo.getAddress).toHaveBeenCalledWith({
+      accountIndex: 3,
+      currency: 'tSYS',
+      slip44: 1,
+      checkOnDevice: true,
     });
   });
 
-  describe('Network Support', () => {
-    it('should support Ledger on different UTXO networks', async () => {
-      // Set up testnet vault state
-      const testnetVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Syscoin,
-        chainId: 5700,
-      });
-      const testnetVaultStateGetter = jest.fn(() => testnetVaultState);
-
-      // Test on testnet
-      const testnetKeyring = await createFreshTestKeyring(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        testnetVaultStateGetter
-      );
-      additionalKeyrings.push(testnetKeyring);
-
-      // Mock getAddress to return testnet address
-      testnetKeyring.getAddress = jest
-        .fn()
-        .mockResolvedValue('tsys1q_testnet_ledger');
-
-      // Mock ensureConnection for testnet
-      testnetKeyring.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockResolvedValue(undefined);
-
-      // Mock testnet Ledger
-      testnetKeyring.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'vpub5YMNvjHGu8MhNvgxNrGV8qZGkb3SVTiCAzqyCV8TbCZrEXrJqsCTMJjEJXBLfmjfFCDPRpGPW59THQMvPDuQejY5cSpfNYVZYcgJaMVZJCG'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-        verifyUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-      };
-
-      const account = await testnetKeyring.importLedgerAccount(
-        'Testnet Ledger'
-      );
-      if (account) {
-        expect(account.address.match(/^(sys1|tsys1)/)).toBeTruthy();
-      }
+  it('invalidates a pending result synchronously when destroyed', async () => {
+    const { host } = mockHost();
+    let resolve!: (value: any) => void;
+    host.evm.getAddress.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      })
+    );
+    const ledger = new LedgerKeyring(undefined, host as LedgerHost);
+    const pending = ledger.evm.getEvmAddressAndPubKey({ accountIndex: 0 });
+    await ledger.destroy();
+    resolve({ address, publicKey: '04' });
+    await expect(pending).rejects.toMatchObject({
+      code: 'HARDWARE_REQUEST_CANCELLED',
     });
-
-    it('should maintain separate Ledger accounts per network', async () => {
-      // Mock getAddress for mainnet
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1q_mainnet_ledger');
-
-      // Mock mainnet Ledger
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1q_mainnet_ledger'),
-        verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_mainnet_ledger'),
-      };
-
-      // Import on mainnet
-      const mainnetAccount = await keyringManager.importLedgerAccount(
-        'Mainnet Ledger'
-      );
-
-      // Set up testnet vault state
-      const testnetVaultState = createMockVaultState({
-        activeAccountId: 0,
-        activeAccountType: KeyringAccountType.HDAccount,
-        networkType: INetworkType.Syscoin,
-        chainId: 5700,
-      });
-      const testnetVaultStateGetter = jest.fn(() => testnetVaultState);
-
-      // Create testnet keyring
-      const testnetKeyring = await createFreshTestKeyring(
-        PEACE_SEED_PHRASE,
-        FAKE_PASSWORD,
-        testnetVaultStateGetter
-      );
-      additionalKeyrings.push(testnetKeyring);
-
-      // Mock getAddress for testnet
-      testnetKeyring.getAddress = jest
-        .fn()
-        .mockResolvedValue('tsys1q_testnet_ledger');
-
-      // Mock ensureConnection for testnet
-      testnetKeyring.ledgerSigner.ensureConnection = jest
-        .fn()
-        .mockResolvedValue(undefined);
-
-      // Mock testnet Ledger
-      testnetKeyring.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'vpub5YMNvjHGu8MhNvgxNrGV8qZGkb3SVTiCAzqyCV8TbCZrEXrJqsCTMJjEJXBLfmjfFCDPRpGPW59THQMvPDuQejY5cSpfNYVZYcgJaMVZJCG'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-        verifyUtxoAddress: jest.fn().mockResolvedValue('tsys1q_testnet_ledger'),
-      };
-
-      // Import on testnet
-      const testnetAccount = await testnetKeyring.importLedgerAccount(
-        'Testnet Ledger'
-      );
-
-      // Accounts should be independent
-      if (mainnetAccount && testnetAccount) {
-        expect(mainnetAccount.address).not.toBe(testnetAccount.address);
-        expect(mainnetAccount.address.match(/^(sys1|tsys1)/)).toBeTruthy();
-        expect(testnetAccount.address.match(/^(sys1|tsys1)/)).toBeTruthy();
-      }
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should handle Ledger communication errors', async () => {
-      // Mock communication error
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockRejectedValue(new Error('Ledger device communication error')),
-        getUtxoAddress: jest.fn(),
-        verifyUtxoAddress: jest.fn(),
-      };
-
-      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
-        'Ledger device communication error'
-      );
-    });
-
-    it('should handle invalid Ledger responses', async () => {
-      // Mock invalid response
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest.fn().mockResolvedValue(null),
-        getUtxoAddress: jest.fn().mockResolvedValue(null),
-        verifyUtxoAddress: jest.fn(),
-      };
-
-      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
-        'Something wrong happened'
-      );
-    });
-
-    it('should handle Ledger app not open', async () => {
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockRejectedValue(new Error('Please open Syscoin app on Ledger')),
-        getUtxoAddress: jest.fn(),
-        verifyUtxoAddress: jest.fn(),
-      };
-
-      await expect(keyringManager.importLedgerAccount()).rejects.toThrow(
-        'Please open Syscoin app on Ledger'
-      );
-    });
-  });
-
-  describe('Security', () => {
-    it('should not expose private keys for hardware wallets', async () => {
-      // Mock getAddress
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1q_test_address');
-
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1q_test_address'),
-        verifyUtxoAddress: jest.fn().mockResolvedValue('sys1q_test_address'),
-      };
-
-      const account = await keyringManager.importLedgerAccount('Security Test');
-
-      expect(account).toBeDefined();
-      if (account) {
-        expect(account.xprv).toBe(''); // Should be empty for hardware wallets
-        expect(account.isLedgerWallet).toBe(true);
-
-        // Should not be able to get private key for hardware wallet
-        await expect(
-          keyringManager.getPrivateKeyByAccountId(
-            account.id,
-            KeyringAccountType.Ledger,
-            FAKE_PASSWORD
-          )
-        ).rejects.toThrow();
-      }
-    });
-
-    it('should maintain hardware wallet isolation', async () => {
-      // Mock getAddress
-      keyringManager.getAddress = jest
-        .fn()
-        .mockResolvedValue('sys1q_isolation_address');
-
-      // Mock and import Ledger account
-      keyringManager.ledgerSigner.utxo = {
-        getXpub: jest
-          .fn()
-          .mockResolvedValue(
-            'zpub6s8HtEQtcu3AmBn9sniSqCAVhx2nJAhb2sd5NDYeYZ1ZJaZx7MAVZZnG1PdCUNJcVJXGbVpGfSYZLgkPSUjLYnJg8UdYvdkfaygcXZKPLy6'
-          ),
-        getUtxoAddress: jest.fn().mockResolvedValue('sys1q_isolation_address'),
-        verifyUtxoAddress: jest
-          .fn()
-          .mockResolvedValue('sys1q_isolation_address'),
-      };
-
-      const ledgerAccount = await keyringManager.importLedgerAccount(
-        'Isolation Test'
-      );
-
-      if (ledgerAccount) {
-        // Update vault state
-        currentVaultState.accounts[KeyringAccountType.Ledger][
-          ledgerAccount.id
-        ] = {
-          id: ledgerAccount.id,
-          label: ledgerAccount.label,
-          address: ledgerAccount.address,
-          xpub: ledgerAccount.xpub,
-          xprv: '',
-          isImported: false,
-          isTrezorWallet: false,
-          isLedgerWallet: true,
-          balances: { syscoin: 0, ethereum: 0 },
-          assets: { syscoin: [], ethereum: [] },
-        };
-
-        // Verify Ledger accounts are completely separate from HD accounts
-        const hdAccounts =
-          currentVaultState.accounts[KeyringAccountType.HDAccount];
-        const ledgerAccounts =
-          currentVaultState.accounts[KeyringAccountType.Ledger];
-
-        expect(Object.keys(hdAccounts)).toHaveLength(1); // Initial HD account
-        expect(Object.keys(ledgerAccounts)).toHaveLength(1); // One imported Ledger account
-
-        // Verify no cross-contamination of account types
-        Object.values(hdAccounts).forEach((account: any) => {
-          expect(account.isLedgerWallet).toBe(false);
-        });
-
-        Object.values(ledgerAccounts).forEach((account: any) => {
-          expect(account.isLedgerWallet).toBe(true);
-        });
-      }
-    });
+    expect(host.disconnect).toHaveBeenCalledTimes(1);
   });
 });
