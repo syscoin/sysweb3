@@ -117,28 +117,30 @@ describe('Ledger DMK Syscoin/Bitcoin APDU adapter', () => {
     ).toThrow();
   });
 
-  const signingFixture = () => {
-    const config = getNetworkConfig(1, 'tSYS');
+  const signingFixture = (currency = 'tSYS', slip44 = 1) => {
+    const config = getNetworkConfig(slip44, currency);
     const actual = jest.requireActual('syscoinjs-lib');
     const hd = new actual.utils.HDSigner(
       'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
       null,
-      true,
+      slip44 === 1,
       config.networks,
-      1,
+      slip44,
       config.types.zPubType,
       84
     );
     const root = hd.getRootNode();
-    const key = root.derivePath("m/84'/1'/0'/0/0");
+    const key = root.derivePath(`m/84'/${slip44}'/0'/0/0`);
     const payment = payments.p2wpkh({
       pubkey: key.publicKey,
-      network: config.networks.testnet,
+      network: slip44 === 1 ? config.networks.testnet : config.networks.mainnet,
     });
     const previous = new Transaction();
     previous.addInput(Buffer.alloc(32), 0xffffffff);
     previous.addOutput(payment.output!, 100000n);
-    const psbt = new Psbt({ network: config.networks.testnet });
+    const psbt = new Psbt({
+      network: slip44 === 1 ? config.networks.testnet : config.networks.mainnet,
+    });
     psbt.addInput({
       hash: previous.getId(),
       index: 0,
@@ -147,7 +149,7 @@ describe('Ledger DMK Syscoin/Bitcoin APDU adapter', () => {
     });
     psbt.addUnknownKeyValToInput(0, {
       key: Buffer.from('path'),
-      value: Buffer.from("m/84'/1'/0'/0/0"),
+      value: Buffer.from(`m/84'/${slip44}'/0'/0/0`),
     });
     psbt.addOutput({ address: payment.address!, value: 99000n });
     const actions: any[] = [];
@@ -193,15 +195,142 @@ describe('Ledger DMK Syscoin/Bitcoin APDU adapter', () => {
       actions,
       operation,
       key,
+      address: payment.address!,
       request: {
-        currency: 'tSYS',
-        slip44: 1,
+        currency,
+        slip44,
         accountIndex: 0,
         accountXpub: hd.getAccountXpub(),
         psbtBase64: psbt.toBase64(),
       },
     };
   };
+
+  describe.each([
+    ['SYS', 57],
+    ['tSYS', 1],
+    ['BTC', 0],
+    ['tBTC', 1],
+  ])('%s account addresses', (currency, slip44) => {
+    it.each(['getAddress', 'getAccount'] as const)(
+      '%s binds the device response to receive address 0/0',
+      async (method) => {
+        const { adapter, request, address } = signingFixture(
+          currency as string,
+          slip44 as number
+        );
+        const fingerprint = jest
+          .spyOn(AppClient.prototype, 'getMasterFingerprint')
+          .mockResolvedValue('01020304');
+        const xpub = jest
+          .spyOn(AppClient.prototype, 'getExtendedPubkey')
+          .mockResolvedValue(request.accountXpub);
+        const registration = jest
+          .spyOn(AppClient.prototype, 'registerWallet')
+          .mockImplementation(async (policy) => [
+            policy.getId(),
+            Buffer.alloc(32, 0x55),
+          ]);
+        const deviceAddress = jest
+          .spyOn(AppClient.prototype, 'getWalletAddress')
+          .mockResolvedValue(address.toUpperCase());
+        try {
+          const output = await adapter[method]({
+            currency: request.currency,
+            slip44: request.slip44,
+            accountIndex: request.accountIndex,
+            checkOnDevice: true,
+          });
+          expect(output).toEqual(
+            method === 'getAddress'
+              ? address
+              : { fingerprint: '01020304', xpub: request.accountXpub, address }
+          );
+          expect(deviceAddress).toHaveBeenCalledWith(
+            expect.anything(),
+            Buffer.alloc(32, 0x55),
+            0,
+            0,
+            true
+          );
+        } finally {
+          fingerprint.mockRestore();
+          xpub.mockRestore();
+          registration.mockRestore();
+          deviceAddress.mockRestore();
+        }
+      }
+    );
+  });
+
+  it.each(['SYS', 'BTC'])(
+    'uses the test network for a %s alias with slip44 1',
+    async (currency) => {
+      const { adapter, request, address } = signingFixture(`t${currency}`, 1);
+      const fingerprint = jest
+        .spyOn(AppClient.prototype, 'getMasterFingerprint')
+        .mockResolvedValue('01020304');
+      const xpub = jest
+        .spyOn(AppClient.prototype, 'getExtendedPubkey')
+        .mockResolvedValue(request.accountXpub);
+      const registration = jest
+        .spyOn(AppClient.prototype, 'registerWallet')
+        .mockImplementation(async (policy) => [
+          policy.getId(),
+          Buffer.alloc(32, 0x55),
+        ]);
+      const deviceAddress = jest
+        .spyOn(AppClient.prototype, 'getWalletAddress')
+        .mockResolvedValue(address);
+      try {
+        await expect(
+          adapter.getAddress({ currency, slip44: 1, accountIndex: 0 })
+        ).resolves.toBe(address);
+      } finally {
+        fingerprint.mockRestore();
+        xpub.mockRestore();
+        registration.mockRestore();
+        deviceAddress.mockRestore();
+      }
+    }
+  );
+
+  it.each(['getAddress', 'getAccount'] as const)(
+    '%s rejects an unrelated device address',
+    async (method) => {
+      const { adapter, request, key } = signingFixture();
+      const config = getNetworkConfig(request.slip44, request.currency);
+      const unrelatedAddress = payments.p2wpkh({
+        pubkey: key.derive(1).publicKey,
+        network: config.networks.testnet,
+      }).address!;
+      const fingerprint = jest
+        .spyOn(AppClient.prototype, 'getMasterFingerprint')
+        .mockResolvedValue('01020304');
+      const xpub = jest
+        .spyOn(AppClient.prototype, 'getExtendedPubkey')
+        .mockResolvedValue(request.accountXpub);
+      const registration = jest
+        .spyOn(AppClient.prototype, 'registerWallet')
+        .mockImplementation(async (policy) => [
+          policy.getId(),
+          Buffer.alloc(32, 0x55),
+        ]);
+      const deviceAddress = jest
+        .spyOn(AppClient.prototype, 'getWalletAddress')
+        .mockResolvedValue(unrelatedAddress);
+      try {
+        await expect(adapter[method](request)).rejects.toMatchObject({
+          code: 'LEDGER_INVALID_RESPONSE',
+        });
+      } finally {
+        fingerprint.mockRestore();
+        xpub.mockRestore();
+        registration.mockRestore();
+        deviceAddress.mockRestore();
+      }
+    }
+  );
 
   it('gets identity, registers policy and signs a prepared PSBT inside one app action', async () => {
     const { adapter, request, operation, key, actions } = signingFixture();

@@ -258,6 +258,54 @@ test('captures typed data before pending connection and exposes no mutable appro
   expect(Object.isFrozen(approved.message)).toBe(true);
 });
 
+test.each(['signPsbt', 'signUtxoMessage'] as const)(
+  'captures %s request fields before a pending connection',
+  async (method) => {
+    const host = hostFixture();
+    const ledger = new LedgerKeyring(undefined, host);
+    let complete!: () => void;
+    host.getStatus = () => ({ connected: false });
+    host.connect = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+        })
+    );
+    const request = {
+      currency: 'tSYS',
+      slip44: 1,
+      accountIndex: 0,
+      accountXpub: 'approved account xpub',
+      ...(method === 'signPsbt'
+        ? { psbtBase64: 'approved psbt' }
+        : { message: 'approved message', addressIndex: 2, change: false }),
+    };
+    const expected = { ...request };
+    const sign: jest.Mock = jest.fn(async () => {
+      return method === 'signPsbt'
+        ? { fingerprint: '01020304', signatures: [] }
+        : 'signature';
+    });
+    if (method === 'signPsbt') host.utxo.signPsbt = sign as any;
+    else host.utxo.signMessage = sign as any;
+    const pending = ledger[method](request as any);
+    Object.assign(request, {
+      currency: 'BTC',
+      slip44: 0,
+      accountIndex: 1,
+      accountXpub: 'replaced account xpub',
+      psbtBase64: 'replaced psbt',
+      message: 'replaced message',
+      addressIndex: 7,
+      change: true,
+    });
+    complete();
+    await pending;
+    expect(sign).toHaveBeenCalledWith(expected);
+    expect(Object.isFrozen(sign.mock.calls[0][0])).toBe(true);
+  }
+);
+
 test('discards a queued valid personal signature after synchronous destruction', async () => {
   const { host, ledger } = cryptoHost();
   let complete!: (signature: string) => void;

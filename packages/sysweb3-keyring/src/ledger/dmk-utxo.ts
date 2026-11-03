@@ -12,6 +12,8 @@ import {
   type DmkError,
   type InternalApi,
 } from '@ledgerhq/device-management-kit';
+import { getNetworkConfig } from '@sidhujag/sysweb3-network';
+import { address, payments } from 'bitcoinjs-lib';
 import bs58check from 'bs58check';
 import * as syscoinjs from 'syscoinjs-lib';
 
@@ -36,6 +38,7 @@ import {
 } from '../utils/derivation-paths';
 import {
   assertPsbtAccountScope,
+  parsePsbtAccountXpub,
   type PsbtAccountScope,
 } from '../utils/psbt-account-scope';
 
@@ -156,6 +159,44 @@ const publicKeyPayload = (xpub: string) => {
       'Invalid Ledger account public key'
     );
   return payload.subarray(4); // Ignore only the public version (xpub/zpub/vpub).
+};
+
+const checkedReceivingAddress = (
+  xpub: string,
+  request: LedgerUtxoAccount,
+  deviceAddress: string
+): string => {
+  try {
+    const testnet = request.slip44 === 1;
+    // Resolve the selected app's network explicitly; a mainnet currency alias
+    // with slip44 1 must not select the network helper's name-only fallback.
+    const coin =
+      ledgerUtxoApp(request) === 'Syscoin'
+        ? testnet
+          ? 'tSYS'
+          : 'SYS'
+        : testnet
+        ? 'tBTC'
+        : 'BTC';
+    const config = getNetworkConfig(request.slip44, coin);
+    const network = testnet ? config.networks.testnet : config.networks.mainnet;
+    const publicKey = parsePsbtAccountXpub(xpub).derive(0).derive(0).publicKey;
+    const expected = payments.p2wpkh({ pubkey: publicKey, network });
+    if (
+      !expected.address ||
+      !expected.output ||
+      !Buffer.from(address.toOutputScript(deviceAddress, network)).equals(
+        Buffer.from(expected.output)
+      )
+    )
+      throw new Error('Address does not match the account');
+    return expected.address;
+  } catch {
+    throw ledgerHostError(
+      'LEDGER_INVALID_RESPONSE',
+      'Ledger returned an address that does not match the account'
+    );
+  }
 };
 
 const asDmkError = (error: unknown): DmkError => {
@@ -298,15 +339,16 @@ export function createLedgerUtxoAdapter(
           ? UserInteractionRequired.VerifyAddress
           : UserInteractionRequired.None,
         async (client, _operation, approved) => {
-          const { fingerprint, policy } = await account(client, approved);
+          const { fingerprint, xpub, policy } = await account(client, approved);
           const hmac = await register(client, fingerprint, policy, options);
-          return client.getWalletAddress(
+          const deviceAddress = await client.getWalletAddress(
             policy,
             hmac,
             0,
             0,
             !!approved.checkOnDevice
           );
+          return checkedReceivingAddress(xpub, approved, deviceAddress);
         },
         options
       ),
@@ -319,12 +361,17 @@ export function createLedgerUtxoAdapter(
         async (client, _operation, approved) => {
           const { fingerprint, xpub, policy } = await account(client, approved);
           const hmac = await register(client, fingerprint, policy, options);
-          const address = await client.getWalletAddress(
+          const deviceAddress = await client.getWalletAddress(
             policy,
             hmac,
             0,
             0,
             !!approved.checkOnDevice
+          );
+          const address = checkedReceivingAddress(
+            xpub,
+            approved,
+            deviceAddress
           );
           return { fingerprint, xpub, address };
         },

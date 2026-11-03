@@ -294,12 +294,31 @@ export class LedgerKeyring {
 
   public signUtxoMessage = (
     request: Parameters<LedgerUtxoHost['signMessage']>[0]
-  ): Promise<string> => this.run((host) => host.utxo.signMessage(request));
+  ): Promise<string> => {
+    const approved = Object.freeze({
+      currency: request.currency,
+      slip44: request.slip44,
+      accountIndex: request.accountIndex,
+      message: request.message,
+      addressIndex: request.addressIndex,
+      change: request.change,
+      accountXpub: request.accountXpub,
+    });
+    return this.run((host) => host.utxo.signMessage(approved));
+  };
 
   public signPsbt = (
     request: Parameters<LedgerUtxoHost['signPsbt']>[0]
-  ): ReturnType<LedgerUtxoHost['signPsbt']> =>
-    this.run((host) => host.utxo.signPsbt(request));
+  ): ReturnType<LedgerUtxoHost['signPsbt']> => {
+    const approved = Object.freeze({
+      currency: request.currency,
+      slip44: request.slip44,
+      accountIndex: request.accountIndex,
+      accountXpub: request.accountXpub,
+      psbtBase64: request.psbtBase64,
+    });
+    return this.run((host) => host.utxo.signPsbt(approved));
+  };
 
   public getStatus() {
     const connected = this.host?.getStatus().connected === true;
