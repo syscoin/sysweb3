@@ -112,6 +112,38 @@ const storage = () => {
       aState.accounts.HDAccount[0].address,
     ]);
     assert.match(signature, /^0x[0-9a-f]{130}$/i);
+    const address = aState.accounts.HDAccount[0].address;
+    const prepared = a.signPreparedEvmTransaction(
+      {
+        account: { id: 0, type: 'HDAccount', expectedAddress: address },
+        network: {
+          kind: 'ethereum',
+          chainId: '1',
+          slip44: 60,
+          url: 'https://offline.invalid',
+        },
+        transaction: {
+          type: 2,
+          from: address,
+          to: address,
+          chainId: '1',
+          nonce: '0',
+          value: '1',
+          gasLimit: '21000',
+          data: '0x',
+          maxFeePerGas: '2',
+          maxPriorityFeePerGas: '1',
+        },
+      },
+      { assertCurrent() {} }
+    );
+    const { Transaction } = require('ethers/transaction');
+    const decoded = Transaction.from(prepared.rawTransaction);
+    assert.equal(decoded.from, address);
+    assert.equal(decoded.hash, prepared.hash);
+    assert.equal(decoded.value, 1n);
+    assert.equal(decoded.nonce, 0);
+    assert(Object.isFrozen(prepared));
     await a.lockWallet();
     assert.equal(a.isUnlocked(), false);
     assert.equal(b.isUnlocked(), true);

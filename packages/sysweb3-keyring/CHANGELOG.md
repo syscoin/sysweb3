@@ -2,12 +2,13 @@
 
 ## 2.0.0
 
+- Add `SoftwareKeyring.signPreparedEvmTransaction` for offline signing of fully specified legacy/EIP-1559 envelopes. The request binds the selected software account and exact network/endpoint, requires synchronous host admission, validates all signed fields and recovered identity, and returns immutable signed bytes plus their local hash. It never estimates fees, resolves names, fills fields or broadcasts; hosts must durably retain the result before submission and reconcile uncertain broadcasts by hash.
+
 - Breaking: Ledger signing requires an explicitly injected semantic `LedgerHost`. Raw LedgerJS transports/clients are removed; use the isolated browser ESM host entry for device access.
 - Adopt current Device Management Kit and Ethereum signer packages while preserving the custom Syscoin/Bitcoin protocol. Serialize device operations and reject stale, wrong-account, malformed and mismatched-sighash responses.
 - Disable remote Ledger metadata/transaction checks/telemetry by default. Require fresh per-intent consent for transaction/typed-data signing that may fall back to blind signing.
 - Bind receive addresses to public account derivation, preserve on-device approval for unusual paths, and snapshot queued UTXO requests before connection awaits.
 - Existing software-only entry, vault formats and account derivation remain compatible. Host/device and native-runtime qualification are separate requirements.
-
 
 - Remove the legacy Trezor UTXO library. Reuse Bitcoinjs address decoding with a checksum-verified two-byte-version compatibility path, and encode witness vectors with the public CompactSize codec.
 

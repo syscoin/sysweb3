@@ -25,7 +25,7 @@ const SLH_DSA_DERIVATION_VERSION = 1;
 const SLH_DSA_SETUP_SECRET_HEX_LENGTH = 64;
 const SLH_DSA_PARAMETER_SET = 'SLH-DSA-SHA2-128-24';
 
-import { isHexString } from './ethers-v6';
+import { getAddress, isHexString } from './ethers-v6';
 import {
   initialActiveImportedAccountState,
   initialActiveLedgerAccountState,
@@ -42,6 +42,16 @@ import {
 import { getSyscoinSigners, SyscoinHDSigner } from './signers';
 import { VaultAuthenticationError } from './storage-core';
 import { EthereumTransactions } from './transactions/ethereum';
+import {
+  preparedEvmGuard,
+  signPreparedEvmEnvelope,
+  snapshotPreparedEvmRequest,
+} from './transactions/prepared-evm';
+import type {
+  PreparedEvmSigningOptions,
+  PreparedSoftwareEvmSigningRequest,
+  SignedPreparedEvmTransaction,
+} from './transactions/prepared-evm';
 import {
   deriveEvmAccountFromMnemonic,
   privateKeyToAccount,
@@ -1982,6 +1992,65 @@ export class KeyringCore<
     assertCurrent();
     return assertCurrent;
   };
+
+  /** The software facade owns this public capability; no device fallback. */
+  protected signPreparedSoftwareEvmTransaction(
+    input: PreparedSoftwareEvmSigningRequest,
+    options: PreparedEvmSigningOptions
+  ): SignedPreparedEvmTransaction {
+    // Capture authority before parsing caller data or invoking host callbacks.
+    const assertSession = this.capturePsbtSigningContext();
+    const vault = this.getVault();
+    const selected = { ...vault.activeAccount };
+    const selectedAccount = vault.accounts[selected.type]?.[selected.id];
+    const encryptedKey = selectedAccount?.xprv;
+    const request = snapshotPreparedEvmRequest(input);
+    const hostGuard = preparedEvmGuard(options);
+    const assertCurrent = () => {
+      assertSession();
+      const current = this.getVault();
+      const account = current.accounts[selected.type]?.[selected.id];
+      if (
+        (selected.type !== KeyringAccountType.HDAccount &&
+          selected.type !== KeyringAccountType.Imported) ||
+        !account ||
+        account.id !== selected.id ||
+        account.isLedgerWallet ||
+        account.isTrezorWallet ||
+        account.isSmartAccount ||
+        typeof encryptedKey !== 'string' ||
+        encryptedKey.length === 0 ||
+        account.xprv !== encryptedKey ||
+        request.account.type !== selected.type ||
+        request.account.id !== selected.id ||
+        request.account.expectedAddress !== getAddress(account.address) ||
+        current.activeNetwork.kind !== INetworkType.Ethereum ||
+        current.activeNetwork.slip44 !== 60 ||
+        !Number.isSafeInteger(current.activeNetwork.chainId) ||
+        current.activeNetwork.chainId <= 0 ||
+        BigInt(current.activeNetwork.chainId).toString() !==
+          request.network.chainId ||
+        current.activeNetwork.url !== request.network.url
+      )
+        throw new Error(
+          'Prepared EVM signing context changed or is unsupported'
+        );
+    };
+    assertCurrent();
+    hostGuard();
+    assertCurrent();
+    const key = this.getDecryptedPrivateKey();
+    if (getAddress(key.address) !== request.account.expectedAddress)
+      throw new Error('Prepared EVM signer address mismatch');
+    assertCurrent();
+    const signed = signPreparedEvmEnvelope(
+      request.transaction,
+      key.decryptedPrivateKey
+    );
+    hostGuard();
+    assertCurrent();
+    return signed;
+  }
 
   private getSigner = (): {
     hd: any; // SyscoinHDSigner or WIFSigner wrapper with sign(psbt)
