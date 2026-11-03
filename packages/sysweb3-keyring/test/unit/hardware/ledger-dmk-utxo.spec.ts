@@ -332,6 +332,50 @@ describe('Ledger DMK Syscoin/Bitcoin APDU adapter', () => {
     }
   );
 
+  it.each([0x6a82, 0x6985])(
+    'only retries an unusual path status with device display (%s)',
+    async (statusCode) => {
+      const { adapter, request, address } = signingFixture();
+      const fingerprint = jest
+        .spyOn(AppClient.prototype, 'getMasterFingerprint')
+        .mockResolvedValue('01020304');
+      const xpub = jest
+        .spyOn(AppClient.prototype, 'getExtendedPubkey')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('device status'), { statusCode })
+        )
+        .mockResolvedValue(request.accountXpub);
+      const registration = jest
+        .spyOn(AppClient.prototype, 'registerWallet')
+        .mockImplementation(async (policy) => [
+          policy.getId(),
+          Buffer.alloc(32, 0x55),
+        ]);
+      const returned = jest
+        .spyOn(AppClient.prototype, 'getWalletAddress')
+        .mockResolvedValue(address);
+      try {
+        const result = adapter.getAccount(request);
+        if (statusCode === 0x6a82) {
+          await expect(result).resolves.toMatchObject({
+            xpub: request.accountXpub,
+            address,
+          });
+          expect(xpub.mock.calls.map((call) => call[1])).toEqual([false, true]);
+        } else {
+          await expect(result).rejects.toMatchObject({ statusCode: 0x6985 });
+          expect(xpub).toHaveBeenCalledTimes(1);
+          expect(registration).not.toHaveBeenCalled();
+        }
+      } finally {
+        fingerprint.mockRestore();
+        xpub.mockRestore();
+        registration.mockRestore();
+        returned.mockRestore();
+      }
+    }
+  );
+
   it('gets identity, registers policy and signs a prepared PSBT inside one app action', async () => {
     const { adapter, request, operation, key, actions } = signingFixture();
     const calls: string[] = [];

@@ -266,6 +266,21 @@ export function createLedgerUtxoAdapter(
     );
   };
 
+  const accountXpub = async (
+    client: AppClient,
+    path: string
+  ): Promise<string> => {
+    try {
+      return await client.getExtendedPubkey(path, false);
+    } catch (error) {
+      // GET_EXTENDED_PUBKEY returns SW_NOT_SUPPORTED for a path that
+      // requires on-device display. Never retry denial or transport errors.
+      if ((error as { statusCode?: number })?.statusCode !== 0x6a82)
+        throw error;
+      return client.getExtendedPubkey(path, true);
+    }
+  };
+
   const account = async (
     client: AppClient,
     request: LedgerUtxoAccount,
@@ -279,7 +294,7 @@ export function createLedgerUtxoAdapter(
     const fingerprint = await client.getMasterFingerprint();
     if (!/^[0-9a-f]{8}$/i.test(fingerprint))
       throw new Error('Invalid Ledger fingerprint');
-    const xpub = await client.getExtendedPubkey(path, false);
+    const xpub = await accountXpub(client, path);
     const payload = publicKeyPayload(xpub);
     if (expectedXpub && !payload.equals(publicKeyPayload(expectedXpub)))
       throw ledgerHostError(

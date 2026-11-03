@@ -126,6 +126,25 @@ describe('Ledger semantic host integration', () => {
       currency: state.activeNetwork.currency,
       slip44: state.activeNetwork.slip44,
       accountIndex: 0,
+      checkOnDevice: true,
+    });
+  });
+
+  it('requests device confirmation for unusual import paths without retrying', async () => {
+    fixture.host.utxo.getXpub.mockImplementation(async (request) => {
+      if (!request.checkOnDevice)
+        throw new Error('Unusual path requires display');
+      return 'public-account-key';
+    });
+    await expect(
+      keyring.ledgerSigner.utxo.getXpub({ coin: 'sys', slip44: 57, index: 100 })
+    ).resolves.toBe('public-account-key');
+    expect(fixture.host.utxo.getXpub).toHaveBeenCalledTimes(1);
+    expect(fixture.host.utxo.getXpub).toHaveBeenCalledWith({
+      currency: 'sys',
+      slip44: 57,
+      accountIndex: 100,
+      checkOnDevice: true,
     });
   });
 
@@ -222,6 +241,7 @@ describe('Ledger semantic host integration', () => {
       currency: testState.activeNetwork.currency,
       slip44: testState.activeNetwork.slip44,
       accountIndex: 0,
+      checkOnDevice: true,
     });
   });
 

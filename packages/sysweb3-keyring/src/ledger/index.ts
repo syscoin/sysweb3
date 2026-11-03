@@ -238,7 +238,14 @@ export class LedgerKeyring {
         ),
       getXpub: ({ coin, index, slip44 }) =>
         this.run((host) =>
-          host.utxo.getXpub({ currency: coin, accountIndex: index, slip44 })
+          host.utxo.getXpub({
+            currency: coin,
+            accountIndex: index,
+            slip44,
+            // Import must remain available for paths the device classifies as
+            // unusual. Ask for its confirmation once, without retrying denial.
+            checkOnDevice: true,
+          })
         ),
       verifyUtxoAddress: this.verifyUtxoAddress,
     };
