@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.629
+
+- Move Trezor hardware integration to Connect 10.0.1 and remove the redundant direct Connect Web dependency.
+- Load the browser transport only inside a supported MV3 extension. Preserve CommonJS/ESM and software-entry imports without browser globals or device initialization.
+- Preserve the existing SDK failure payload while retaining Connect error codes; stop retrying cancellations, disconnects and unsupported hosts/coins.
+- Replace removed Connect device events with status updates from request outcomes and disposal. Immediate physical unplug notifications are no longer exposed by upstream.
+- Reject pending calls locally on lock/disposal and discard late responses. Defer remote cleanup while requests are outstanding; return `HARDWARE_SIGNER_BUSY` until they settle rather than opening another approval prompt.
+- Normalize Trezor hexadecimal recovery values without mutating signed responses; preserve approved transaction and session checks.
+- Physical device qualification and consuming-extension Suite Web permissions remain release gates.
+
 ## 1.0.628
 
 - Add the `cjs/software` entry with explicit asynchronous host storage and an opaque wallet-authority handle. Software keyrings do not load browser hardware transports or global storage.

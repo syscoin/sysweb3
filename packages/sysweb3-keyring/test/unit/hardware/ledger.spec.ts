@@ -9,6 +9,7 @@ const createMockVaultState = (global as any).createMockVaultState;
 
 describe('Ledger Hardware Wallet', () => {
   let keyringManager: KeyringManager;
+  const additionalKeyrings: KeyringManager[] = [];
   let mockVaultStateGetter: jest.Mock;
   let currentVaultState: any;
 
@@ -52,6 +53,7 @@ describe('Ledger Hardware Wallet', () => {
   });
 
   afterEach(async () => {
+    for (const keyring of additionalKeyrings.splice(0)) await keyring.destroy();
     // Clean up hardware wallet connections
     if (keyringManager) {
       await keyringManager.destroy();
@@ -114,6 +116,7 @@ describe('Ledger Hardware Wallet', () => {
         FAKE_PASSWORD,
         evmVaultStateGetter
       );
+      additionalKeyrings.push(evmKeyring);
 
       // Mock ensureConnection for EVM keyring
       evmKeyring.ledgerSigner.ensureConnection = jest
@@ -484,6 +487,7 @@ describe('Ledger Hardware Wallet', () => {
         FAKE_PASSWORD,
         evmVaultStateGetter
       );
+      additionalKeyrings.push(evmKeyring);
 
       // Mock Ledger as disconnected
       evmKeyring.ledgerSigner.transport = null;
@@ -578,6 +582,7 @@ describe('Ledger Hardware Wallet', () => {
         FAKE_PASSWORD,
         evmVaultStateGetter
       );
+      additionalKeyrings.push(evmKeyring);
 
       // Mock ensureConnection
       evmKeyring.ledgerSigner.ensureConnection = jest
@@ -670,6 +675,7 @@ describe('Ledger Hardware Wallet', () => {
         FAKE_PASSWORD,
         testnetVaultStateGetter
       );
+      additionalKeyrings.push(testnetKeyring);
 
       // Mock getAddress to return testnet address
       testnetKeyring.getAddress = jest
@@ -737,6 +743,7 @@ describe('Ledger Hardware Wallet', () => {
         FAKE_PASSWORD,
         testnetVaultStateGetter
       );
+      additionalKeyrings.push(testnetKeyring);
 
       // Mock getAddress for testnet
       testnetKeyring.getAddress = jest

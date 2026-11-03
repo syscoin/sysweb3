@@ -1,3 +1,7 @@
+jest.mock('../../src/trezor/connect', () =>
+  jest.requireActual('../__mocks__/trezor-mock')
+);
+
 // Test setup file
 import { INetworkType } from '@sidhujag/sysweb3-network';
 import { webcrypto } from 'crypto';

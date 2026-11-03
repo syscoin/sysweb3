@@ -2,6 +2,7 @@
 // Define a complete mock to prevent "main.send is not a function" errors
 const TrezorConnect = {
   manifest: jest.fn(),
+  cancel: jest.fn(),
   init: jest.fn(() => Promise.resolve({ success: true })),
   getDeviceId: () =>
     Promise.resolve({ success: true, payload: { deviceId: 'mock-device-id' } }),
@@ -73,3 +74,10 @@ const TrezorConnect = {
 
 module.exports = TrezorConnect;
 module.exports.default = TrezorConnect;
+
+module.exports.subscribeTrezorEvents = jest.fn(() => () => {});
+module.exports.trezorResponseError = (response, prefix = '') =>
+  Object.assign(
+    new Error(prefix + (response.payload?.error || 'Trezor request failed')),
+    { code: response.payload?.code }
+  );
