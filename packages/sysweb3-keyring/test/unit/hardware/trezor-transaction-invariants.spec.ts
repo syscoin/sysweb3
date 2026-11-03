@@ -336,4 +336,34 @@ describe('Trezor unsigned transaction integrity', () => {
     );
     expect(update).not.toHaveBeenCalled();
   });
+
+  it.each(['', 'deadbeef', '00'])(
+    'rejects malformed returned transaction %p before changing the PSBT',
+    async (serializedTx) => {
+      const psbt = fixture();
+      jest
+        .spyOn(TrezorConnect, 'signTransaction')
+        .mockResolvedValue({ success: true, payload: { serializedTx } } as any);
+      const update = jest.spyOn(psbt, 'updateInput');
+      await expect(receiver.signUtxoTransaction({}, psbt)).rejects.toThrow();
+      expect(update).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['00', 'fd0000', '0101', 'fd010000'])(
+    'rejects malformed or noncanonical finalized witness %s',
+    async (hex) => {
+      const { psbt } = finalizedExternalFixture('witness');
+      const serializedTx = signedJointTransaction(psbt);
+      psbt.data.inputs[1].finalScriptWitness = Buffer.from(hex, 'hex');
+      jest
+        .spyOn(TrezorConnect, 'signTransaction')
+        .mockResolvedValue({ success: true, payload: { serializedTx } } as any);
+      const update = jest.spyOn(psbt, 'updateInput');
+      await expect(receiver.signUtxoTransaction({}, psbt)).rejects.toThrow(
+        'changed an already-finalized input'
+      );
+      expect(update).not.toHaveBeenCalled();
+    }
+  );
 });

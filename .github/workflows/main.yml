@@ -62,6 +62,23 @@ jobs:
             test/unit/keyring-manager/storage-adapter.spec.ts \
             test/unit/keyring-manager/private-records.spec.ts
           node test/software-entry-runtime.cjs
+      - name: Validate Trezor transport and UTXO signing regressions
+        working-directory: packages/sysweb3-keyring
+        timeout-minutes: 10
+        # The preceding build produces the plain-Node Connect protocol fixture.
+        run: |
+          NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent \
+            test/unit/hardware/trezor-connect-adapter.spec.ts \
+            test/unit/hardware/trezor-suite-connect.spec.ts \
+            test/unit/hardware/trezor-address.spec.ts \
+            test/unit/hardware/trezor-witness.spec.ts \
+            test/unit/hardware/trezor-transaction-invariants.spec.ts \
+            test/unit/hardware/trezor.spec.ts \
+            test/unit/hardware/ledger.spec.ts \
+            test/unit/hardware/ledger-finalized-inputs.spec.ts \
+            test/unit/hardware/current-ledger-devices.spec.ts \
+            test/unit/ledger/bitcoin_client/policy.spec.ts \
+            test/unit/ledger/bitcoin_client/psbtv2.p2wpkh.spec.ts
       - name: Validate watch-only descriptor regressions
         working-directory: packages/sysweb3-keyring
         run: |
