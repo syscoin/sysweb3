@@ -1,0 +1,6 @@
+# Source tests are checked in the repository, not shipped to consumers.
+**/__tests__/**
+**/test/**
+**/tests/**
+**/*.test.*
+**/*.spec.*
