@@ -2,6 +2,8 @@
 
 ## 1.0.629
 
+- Remove the legacy Trezor UTXO library. Reuse Bitcoinjs address decoding with a checksum-verified two-byte-version compatibility path, and encode witness vectors with the public CompactSize codec.
+
 - Move Trezor hardware integration to Connect 10.0.1 and remove the redundant direct Connect Web dependency.
 - Load the browser transport only inside a supported MV3 extension. Preserve CommonJS/ESM and software-entry imports without browser globals or device initialization.
 - Preserve the existing SDK failure payload while retaining Connect error codes; stop retrying cancellations, disconnects and unsupported hosts/coins.

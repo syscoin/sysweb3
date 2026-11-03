@@ -5,9 +5,9 @@ import {
   SignTypedDataVersion,
   TypedDataV1,
 } from '@metamask/eth-sig-util';
-import { address, bufferutils } from '@trezor/utxo-lib';
 import bitcoinops from 'bitcoin-ops';
 import { Psbt } from 'bitcoinjs-lib';
+import bs58check from 'bs58check';
 import { Buffer } from 'buffer';
 import * as syscoinjs from 'syscoinjs-lib';
 
@@ -15,6 +15,7 @@ import TrezorConnect, {
   subscribeTrezorEvents,
   trezorResponseError,
 } from './connect';
+import { serializeWitness } from './witness';
 import {
   HardwareWalletManager,
   HardwareWalletType,
@@ -35,25 +36,28 @@ import type {
 const bitcoinjs: any = (syscoinjs.utils as any).bitcoinjs;
 const { p2wsh } = bitcoinjs.payments;
 const { decompile } = bitcoinjs.script;
-const { fromBase58Check, fromBech32 } = address;
+const { fromBech32 } = bitcoinjs.address;
+const fromBase58Check = (value: string) => {
+  try {
+    return bitcoinjs.address.fromBase58Check(value);
+  } catch (error) {
+    // The former decoder also accepted a two-byte network version. Preserve
+    // exactly that checksum-verified format without loading the legacy fork.
+    const payload = bs58check.decode(value);
+    if (payload.length === 22) {
+      return {
+        version: (payload[0] << 8) | payload[1],
+        hash: payload.subarray(2),
+      };
+    }
+    throw error;
+  }
+};
 
 const initialHDPath = `m/44'/60'/0'/0/0`;
 const DELAY_BETWEEN_POPUPS = 2000; // Increased from 1000ms to 2000ms for more reliable operation
 const stripHexPrefix = (value: string) =>
   value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
-const serializeWitness = (witness: readonly Uint8Array[]): Buffer => {
-  const stack = witness.map((item) => Buffer.from(item));
-  const size =
-    bufferutils.varIntSize(stack.length) +
-    stack.reduce(
-      (total, item) =>
-        total + bufferutils.varIntSize(item.length) + item.length,
-      0
-    );
-  const writer = new bufferutils.BufferWriter(Buffer.alloc(size));
-  writer.writeVector(stack);
-  return writer.buffer;
-};
 const finalizedFields = (input: any) => {
   if (!input.finalScriptSig && !input.finalScriptWitness) return null;
   return {
