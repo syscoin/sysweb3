@@ -202,44 +202,43 @@ jest.mock('../../src/providers', () => ({
 // Mock storage for sysweb3-core
 const mockStorage = new Map();
 
-// Mock sysweb3-core storage
-jest.mock('@sidhujag/sysweb3-core', () => ({
-  sysweb3Di: {
-    getStateStorageDb: () => ({
-      get: jest.fn(async (key: string) => {
-        return mockStorage.get(key) || null;
-      }),
-      set: jest.fn((key: string, value: any) => {
-        mockStorage.set(key, value);
-        return Promise.resolve();
-      }),
-      setMany: jest.fn((items: Record<string, any>) => {
-        Object.entries(items).forEach(([key, value]) =>
-          mockStorage.set(key, value)
-        );
-        return Promise.resolve();
-      }),
-      createManyIfAbsent: jest.fn((items: Record<string, any>) => {
-        // No await between the shared map's absence check and complete write.
-        if (Object.keys(items).some((key) => mockStorage.get(key) != null))
-          return Promise.resolve(false);
-        Object.entries(items).forEach(([key, value]) =>
-          mockStorage.set(key, value)
-        );
-        return Promise.resolve(true);
-      }),
-      deleteItem: jest.fn((key: string) => {
-        mockStorage.delete(key);
-        return Promise.resolve();
-      }),
-      clear: jest.fn(() => {
-        mockStorage.clear();
-        return Promise.resolve();
-      }),
-      setClient: jest.fn(),
+// Match production DI: every lookup returns the same facade; records still reset per test.
+jest.mock('@sidhujag/sysweb3-core', () => {
+  const storage = {
+    get: jest.fn(async (key: string) => {
+      return mockStorage.get(key) || null;
     }),
-  },
-}));
+    set: jest.fn((key: string, value: any) => {
+      mockStorage.set(key, value);
+      return Promise.resolve();
+    }),
+    setMany: jest.fn((items: Record<string, any>) => {
+      Object.entries(items).forEach(([key, value]) =>
+        mockStorage.set(key, value)
+      );
+      return Promise.resolve();
+    }),
+    createManyIfAbsent: jest.fn((items: Record<string, any>) => {
+      // No await between the shared map's absence check and complete write.
+      if (Object.keys(items).some((key) => mockStorage.get(key) != null))
+        return Promise.resolve(false);
+      Object.entries(items).forEach(([key, value]) =>
+        mockStorage.set(key, value)
+      );
+      return Promise.resolve(true);
+    }),
+    deleteItem: jest.fn((key: string) => {
+      mockStorage.delete(key);
+      return Promise.resolve();
+    }),
+    clear: jest.fn(() => {
+      mockStorage.clear();
+      return Promise.resolve();
+    }),
+    setClient: jest.fn(),
+  };
+  return { sysweb3Di: { getStateStorageDb: () => storage } };
+});
 
 // Mock sysweb3-utils to support token operations
 jest.mock('@sidhujag/sysweb3-utils', () => {

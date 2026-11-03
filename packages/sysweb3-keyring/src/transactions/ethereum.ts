@@ -62,6 +62,25 @@ import type { LedgerKeyring } from '../ledger';
 import type { TrezorKeyring } from '../trezor';
 import type { EthereumTransactionEIP1559 } from '@trezor/connect-web';
 
+/** Minimal trusted device capabilities used by EVM transaction routing. */
+export interface EthereumLedgerSigner {
+  evm: Pick<
+    LedgerKeyring['evm'],
+    'signTypedData' | 'signPersonalMessage' | 'signEVMTransaction'
+  >;
+  verifyUtxoAddress: LedgerKeyring['verifyUtxoAddress'];
+}
+
+export type EthereumTrezorSigner = Pick<
+  TrezorKeyring,
+  'signTypedData' | 'signMessage' | 'signEthTransaction' | 'verifyUtxoAddress'
+>;
+
+const hardwareSignerUnavailable = (hardware: string) =>
+  Object.assign(new Error(`${hardware} signer is unavailable in this host`), {
+    code: 'HARDWARE_SIGNER_UNAVAILABLE',
+  });
+
 const stripHexPrefix = (value: string) =>
   value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
 
@@ -206,11 +225,15 @@ const assertSynchronousOriginalValidation = (
   }
 };
 
-export class EthereumTransactions implements IEthereumTransactions {
+export class EthereumTransactions<
+  TLedger extends EthereumLedgerSigner | undefined = LedgerKeyring,
+  TTrezor extends EthereumTrezorSigner | undefined = TrezorKeyring
+> implements IEthereumTransactions
+{
   private _web3Provider: CustomJsonRpcProvider;
   private _web3ProviderKey?: string;
-  public trezorSigner: TrezorKeyring;
-  public ledgerSigner: LedgerKeyring;
+  public trezorSigner: TTrezor;
+  public ledgerSigner: TLedger;
   private getNetwork: () => INetwork;
   private captureSigningContext?: () => () => void;
   private abortController: AbortController;
@@ -259,12 +282,15 @@ export class EthereumTransactions implements IEthereumTransactions {
       activeAccountType: KeyringAccountType;
       activeNetwork: INetwork;
     },
-    ledgerSigner: LedgerKeyring,
-    trezorSigner: TrezorKeyring,
+    ledgerSigner: TLedger,
+    trezorSigner: TTrezor,
     captureSigningContext?: () => () => void
   ) {
     this.getNetwork = getNetwork;
-    this.getDecryptedPrivateKey = getDecryptedPrivateKey;
+    this.getDecryptedPrivateKey = (targetAccount) => {
+      this.assertHardwareSignerAvailable(targetAccount);
+      return getDecryptedPrivateKey(targetAccount);
+    };
     this.abortController = new AbortController();
 
     // NOTE: Defer network access until vault state getter is initialized
@@ -276,7 +302,31 @@ export class EthereumTransactions implements IEthereumTransactions {
     this.captureSigningContext = captureSigningContext;
   }
 
+  private requireLedgerSigner = (): EthereumLedgerSigner => {
+    if (!this.ledgerSigner) throw hardwareSignerUnavailable('Ledger');
+    return this.ledgerSigner;
+  };
+
+  private requireTrezorSigner = (): EthereumTrezorSigner => {
+    if (!this.trezorSigner) throw hardwareSignerUnavailable('Trezor');
+    return this.trezorSigner;
+  };
+
+  private assertHardwareSignerAvailable = (
+    targetAccount?: IEvmReplacementOptions['targetAccount']
+  ) => {
+    const state = this.getState();
+    const type = targetAccount?.type ?? state.activeAccountType;
+    const id = targetAccount?.id ?? state.activeAccountId;
+    const account = state.accounts[type]?.[id];
+    if (type === KeyringAccountType.Ledger || account?.isLedgerWallet)
+      this.requireLedgerSigner();
+    if (type === KeyringAccountType.Trezor || account?.isTrezorWallet)
+      this.requireTrezorSigner();
+  };
+
   private captureEvmSigningContext = () => {
+    this.assertHardwareSignerAvailable();
     const { activeAccountType, activeAccountId, accounts, activeNetwork } =
       this.getState();
     const selectedAccount = accounts[activeAccountType]?.[activeAccountId];
@@ -399,7 +449,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         throw {
           message: 'Decrypting for wrong address, change activeAccount maybe',
         };
-      return await this.ledgerSigner.evm.signTypedData({
+      return await this.requireLedgerSigner().evm.signTypedData({
         version,
         accountIndex: activeAccountId,
         data: typedData,
@@ -411,7 +461,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         throw {
           message: 'Decrypting for wrong address, change activeAccount maybe',
         };
-      return await this.trezorSigner.signTypedData({
+      return await this.requireTrezorSigner().signTypedData({
         version,
         address: addr,
         data: typedData,
@@ -440,13 +490,13 @@ export class EthereumTransactions implements IEthereumTransactions {
 
     switch (activeAccountType) {
       case KeyringAccountType.Ledger:
-        return await this.ledgerSigner.verifyUtxoAddress(
+        return await this.requireLedgerSigner().verifyUtxoAddress(
           accountIndex,
           currency,
           slip44
         );
       case KeyringAccountType.Trezor:
-        return await this.trezorSigner.verifyUtxoAddress(
+        return await this.requireTrezorSigner().verifyUtxoAddress(
           accountIndex,
           currency,
           slip44
@@ -521,10 +571,11 @@ export class EthereumTransactions implements IEthereumTransactions {
 
     const signWithLedger = async () => {
       try {
-        const response = await this.ledgerSigner.evm.signPersonalMessage({
-          accountIndex: activeAccountId,
-          message: msg,
-        });
+        const response =
+          await this.requireLedgerSigner().evm.signPersonalMessage({
+            accountIndex: activeAccountId,
+            message: msg,
+          });
         return response;
       } catch (error) {
         throw error;
@@ -536,7 +587,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         // For EVM networks, Trezor expects 'eth' regardless of the network's currency
         const trezorCoin =
           activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
-        const response: any = await this.trezorSigner.signMessage({
+        const response: any = await this.requireTrezorSigner().signMessage({
           coin: trezorCoin,
           address: activeAccount.address,
           index: activeAccountId,
@@ -618,10 +669,11 @@ export class EthereumTransactions implements IEthereumTransactions {
           messageForLedger = Buffer.from(msg, 'utf8').toString('hex');
         }
 
-        const response = await this.ledgerSigner.evm.signPersonalMessage({
-          accountIndex: activeAccountId,
-          message: messageForLedger,
-        });
+        const response =
+          await this.requireLedgerSigner().evm.signPersonalMessage({
+            accountIndex: activeAccountId,
+            message: messageForLedger,
+          });
         return response;
       } catch (error) {
         throw error;
@@ -643,7 +695,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         // For EVM networks, Trezor expects 'eth' regardless of the network's currency
         const trezorCoin =
           activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
-        const response: any = await this.trezorSigner.signMessage({
+        const response: any = await this.requireTrezorSigner().signMessage({
           coin: trezorCoin,
           address: activeAccount.address,
           index: activeAccountId,
@@ -1240,10 +1292,11 @@ export class EthereumTransactions implements IEthereumTransactions {
             };
 
         const rawTx = serializeTransaction(txFormattedForEthers);
-        const signature = await this.ledgerSigner.evm.signEVMTransaction({
-          rawTx: rawTx.replace('0x', ''),
-          accountIndex: activeAccountId,
-        });
+        const signature =
+          await this.requireLedgerSigner().evm.signEVMTransaction({
+            rawTx: rawTx.replace('0x', ''),
+            accountIndex: activeAccountId,
+          });
         assertCurrent();
 
         const formattedSignature = {
@@ -1320,7 +1373,7 @@ export class EthereumTransactions implements IEthereumTransactions {
                 );
         }
 
-        const signature = await this.trezorSigner.signEthTransaction({
+        const signature = await this.requireTrezorSigner().signEthTransaction({
           coin: trezorCoin,
           tx: txFormattedForTrezor,
           index: activeAccountId.toString(),
@@ -1584,10 +1637,12 @@ export class EthereumTransactions implements IEthereumTransactions {
           };
       const rawTx = serializeTransaction(txFormattedForEthers);
 
-      const signature = await this.ledgerSigner.evm.signEVMTransaction({
-        rawTx: rawTx.replace('0x', ''),
-        accountIndex: activeAccountId,
-      });
+      const signature = await this.requireLedgerSigner().evm.signEVMTransaction(
+        {
+          rawTx: rawTx.replace('0x', ''),
+          accountIndex: activeAccountId,
+        }
+      );
       assertCurrent();
 
       const formattedSignature = {
@@ -1696,7 +1751,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           break;
       }
 
-      const signature = await this.trezorSigner.signEthTransaction({
+      const signature = await this.requireTrezorSigner().signEthTransaction({
         index: `${activeAccountId}`,
         tx: txFormattedForTrezor as EthereumTransactionEIP1559,
         coin: activeNetwork.currency,
@@ -1797,6 +1852,7 @@ export class EthereumTransactions implements IEthereumTransactions {
       approvedMaximumFee,
     } = options;
     const previewOnly = options.previewOnly === true;
+    if (!previewOnly) this.assertHardwareSignerAvailable(options.targetAccount);
     if (
       !previewOnly &&
       (typeof approvedMaximumFee !== 'string' ||
@@ -2002,10 +2058,11 @@ export class EthereumTransactions implements IEthereumTransactions {
             };
         const rawTx = serializeTransaction(txFormattedForEthers);
         assertCurrent();
-        const signature = await this.ledgerSigner.evm.signEVMTransaction({
-          rawTx: rawTx.replace('0x', ''),
-          accountIndex: activeAccountId,
-        });
+        const signature =
+          await this.requireLedgerSigner().evm.signEVMTransaction({
+            rawTx: rawTx.replace('0x', ''),
+            accountIndex: activeAccountId,
+          });
         const formattedSignature = {
           r: `0x${signature.r}`,
           s: `0x${signature.s}`,
@@ -2094,7 +2151,7 @@ export class EthereumTransactions implements IEthereumTransactions {
                 );
         }
         assertCurrent();
-        const signature = await this.trezorSigner.signEthTransaction({
+        const signature = await this.requireTrezorSigner().signEthTransaction({
           coin: trezorCoin,
           tx: txFormattedForTrezor,
           index: activeAccountId.toString(),
@@ -2356,10 +2413,11 @@ export class EthereumTransactions implements IEthereumTransactions {
 
         const rawTx = serializeTransaction(txFormattedForEthers);
 
-        const signature = await this.ledgerSigner.evm.signEVMTransaction({
-          rawTx: rawTx.replace('0x', ''),
-          accountIndex: activeAccountId,
-        });
+        const signature =
+          await this.requireLedgerSigner().evm.signEVMTransaction({
+            rawTx: rawTx.replace('0x', ''),
+            accountIndex: activeAccountId,
+          });
 
         assertCurrent();
         const formattedSignature = {
@@ -2446,7 +2504,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           };
         }
 
-        const signature = await this.trezorSigner.signEthTransaction({
+        const signature = await this.requireTrezorSigner().signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
           coin: activeNetwork.currency,
@@ -2660,10 +2718,11 @@ export class EthereumTransactions implements IEthereumTransactions {
 
         const rawTx = serializeTransaction(txFormattedForEthers);
 
-        const signature = await this.ledgerSigner.evm.signEVMTransaction({
-          rawTx: rawTx.replace('0x', ''),
-          accountIndex: activeAccountId,
-        });
+        const signature =
+          await this.requireLedgerSigner().evm.signEVMTransaction({
+            rawTx: rawTx.replace('0x', ''),
+            accountIndex: activeAccountId,
+          });
 
         assertCurrent();
         const formattedSignature = {
@@ -2746,7 +2805,7 @@ export class EthereumTransactions implements IEthereumTransactions {
         // For EVM networks, Trezor expects 'eth' regardless of the network's currency
         const trezorCoin =
           activeNetwork.slip44 === 60 ? 'eth' : activeNetwork.currency;
-        const signature = await this.trezorSigner.signEthTransaction({
+        const signature = await this.requireTrezorSigner().signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
           coin: trezorCoin,
@@ -2959,10 +3018,11 @@ export class EthereumTransactions implements IEthereumTransactions {
 
         const rawTx = serializeTransaction(txFormattedForEthers);
 
-        const signature = await this.ledgerSigner.evm.signEVMTransaction({
-          rawTx: rawTx.replace('0x', ''),
-          accountIndex: activeAccountId,
-        });
+        const signature =
+          await this.requireLedgerSigner().evm.signEVMTransaction({
+            rawTx: rawTx.replace('0x', ''),
+            accountIndex: activeAccountId,
+          });
 
         assertCurrent();
         const formattedSignature = {
@@ -3043,7 +3103,7 @@ export class EthereumTransactions implements IEthereumTransactions {
           };
         }
 
-        const signature = await this.trezorSigner.signEthTransaction({
+        const signature = await this.requireTrezorSigner().signEthTransaction({
           index: `${activeAccountId}`,
           tx: txToBeSignedByTrezor,
           coin: activeNetwork.currency,
