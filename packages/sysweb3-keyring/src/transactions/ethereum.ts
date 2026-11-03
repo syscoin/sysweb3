@@ -16,7 +16,6 @@ import {
   getErc21Abi,
   getErc55Abi,
 } from '@sidhujag/sysweb3-utils';
-import { EthereumTransactionEIP1559 } from '@trezor/connect-web';
 import { Transaction } from 'ethers/transaction';
 import omit from 'lodash/omit';
 
@@ -36,9 +35,7 @@ import {
   resolveProperties,
   serializeTransaction,
 } from '../ethers-v6';
-import { LedgerKeyring } from '../ledger';
 import { CustomJsonRpcProvider, wrapTransactionResponse } from '../providers';
-import { TrezorKeyring } from '../trezor';
 import {
   IResponseFromSendErcSignedTransaction,
   ISendSignedErcTransactionProps,
@@ -60,6 +57,10 @@ import {
   signPersonalMessage as signLocalPersonalMessage,
 } from './evm-local-signer';
 import { getAddressDerivationPath } from '../utils/derivation-paths';
+
+import type { LedgerKeyring } from '../ledger';
+import type { TrezorKeyring } from '../trezor';
+import type { EthereumTransactionEIP1559 } from '@trezor/connect-web';
 
 const stripHexPrefix = (value: string) =>
   value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
