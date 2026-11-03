@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.0.629
+## 2.0.0
+
+- Breaking: Ledger signing requires an explicitly injected semantic `LedgerHost`. Raw LedgerJS transports/clients are removed; use the isolated browser ESM host entry for device access.
+- Adopt current Device Management Kit and Ethereum signer packages while preserving the custom Syscoin/Bitcoin protocol. Serialize device operations and reject stale, wrong-account, malformed and mismatched-sighash responses.
+- Disable remote Ledger metadata/transaction checks/telemetry by default. Require fresh per-intent consent for transaction/typed-data signing that may fall back to blind signing.
+- Bind receive addresses to public account derivation, preserve on-device approval for unusual paths, and snapshot queued UTXO requests before connection awaits.
+- Existing software-only entry, vault formats and account derivation remain compatible. Host/device and native-runtime qualification are separate requirements.
+
 
 - Remove the legacy Trezor UTXO library. Reuse Bitcoinjs address decoding with a checksum-verified two-byte-version compatibility path, and encode witness vectors with the public CompactSize codec.
 

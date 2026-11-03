@@ -1,6 +1,7 @@
 import { INetworkType } from '@sidhujag/sysweb3-network';
+import { Transaction, Wallet } from 'ethers';
 
-import { BigNumber } from '../../../src/ethers-v6';
+import { BigNumber, serializeTransaction } from '../../../src/ethers-v6';
 import { EthereumTransactions } from '../../../src/transactions/ethereum';
 import { KeyringAccountType } from '../../../src/types';
 
@@ -8,6 +9,7 @@ const PRIVATE_KEY =
   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 const ADDRESS = '0xFCAd0B19bB29D4674531d6f115237E16AfCE377c';
 const HASH = `0x${'12'.repeat(32)}`;
+const wallet = new Wallet(PRIVATE_KEY);
 
 describe('formatted EVM transaction submission boundary', () => {
   let transaction: EthereumTransactions;
@@ -45,21 +47,29 @@ describe('formatted EVM transaction submission boundary', () => {
     };
     ledger = {
       evm: {
-        signEVMTransaction: jest.fn().mockResolvedValue({
-          r: '11'.repeat(32),
-          s: '22'.repeat(32),
-          v: '1b',
+        signEVMTransaction: jest.fn(async ({ rawTx }) => {
+          const signature = wallet.signingKey.sign(
+            Transaction.from(`0x${rawTx}`).unsignedHash
+          );
+          return {
+            r: signature.r.slice(2),
+            s: signature.s.slice(2),
+            v: signature.v.toString(16),
+          };
         }),
       },
     };
     trezor = {
-      signEthTransaction: jest.fn().mockImplementation(async () => ({
+      signEthTransaction: jest.fn().mockImplementation(async ({ tx }) => ({
         success: true,
-        payload: {
-          r: `0x${'11'.repeat(32)}`,
-          s: `0x${'22'.repeat(32)}`,
-          v: '1b',
-        },
+        payload: wallet.signingKey.sign(
+          Transaction.from(
+            serializeTransaction({
+              ...tx,
+              type: tx.gasPrice === undefined ? 2 : 0,
+            })
+          ).unsignedHash
+        ),
       })),
     };
     transaction = new EthereumTransactions(
@@ -118,6 +128,26 @@ describe('formatted EVM transaction submission boundary', () => {
       await expect(
         transaction.sendFormattedTransaction(request(), true)
       ).rejects.toMatchObject({ transactionNotBroadcast: true });
+      expect(provider.sendTransaction).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([KeyringAccountType.Trezor, KeyringAccountType.Ledger])(
+    'marks a mismatched %s signature as definitely not broadcast',
+    async (type) => {
+      state.activeAccountType = type;
+      state.accounts[type][0].address = new Wallet(
+        `0x${'11'.repeat(32)}`
+      ).address;
+      await expect(
+        transaction.sendFormattedTransaction(
+          { ...request(), from: state.accounts[type][0].address },
+          true
+        )
+      ).rejects.toMatchObject({
+        code: 'HARDWARE_ACCOUNT_MISMATCH',
+        transactionNotBroadcast: true,
+      });
       expect(provider.sendTransaction).not.toHaveBeenCalled();
     }
   );

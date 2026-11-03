@@ -1,149 +1,237 @@
-import path from 'path';
+import {
+  HardwareWalletManager,
+  HardwareWalletType,
+} from '../../../src/hardware-wallet-manager';
+import {
+  ledgerHostError,
+  type LedgerHost,
+} from '../../../src/ledger/host-types';
 
-// The shared setup preloads the SDK with a transport stub. Resolve the installed
-// package entry explicitly so this gate exercises Ledger's real model lookup and
-// WebHID implementation, with only browser/device I/O replaced.
-jest.resetModules();
-const transportPackagePath = require.resolve(
-  '@ledgerhq/hw-transport-webhid/package.json'
-);
-const transportPackage = jest.requireActual(transportPackagePath);
-const transportModule = jest.requireActual(
-  path.join(path.dirname(transportPackagePath), transportPackage.main)
-);
-const WebHID = transportModule.default;
-const devices = jest.requireActual('@ledgerhq/devices');
-
-let managerModule: typeof import('../../../src/hardware-wallet-manager');
-jest.isolateModules(() => {
-  jest.doMock('@ledgerhq/hw-transport-webhid', () => transportModule);
-  managerModule = require('../../../src/hardware-wallet-manager');
-});
-
-// USB identifiers published by Ledger; public fixtures, not physical devices.
-// Gen5/Flex retain their internal Apex/Europa identifiers in LedgerJS.
-const currentModels = [
-  {
-    name: 'Nano Gen5',
-    model: 'apex',
-    productId: 0x8011,
-    legacyProductId: 0x0008,
-  },
-  { name: 'Stax', model: 'stax', productId: 0x6011, legacyProductId: 0x0006 },
-  { name: 'Flex', model: 'europa', productId: 0x7011, legacyProductId: 0x0007 },
-];
-
-const fakeDevice = (productId: number, vendorId = 0x2c97) => ({
-  productId,
-  vendorId,
-  // Recognition must come from the USB ID, not an assumed product-name alias.
-  productName: 'Untrusted HID product name',
-  open: jest.fn().mockResolvedValue(undefined),
-  close: jest.fn().mockResolvedValue(undefined),
-  addEventListener: jest.fn(),
-  removeEventListener: jest.fn(),
-});
-
-describe('installed Ledger support for current USB devices', () => {
-  let navigatorDescriptor: PropertyDescriptor | undefined;
-  let manager: InstanceType<typeof managerModule.HardwareWalletManager>;
-  let hid: {
-    getDevices: jest.Mock;
-    requestDevice: jest.Mock;
-    addEventListener: jest.Mock;
-    removeEventListener: jest.Mock;
+const fixture = (initiallyConnected = false) => {
+  let connected = initiallyConnected;
+  const host: LedgerHost = {
+    connect: jest.fn(async () => {
+      connected = true;
+    }),
+    disconnect: jest.fn(async () => {
+      connected = false;
+    }),
+    getStatus: () => ({ connected }),
+    evm: {} as LedgerHost['evm'],
+    utxo: {} as LedgerHost['utxo'],
   };
+  return {
+    host,
+    setConnected: (value: boolean) => {
+      connected = value;
+    },
+  };
+};
+const held = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+const managers: HardwareWalletManager[] = [];
+const manager = (host?: LedgerHost) => {
+  const value = new HardwareWalletManager(host);
+  managers.push(value);
+  return value;
+};
+afterEach(async () => {
+  for (const value of managers.splice(0)) await value.destroy();
+});
 
-  beforeEach(() => {
-    jest.useFakeTimers();
-    navigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
-    hid = {
-      getDevices: jest.fn().mockResolvedValue([]),
-      requestDevice: jest.fn().mockResolvedValue([]),
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-    };
-    Object.defineProperty(global, 'navigator', {
-      configurable: true,
-      value: { hid },
+describe('semantic Ledger host boundary', () => {
+  it('fails closed without an injected host instead of opening a raw transport', async () => {
+    const value = manager();
+    await expect(
+      value.ensureConnection(HardwareWalletType.LEDGER)
+    ).rejects.toMatchObject({ code: 'HARDWARE_SIGNER_UNAVAILABLE' });
+    await expect(value.getLedgerConnection()).rejects.toMatchObject({
+      code: 'HARDWARE_SIGNER_UNAVAILABLE',
+    });
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+  });
+
+  it('delegates only granted-device connection to the host and reflects its live status', async () => {
+    const current = fixture();
+    const value = manager(current.host);
+    await value.ensureConnection(HardwareWalletType.LEDGER);
+    expect(current.host.connect).toHaveBeenCalledTimes(1);
+    expect(current.host.connect).toHaveBeenCalledWith({
+      useGrantedDevices: true,
+    });
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(true);
+    expect(value.getStatus()).toContainEqual(
+      expect.objectContaining({
+        type: 'ledger',
+        connected: true,
+        status: 'connected',
+      })
+    );
+    await value.ensureConnection(HardwareWalletType.LEDGER);
+    expect(current.host.connect).toHaveBeenCalledTimes(1);
+    current.setConnected(false);
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+    expect(value.getStatus()).toContainEqual(
+      expect.objectContaining({
+        type: 'ledger',
+        connected: false,
+        status: 'disconnected',
+      })
+    );
+    await expect(value.getLedgerConnection()).rejects.toMatchObject({
+      code: 'HARDWARE_SIGNER_UNAVAILABLE',
     });
   });
 
-  afterEach(async () => {
-    if (manager) await manager.destroy();
-    manager = undefined as any;
-    // SDK connection deadlines remain pending after a successful race.
-    jest.clearAllTimers();
-    jest.useRealTimers();
-    if (navigatorDescriptor) {
-      Object.defineProperty(global, 'navigator', navigatorDescriptor);
-    } else {
-      delete (global as any).navigator;
-    }
+  it('coalesces connection requests without a second host prompt', async () => {
+    const current = fixture();
+    const pending = held();
+    (current.host.connect as jest.Mock).mockImplementation(async () => {
+      await pending.promise;
+      current.setConnected(true);
+    });
+    const value = manager(current.host);
+    const first = value.ensureConnection(HardwareWalletType.LEDGER);
+    const second = value.ensureConnection(HardwareWalletType.LEDGER);
+    await tick();
+    expect(current.host.connect).toHaveBeenCalledTimes(1);
+    pending.resolve();
+    await Promise.all([first, second]);
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(true);
   });
 
-  it.each(currentModels)(
-    'identifies both USB encodings for $name using the real Ledger dependency',
-    ({ model, productId, legacyProductId }) => {
-      expect(jest.isMockFunction(devices.identifyUSBProductId)).toBe(false);
-      expect(devices.identifyUSBProductId(productId)?.id).toBe(model);
-      expect(devices.identifyUSBProductId(legacyProductId)?.id).toBe(model);
-    }
-  );
-
-  it.each(currentModels)(
-    'opens $name through the SDK manager and real WebHID chooser',
-    async ({ model, productId }) => {
-      const device = fakeDevice(productId);
-      const unrelatedDevice = fakeDevice(productId, 0x1234);
-      hid.getDevices.mockResolvedValue([unrelatedDevice]);
-      hid.requestDevice.mockResolvedValue([device]);
-      manager = new managerModule.HardwareWalletManager();
-
-      const transport = await manager.getLedgerConnection();
-
-      expect(transport).toBeInstanceOf(WebHID);
-      expect(transport.deviceModel?.id).toBe(model);
-      expect((transport as any).device).toBe(device);
-      expect(device.open).toHaveBeenCalledTimes(1);
-      expect(unrelatedDevice.open).not.toHaveBeenCalled();
-      expect(hid.requestDevice).toHaveBeenCalledWith({
-        filters: [{ vendorId: 0x2c97 }],
-      });
-      expect(manager.getStatus()).toContainEqual(
-        expect.objectContaining({ type: 'ledger', connected: true })
-      );
-      expect(await manager.getLedgerConnection()).toBe(transport);
-      expect(hid.getDevices).toHaveBeenCalledTimes(1);
-      expect(hid.requestDevice).toHaveBeenCalledTimes(1);
-
-      await manager.destroy();
-      expect(device.close).toHaveBeenCalledTimes(1);
-    }
-  );
-
-  it('reuses an authorized current device without another permission request', async () => {
-    const device = fakeDevice(0x8011);
-    const unrelatedDevice = fakeDevice(0x8011, 0x1234);
-    hid.getDevices.mockResolvedValue([unrelatedDevice, device]);
-    manager = new managerModule.HardwareWalletManager();
-
-    const transport = await manager.getLedgerConnection();
-
-    expect(transport).toBeInstanceOf(WebHID);
-    expect(transport.deviceModel?.id).toBe('apex');
-    expect(hid.requestDevice).not.toHaveBeenCalled();
-    expect(device.open).toHaveBeenCalledTimes(1);
-    expect(unrelatedDevice.open).not.toHaveBeenCalled();
+  it('rejects a late connection after destruction without reviving its entry', async () => {
+    const current = fixture();
+    const pending = held();
+    (current.host.connect as jest.Mock).mockImplementationOnce(async () => {
+      await pending.promise;
+    });
+    const value = manager(current.host);
+    const first = value.ensureConnection(HardwareWalletType.LEDGER);
+    const rejected = expect(first).rejects.toMatchObject({
+      code: 'HARDWARE_REQUEST_CANCELLED',
+    });
+    await tick();
+    await value.destroy();
+    pending.resolve();
+    await rejected;
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+    await value.ensureConnection(HardwareWalletType.LEDGER);
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(true);
   });
 
-  it.each([0x9011, 0xffff])(
-    'does not label unknown USB product ID %i as a supported model',
-    (productId) => {
-      const transport = new WebHID(fakeDevice(productId));
+  it('revokes status synchronously and shares host cleanup completion', async () => {
+    const current = fixture(true);
+    const cleanup = held();
+    (current.host.disconnect as jest.Mock).mockImplementationOnce(
+      () => cleanup.promise
+    );
+    const value = manager(current.host);
+    const destroying = value.destroy();
+    expect(value.destroy()).toBe(destroying);
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+    await expect(
+      value.ensureConnection(HardwareWalletType.LEDGER)
+    ).rejects.toMatchObject({ code: 'HARDWARE_REQUEST_CANCELLED' });
+    cleanup.resolve();
+    current.setConnected(false);
+    await destroying;
+    expect(current.host.disconnect).toHaveBeenCalledTimes(1);
+  });
 
-      expect(devices.identifyUSBProductId(productId)).toBeUndefined();
-      expect(transport.deviceModel).toBeUndefined();
-    }
-  );
+  it('disconnects a host selected outside the manager even without a pool entry', async () => {
+    const current = fixture(true);
+    const value = manager(current.host);
+    await value.destroy();
+    expect(current.host.disconnect).toHaveBeenCalledTimes(1);
+    expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+  });
+
+  it('does not retry a refused host connection', async () => {
+    const current = fixture();
+    const failure = ledgerHostError('HARDWARE_REQUEST_CANCELLED', 'Cancelled');
+    (current.host.connect as jest.Mock).mockRejectedValue(failure);
+    const value = manager(current.host);
+    await expect(
+      value.ensureConnection(HardwareWalletType.LEDGER)
+    ).rejects.toBe(failure);
+    await tick();
+    expect(current.host.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'HARDWARE_REQUEST_CANCELLED',
+    'HARDWARE_CLEAR_SIGNING_UNAVAILABLE',
+    'HARDWARE_ACCOUNT_MISMATCH',
+    'LEDGER_INVALID_REQUEST',
+    'LEDGER_INVALID_RESPONSE',
+    'LEDGER_INVALID_SIGNATURE',
+  ])('never retries terminal host error %s', async (code) => {
+    const value = manager();
+    const failure = ledgerHostError(code, 'Terminal host failure');
+    const operation = jest.fn().mockRejectedValue(failure);
+    await expect(value.retryOperation(operation, 'fixture')).rejects.toBe(
+      failure
+    );
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('revokes Ledger in the same call stack after Trezor revocation without waiting for Trezor cleanup', async () => {
+  const TrezorConnect = require('../../../src/trezor/connect').default;
+  const trezorCleanup = held();
+  const order: string[] = [];
+  const dispose = jest
+    .spyOn(TrezorConnect, 'dispose')
+    .mockImplementationOnce(() => {
+      order.push('trezor');
+      return trezorCleanup.promise;
+    });
+  const current = fixture(true);
+  (current.host.disconnect as jest.Mock).mockImplementationOnce(async () => {
+    order.push('ledger');
+    current.setConnected(false);
+  });
+  const value = manager(current.host);
+  (value as any).connectionPool.set('trezor-default', {
+    status: 'connected',
+    lastActivity: Date.now(),
+    retryCount: 0,
+  });
+  const closing = value.destroy();
+  expect(order).toEqual(['trezor', 'ledger']);
+  expect(value.isConnected(HardwareWalletType.LEDGER)).toBe(false);
+  trezorCleanup.resolve();
+  await closing;
+  dispose.mockRestore();
+});
+
+it('installs connection ownership before a synchronous observer can re-enter', async () => {
+  const current = fixture();
+  const value = manager(current.host);
+  let second: Promise<void> | undefined;
+  value.once('connectionAttempt', () => {
+    second = value.ensureConnection(HardwareWalletType.LEDGER);
+  });
+  await value.ensureConnection(HardwareWalletType.LEDGER);
+  await second;
+  expect(current.host.connect).toHaveBeenCalledTimes(1);
+});
+
+it('does not open a connection when destruction overtakes its queued start', async () => {
+  const current = fixture();
+  const value = manager(current.host);
+  const pending = value.ensureConnection(HardwareWalletType.LEDGER);
+  const rejected = expect(pending).rejects.toMatchObject({
+    code: 'HARDWARE_REQUEST_CANCELLED',
+  });
+  await value.destroy();
+  await rejected;
+  expect(current.host.connect).not.toHaveBeenCalled();
 });

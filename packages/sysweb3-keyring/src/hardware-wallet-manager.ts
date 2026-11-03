@@ -1,9 +1,9 @@
-import Transport from '@ledgerhq/hw-transport';
-import HIDTransport from '@ledgerhq/hw-transport-webhid';
-import { listen } from '@ledgerhq/logs';
 import { EventEmitter } from 'events';
 
+import { ledgerCancelledError, ledgerHostError } from './ledger/host-types';
 import TrezorConnect, { subscribeTrezorEvents } from './trezor/connect';
+
+import type { LedgerHost } from './ledger/host-types';
 
 export enum HardwareWalletType {
   LEDGER = 'ledger',
@@ -18,7 +18,6 @@ export enum ConnectionStatus {
 }
 
 interface ConnectionPoolEntry {
-  transport?: Transport | null;
   status: ConnectionStatus;
   lastActivity: number;
   retryCount: number;
@@ -54,7 +53,7 @@ export class HardwareWalletManager extends EventEmitter {
   private lifecycleGeneration = 0;
   private trezorInitialization?: object;
   private destruction?: Promise<void>;
-  private readonly CONNECTION_TIMEOUT = 30000; // 30 seconds
+  private ledgerInitialization?: Promise<void>;
   private readonly IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
   private readonly STATUS_CHECK_INTERVAL = 5000; // 5 seconds
 
@@ -65,17 +64,10 @@ export class HardwareWalletManager extends EventEmitter {
     backoffMultiplier: 2,
   };
 
-  constructor() {
+  constructor(private readonly ledgerHost?: LedgerHost) {
     super();
     this.observeTrezor();
     this.startStatusMonitoring();
-
-    // Set up Ledger debug logging
-    if (process.env.NODE_ENV === 'development') {
-      listen((log) => {
-        console.log(`[Ledger] ${log.type}: ${log.message}`);
-      });
-    }
   }
 
   private observeTrezor(): void {
@@ -94,103 +86,85 @@ export class HardwareWalletManager extends EventEmitter {
     });
   }
 
-  /**
-   * Get or create a Ledger connection with retry logic
-   */
-  async getLedgerConnection(): Promise<Transport> {
-    const key = `${HardwareWalletType.LEDGER}-default`;
-    const existing = this.connectionPool.get(key);
-
-    if (existing?.transport && existing.status === ConnectionStatus.CONNECTED) {
-      existing.lastActivity = Date.now();
-      return existing.transport;
-    }
-
-    return this.createLedgerConnectionWithRetry(key);
+  /** Raw transports are deliberately unavailable through the semantic host boundary. */
+  async getLedgerConnection(): Promise<never> {
+    throw ledgerHostError(
+      'HARDWARE_SIGNER_UNAVAILABLE',
+      'Ledger requires a semantic LedgerHost; raw Ledger transports are not supported'
+    );
   }
 
-  /**
-   * Create Ledger connection with exponential backoff retry
-   */
-  private async createLedgerConnectionWithRetry(
-    key: string
-  ): Promise<Transport> {
+  private async initializeLedger(): Promise<void> {
+    const host = this.ledgerHost;
+    if (!host) {
+      throw ledgerHostError(
+        'HARDWARE_SIGNER_UNAVAILABLE',
+        'A semantic LedgerHost is required to connect Ledger'
+      );
+    }
+    if (this.destruction) throw ledgerCancelledError();
+    this.startStatusMonitoring();
+    const key = `${HardwareWalletType.LEDGER}-default`;
+    if (host.getStatus().connected) {
+      const existing = this.connectionPool.get(key);
+      if (existing) existing.lastActivity = Date.now();
+      return;
+    }
+    if (this.ledgerInitialization) return this.ledgerInitialization;
+
+    const generation = this.lifecycleGeneration;
     const entry: ConnectionPoolEntry = {
       status: ConnectionStatus.CONNECTING,
       lastActivity: Date.now(),
       retryCount: 0,
     };
     this.connectionPool.set(key, entry);
-
-    let lastError: Error | undefined;
-
-    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
-      try {
-        this.emit('connectionAttempt', {
-          type: HardwareWalletType.LEDGER,
-          attempt: attempt + 1,
-          maxAttempts: this.retryConfig.maxRetries + 1,
-        });
-
-        const transport = await this.createLedgerTransport();
-
-        entry.transport = transport;
-        entry.status = ConnectionStatus.CONNECTED;
-        entry.retryCount = 0;
-        entry.error = undefined;
-
-        this.emit('connected', { type: HardwareWalletType.LEDGER });
-
-        // Set up disconnect handler
-        transport.on('disconnect', () => {
-          this.handleDisconnect(key, HardwareWalletType.LEDGER);
-        });
-
-        return transport;
-      } catch (error) {
-        lastError = error as Error;
-        entry.retryCount = attempt + 1;
-        entry.error = lastError;
-
-        if (attempt < this.retryConfig.maxRetries) {
-          const delay = this.calculateBackoffDelay(attempt);
-
-          this.emit('retrying', {
-            type: HardwareWalletType.LEDGER,
-            attempt: attempt + 1,
-            nextRetryIn: delay,
-            error: lastError.message,
-          });
-
-          await this.delay(delay);
-        }
-      }
-    }
-
-    entry.status = ConnectionStatus.ERROR;
-    this.emit('connectionFailed', {
-      type: HardwareWalletType.LEDGER,
-      error: lastError?.message,
+    const isCurrent = () =>
+      generation === this.lifecycleGeneration &&
+      this.connectionPool.get(key) === entry &&
+      !this.destruction;
+    const assertCurrent = () => {
+      if (!isCurrent()) throw ledgerCancelledError();
+    };
+    // Install the shared promise before any observer can re-enter this method.
+    const pending = Promise.resolve().then(async () => {
+      assertCurrent();
+      this.emit('connectionAttempt', {
+        type: HardwareWalletType.LEDGER,
+        attempt: 1,
+        maxAttempts: 1,
+      });
+      assertCurrent();
+      // Device selection happens in the visible host, never by a background chooser.
+      await host.connect({ useGrantedDevices: true });
+      assertCurrent();
+      if (!host.getStatus().connected)
+        throw ledgerHostError(
+          'HARDWARE_SIGNER_UNAVAILABLE',
+          'Connect a Ledger device in the Ledger window'
+        );
+      entry.status = ConnectionStatus.CONNECTED;
+      entry.lastActivity = Date.now();
+      this.emit('connected', { type: HardwareWalletType.LEDGER });
+      assertCurrent();
     });
-
-    throw new Error(
-      `Failed to connect to Ledger after ${
-        this.retryConfig.maxRetries + 1
-      } attempts: ${lastError?.message || 'Unknown error'}`
-    );
-  }
-
-  /**
-   * Create Ledger transport with timeout
-   */
-  private async createLedgerTransport(): Promise<Transport> {
-    return Promise.race([
-      HIDTransport.create(),
-      this.createTimeoutPromise<Transport>(
-        this.CONNECTION_TIMEOUT,
-        'Ledger connection timeout'
-      ),
-    ]);
+    this.ledgerInitialization = pending;
+    try {
+      await pending;
+    } catch (error) {
+      if (isCurrent()) {
+        entry.status = ConnectionStatus.ERROR;
+        entry.error = error as Error;
+        this.emit('connectionFailed', {
+          type: HardwareWalletType.LEDGER,
+          error: entry.error.message,
+        });
+      }
+      throw error;
+    } finally {
+      if (this.ledgerInitialization === pending)
+        this.ledgerInitialization = undefined;
+    }
   }
 
   /**
@@ -441,7 +415,6 @@ export class HardwareWalletManager extends EventEmitter {
     const entry = this.connectionPool.get(key);
     if (entry) {
       entry.status = ConnectionStatus.DISCONNECTED;
-      entry.transport = null;
       this.emit('disconnected', { type });
     }
   }
@@ -475,6 +448,14 @@ export class HardwareWalletManager extends EventEmitter {
       const type = key.startsWith(HardwareWalletType.LEDGER)
         ? HardwareWalletType.LEDGER
         : HardwareWalletType.TREZOR;
+
+      if (
+        type === HardwareWalletType.LEDGER &&
+        entry.status === ConnectionStatus.CONNECTED &&
+        !this.ledgerHost?.getStatus().connected
+      ) {
+        this.handleDisconnect(key, type);
+      }
 
       // Clean up idle connections
       if (
@@ -511,10 +492,20 @@ export class HardwareWalletManager extends EventEmitter {
     const ledgerEntry = this.connectionPool.get(
       `${HardwareWalletType.LEDGER}-default`
     );
+    const ledgerConnected =
+      !this.destruction && this.ledgerHost?.getStatus().connected === true;
     statuses.push({
       type: HardwareWalletType.LEDGER,
-      status: ledgerEntry?.status || ConnectionStatus.DISCONNECTED,
-      connected: ledgerEntry?.status === ConnectionStatus.CONNECTED,
+      status: this.destruction
+        ? ConnectionStatus.DISCONNECTED
+        : ledgerConnected
+        ? ConnectionStatus.CONNECTED
+        : ledgerEntry?.status === ConnectionStatus.CONNECTING
+        ? ConnectionStatus.CONNECTING
+        : ledgerEntry?.status === ConnectionStatus.ERROR
+        ? ConnectionStatus.ERROR
+        : ConnectionStatus.DISCONNECTED,
+      connected: ledgerConnected,
       lastSeen: ledgerEntry?.lastActivity,
       error: ledgerEntry?.error?.message,
     });
@@ -538,6 +529,10 @@ export class HardwareWalletManager extends EventEmitter {
    * Check if a specific device is connected
    */
   isConnected(type: HardwareWalletType): boolean {
+    if (type === HardwareWalletType.LEDGER)
+      return (
+        !this.destruction && this.ledgerHost?.getStatus().connected === true
+      );
     const key = `${type}-default`;
     const entry = this.connectionPool.get(key);
     return entry?.status === ConnectionStatus.CONNECTED;
@@ -548,7 +543,7 @@ export class HardwareWalletManager extends EventEmitter {
    */
   async ensureConnection(type: HardwareWalletType): Promise<void> {
     if (type === HardwareWalletType.LEDGER) {
-      await this.getLedgerConnection();
+      await this.initializeLedger();
     } else if (type === HardwareWalletType.TREZOR) {
       const initialized = await this.initializeTrezor();
       if (!initialized) {
@@ -575,12 +570,11 @@ export class HardwareWalletManager extends EventEmitter {
       }
     }
 
-    // Handle Ledger connections
-    if (entry?.transport) {
+    if (key.startsWith(HardwareWalletType.LEDGER)) {
       try {
-        await entry.transport.close();
+        await this.ledgerHost?.disconnect();
       } catch (error) {
-        console.error('Error closing transport:', error);
+        console.error('Error disconnecting Ledger host:', error);
       }
     }
 
@@ -595,6 +589,7 @@ export class HardwareWalletManager extends EventEmitter {
     // Revoke pending initialization synchronously, before closing any transport.
     this.lifecycleGeneration++;
     this.trezorInitialization = undefined;
+    this.ledgerInitialization = undefined;
     this.unsubscribeTrezor?.();
     this.unsubscribeTrezor = undefined;
     // Stop monitoring
@@ -613,16 +608,28 @@ export class HardwareWalletManager extends EventEmitter {
       reject = failed;
     });
     this.destruction = destruction;
-    // Start synchronously after installing the gate. Trezor disposal revokes
-    // queued replies before this method returns, even if Ledger teardown waits.
-    const ordered = [
-      ...entries.filter(([key]) => key.startsWith(HardwareWalletType.TREZOR)),
-      ...entries.filter(([key]) => !key.startsWith(HardwareWalletType.TREZOR)),
-    ];
+    // Revoke Trezor first, then Ledger in this same call stack. Awaiting either
+    // cleanup before revoking the other could admit an already-queued response.
+    const trezorCleanup = entries
+      .filter(([key]) => key.startsWith(HardwareWalletType.TREZOR))
+      .map(([key, entry]) => this.closeConnection(key, entry));
+    let ledgerCleanup: Promise<void>;
+    try {
+      ledgerCleanup = Promise.resolve(this.ledgerHost?.disconnect()).catch(
+        (error) => {
+          console.error('Error disconnecting Ledger host:', error);
+        }
+      );
+    } catch (error) {
+      console.error('Error disconnecting Ledger host:', error);
+      ledgerCleanup = Promise.resolve();
+    }
     const close = async () => {
       try {
-        for (const [key, entry] of ordered) {
-          await this.closeConnection(key, entry);
+        await Promise.all([...trezorCleanup, ledgerCleanup]);
+        for (const [key, entry] of entries) {
+          if (this.connectionPool.get(key) === entry)
+            this.connectionPool.delete(key);
         }
         this.removeAllListeners();
       } finally {
@@ -645,15 +652,6 @@ export class HardwareWalletManager extends EventEmitter {
     // Add jitter (±20%)
     const jitter = delay * 0.2 * (Math.random() - 0.5);
     return Math.round(delay + jitter);
-  }
-
-  /**
-   * Create a timeout promise
-   */
-  private createTimeoutPromise<T>(ms: number, message: string): Promise<T> {
-    return new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    });
   }
 
   /**
@@ -716,6 +714,12 @@ export class HardwareWalletManager extends EventEmitter {
     const statusCode = (err as any)?.statusCode;
     const code = (err as any)?.code;
     if (
+      code === 'HARDWARE_REQUEST_CANCELLED' ||
+      code === 'HARDWARE_CLEAR_SIGNING_UNAVAILABLE' ||
+      code === 'HARDWARE_ACCOUNT_MISMATCH' ||
+      code === 'LEDGER_INVALID_REQUEST' ||
+      code === 'LEDGER_INVALID_RESPONSE' ||
+      code === 'LEDGER_INVALID_SIGNATURE' ||
       code === 'HARDWARE_SIGNER_UNAVAILABLE' ||
       code === 'HARDWARE_SIGNER_BUSY' ||
       code === 'Method_Cancel' ||

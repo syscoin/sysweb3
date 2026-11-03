@@ -26,7 +26,7 @@ const childIndex = (value: string): number => {
   if (!Number.isSafeInteger(index) || index >= 0x80000000) return fail();
   return index;
 };
-const publicAccountNode = (xpub: string) => {
+export const parsePsbtAccountXpub = (xpub: string) => {
   // Account keys use coin-specific xpub/zpub/vpub version bytes. Preserve the
   // checked public payload instead of guessing its network from that prefix.
   const codec = require('bs58check');
@@ -50,7 +50,7 @@ export function createPsbtDerivationGuard(
   scope: PsbtAccountScope
 ): (path: string) => string {
   const { account, accountId, accountType, network } = scope;
-  const node = publicAccountNode(account.xpub);
+  const node = parsePsbtAccountXpub(account.xpub);
   const prefix =
     accountType === KeyringAccountType.HDAccount
       ? `m/84'/${network.slip44}'/${accountId}'`
@@ -92,7 +92,7 @@ export function assertPsbtAccountScope(
   const singleAddress =
     accountType === KeyringAccountType.Imported &&
     account.xpub === account.address;
-  const node = singleAddress ? undefined : publicAccountNode(account.xpub);
+  const node = singleAddress ? undefined : parsePsbtAccountXpub(account.xpub);
   const guardPath = singleAddress
     ? undefined
     : createPsbtDerivationGuard(scope);

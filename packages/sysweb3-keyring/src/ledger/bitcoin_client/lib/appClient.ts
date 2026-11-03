@@ -1,5 +1,3 @@
-import Transport from '@ledgerhq/hw-transport';
-
 import { pathElementsToBuffer, pathStringToArray } from './bip32';
 import { ClientCommandInterpreter } from './clientCommands';
 import { MerkelizedPsbt } from './merkelizedPsbt';
@@ -12,6 +10,18 @@ const CLA_BTC = 0xe1;
 const CLA_FRAMEWORK = 0xf8;
 
 const CURRENT_PROTOCOL_VERSION = 1; // supported from version 2.1.0 of the app
+
+/** The Bitcoin protocol needs APDU exchange only, not a vendor transport class. */
+export interface BitcoinAppTransport {
+  send(
+    cla: number,
+    ins: number,
+    p1: number,
+    p2: number,
+    data?: Buffer,
+    acceptedStatusCodes?: number[]
+  ): Promise<Buffer>;
+}
 
 enum BitcoinIns {
   GET_PUBKEY = 0x00,
@@ -76,9 +86,9 @@ function makePartialSignature(
  * https://github.com/LedgerHQ/app-bitcoin-new/blob/master/doc/bitcoin.md
  */
 export class AppClient {
-  readonly transport: Transport;
+  readonly transport: BitcoinAppTransport;
 
-  constructor(transport: Transport) {
+  constructor(transport: BitcoinAppTransport) {
     this.transport = transport;
   }
 

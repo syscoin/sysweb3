@@ -81,6 +81,23 @@ const hardwareSignerUnavailable = (hardware: string) =>
     code: 'HARDWARE_SIGNER_UNAVAILABLE',
   });
 
+const assertHardwareTransactionSender = (
+  signedTx: string,
+  expectedAddress: string
+) => {
+  if (
+    Transaction.from(signedTx).from?.toLowerCase() !==
+    expectedAddress.toLowerCase()
+  ) {
+    throw Object.assign(
+      new Error('Hardware signature does not match the approved account'),
+      {
+        code: 'HARDWARE_ACCOUNT_MISMATCH',
+      }
+    );
+  }
+};
+
 const stripHexPrefix = (value: string) =>
   value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
 
@@ -477,6 +494,7 @@ export class EthereumTransactions<
       return await this.requireLedgerSigner().evm.signTypedData({
         version,
         accountIndex: activeAccountId,
+        expectedAddress: activeAccount.address,
         data: typedData,
       });
     };
@@ -599,6 +617,7 @@ export class EthereumTransactions<
         const response =
           await this.requireLedgerSigner().evm.signPersonalMessage({
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
             message: msg,
           });
         return response;
@@ -697,6 +716,7 @@ export class EthereumTransactions<
         const response =
           await this.requireLedgerSigner().evm.signPersonalMessage({
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
             message: messageForLedger,
           });
         return response;
@@ -1397,6 +1417,7 @@ export class EthereumTransactions<
           await this.requireLedgerSigner().evm.signEVMTransaction({
             rawTx: rawTx.replace('0x', ''),
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
           });
         assertCurrent();
 
@@ -1412,6 +1433,7 @@ export class EthereumTransactions<
             formattedSignature
           );
           assertCurrent();
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           const transactionResponse = await provider.sendTransaction(signedTx);
 
           return {
@@ -1489,6 +1511,7 @@ export class EthereumTransactions<
             trezorSignature(signature.payload)
           );
           assertCurrent();
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           const transactionResponse = await provider.sendTransaction(signedTx);
 
           return {
@@ -1745,6 +1768,7 @@ export class EthereumTransactions<
         {
           rawTx: rawTx.replace('0x', ''),
           accountIndex: activeAccountId,
+          expectedAddress: activeAccount.address,
         }
       );
       assertCurrent();
@@ -1761,6 +1785,7 @@ export class EthereumTransactions<
             txFormattedForEthers,
             formattedSignature
           );
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           assertBeforeBroadcast();
           const finalTx = await provider.sendTransaction(signedTx);
 
@@ -1881,6 +1906,7 @@ export class EthereumTransactions<
             txFormattedForEthers,
             trezorSignature(signature.payload)
           );
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           assertBeforeBroadcast();
           const finalTx = await provider.sendTransaction(signedTx);
 
@@ -2168,6 +2194,7 @@ export class EthereumTransactions<
           await this.requireLedgerSigner().evm.signEVMTransaction({
             rawTx: rawTx.replace('0x', ''),
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
           });
         const formattedSignature = {
           r: `0x${signature.r}`,
@@ -2180,6 +2207,7 @@ export class EthereumTransactions<
             formattedSignature
           );
           assertSignedSender(signedTx);
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           assertBeforeBroadcast();
           const transactionResponse = await provider.sendTransaction(signedTx);
           return {
@@ -2269,6 +2297,7 @@ export class EthereumTransactions<
             trezorSignature(signature.payload)
           );
           assertSignedSender(signedTx);
+          assertHardwareTransactionSender(signedTx, activeAccount.address);
           assertBeforeBroadcast();
           const transactionResponse = await provider.sendTransaction(signedTx);
           return {
@@ -2523,6 +2552,7 @@ export class EthereumTransactions<
           await this.requireLedgerSigner().evm.signEVMTransaction({
             rawTx: rawTx.replace('0x', ''),
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
           });
 
         assertCurrent();
@@ -2538,6 +2568,7 @@ export class EthereumTransactions<
               formattedSignature
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             saveTrezorTx && saveTrezorTx(finalTx);
@@ -2650,6 +2681,7 @@ export class EthereumTransactions<
               trezorSignature(signature.payload)
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             saveTrezorTx && saveTrezorTx(finalTx);
@@ -2827,6 +2859,7 @@ export class EthereumTransactions<
           await this.requireLedgerSigner().evm.signEVMTransaction({
             rawTx: rawTx.replace('0x', ''),
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
           });
 
         assertCurrent();
@@ -2843,6 +2876,7 @@ export class EthereumTransactions<
               formattedSignature
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             return finalTx as any;
@@ -2950,6 +2984,7 @@ export class EthereumTransactions<
               trezorSignature(signature.payload)
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             return finalTx as any;
@@ -3126,6 +3161,7 @@ export class EthereumTransactions<
           await this.requireLedgerSigner().evm.signEVMTransaction({
             rawTx: rawTx.replace('0x', ''),
             accountIndex: activeAccountId,
+            expectedAddress: activeAccount.address,
           });
 
         assertCurrent();
@@ -3142,6 +3178,7 @@ export class EthereumTransactions<
               formattedSignature
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             return finalTx as any;
@@ -3247,6 +3284,7 @@ export class EthereumTransactions<
               trezorSignature(signature.payload)
             );
             assertCurrent();
+            assertHardwareTransactionSender(signedTx, activeAccount.address);
             const finalTx = await provider.sendTransaction(signedTx);
 
             return finalTx as any;

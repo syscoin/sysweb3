@@ -2,6 +2,7 @@
 import ConnectMock from '@trezor/connect-webextension';
 
 import type { HardwareWalletManager } from '../../../src/hardware-wallet-manager';
+import type { LedgerHost } from '../../../src/ledger/host-types';
 import type { TrezorKeyring } from '../../../src/trezor';
 
 jest.unmock('../../../src/trezor/connect');
@@ -25,8 +26,8 @@ const waitFor = async (condition: () => boolean) => {
   for (let count = 0; count < 30 && !condition(); count++) await tick();
   expect(condition()).toBe(true);
 };
-const manager = () => {
-  const value = new Manager();
+const manager = (host?: LedgerHost) => {
+  const value = new Manager(host);
   managers.push(value);
   return value;
 };
@@ -186,15 +187,17 @@ it('does not delete a replacement pool entry when old cleanup finishes', async (
 });
 
 it('does not publish an old monitor snapshot after destruction begins', async () => {
-  const value = manager();
-  await value.initializeTrezor();
   const cleanup = held();
   const close = jest.fn(() => cleanup.promise);
+  const value = manager({
+    disconnect: close,
+    getStatus: () => ({ connected: true }),
+  } as unknown as LedgerHost);
+  await value.initializeTrezor();
   (value as any).connectionPool.set('ledger-default', {
     status: 'connected',
     lastActivity: 0,
     retryCount: 0,
-    transport: { close },
   });
   const observer = jest.fn();
   value.on('statusUpdate', observer);
@@ -248,13 +251,15 @@ it('does not return initialization success when a connected observer destroys it
 });
 
 it('revokes a queued Trezor reply synchronously before waiting for Ledger cleanup', async () => {
-  const value = manager();
   const ledger = held();
+  const value = manager({
+    disconnect: () => ledger.promise,
+    getStatus: () => ({ connected: true }),
+  } as unknown as LedgerHost);
   (value as any).connectionPool.set('ledger-default', {
     status: 'connected',
     lastActivity: Date.now(),
     retryCount: 0,
-    transport: { close: () => ledger.promise },
   });
   await expect(value.initializeTrezor()).resolves.toBe(true);
   let reply!: (response: any) => void;

@@ -50,6 +50,7 @@ export interface IEvmMethods {
   }: {
     accountIndex: number;
     rawTx: string;
+    expectedAddress: string;
   }) => Promise<{
     r: string;
     s: string;
@@ -61,6 +62,7 @@ export interface IEvmMethods {
   }: {
     accountIndex: number;
     message: string;
+    expectedAddress: string;
   }) => Promise<string>;
   signTypedData: ({
     version,
@@ -69,6 +71,7 @@ export interface IEvmMethods {
   }: {
     accountIndex: number;
     data: any;
+    expectedAddress: string;
     version: SignTypedDataVersion;
   }) => Promise<string>;
 }

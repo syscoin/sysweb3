@@ -1,16 +1,11 @@
+import { verify } from '@bitcoinerlab/secp256k1';
 import { getNetworkConfig } from '@sidhujag/sysweb3-network';
 
 import {
   createHardwareSignerUnavailableError,
   type ISyscoinHardwareSigner,
 } from './syscoin-core';
-import { WalletPolicy } from '../ledger/bitcoin_client/lib/policy';
-import { PsbtV2 } from '../ledger/bitcoin_client/lib/psbtv2';
-import { DESCRIPTOR } from '../ledger/consts';
-import {
-  getAccountDerivationPath,
-  convertExtendedKeyVersion,
-} from '../utils/derivation-paths';
+import { prepareLedgerPsbt } from '../ledger/prepare-psbt';
 import { assertPsbtAccountScope } from '../utils/psbt-account-scope';
 
 import type { LedgerKeyring } from '../ledger';
@@ -29,7 +24,7 @@ export function createLedgerPsbtSigner(
     getRawTransaction,
   }) => {
     if (
-      typeof ledger?.convertToLedgerFormat !== 'function' ||
+      typeof ledger?.signPsbt !== 'function' ||
       typeof getRawTransaction !== 'function'
     ) {
       throw createHardwareSignerUnavailableError('Ledger');
@@ -122,87 +117,68 @@ export function createLedgerPsbtSigner(
     }
 
     assertCurrent();
-    const enhancedPsbt = await ledger.convertToLedgerFormat(
+    assertPsbtAccountScope(psbt, scope);
+    // The host verifies the device xpub and signs in one serialized operation.
+    const { fingerprint, signatures } = await ledger.signPsbt({
+      currency: activeNetwork.currency,
+      slip44: activeNetwork.slip44,
+      accountIndex: accountId,
+      accountXpub,
+      psbtBase64: psbt.toBase64(),
+    });
+    assertCurrent();
+    const enhancedPsbt = prepareLedgerPsbt(
       psbt,
       accountXpub,
       accountId,
       activeNetwork.currency,
-      activeNetwork.slip44
-    );
-    assertCurrent();
-    assertPsbtAccountScope(enhancedPsbt, scope);
-
-    // Get wallet policy for Ledger
-    const fingerprint = await ledger.ledgerUtxoClient.getMasterFingerprint();
-
-    const hdPath = getAccountDerivationPath(
-      activeNetwork.currency,
       activeNetwork.slip44,
-      accountId
-    );
-
-    // For policy key preimages, match what the currently-open Ledger app expects.
-    // Prefer the device-reported extended pubkey for this path (silent), and only fall back
-    // to converting the stored xpub/vpub/zpub if needed.
-    let deviceXpub: string | null = null;
-    try {
-      deviceXpub = await ledger.ledgerUtxoClient.getExtendedPubkey(
-        hdPath,
-        false
-      );
-    } catch (_e) {
-      // ignore; we'll fall back
-    }
-
-    if (!deviceXpub) {
-      const devicePubMagicHex =
-        activeNetwork.slip44 === 1 ? '043587cf' : '0488b21e';
-      deviceXpub = convertExtendedKeyVersion(accountXpub, devicePubMagicHex);
-    }
-
-    const xpubWithDescriptor = `[${hdPath}]${deviceXpub}`.replace(
-      'm',
       fingerprint
     );
-    const walletPolicy = new WalletPolicy(
-      activeNetwork.currency.toLowerCase(),
-      DESCRIPTOR as any,
-      [xpubWithDescriptor]
-    );
-
-    // Register lazily and retrieve HMAC for silent operations thereafter
-    let hmac: Buffer | null = null;
-    if (typeof (ledger as any).getOrRegisterHmac === 'function') {
-      hmac = await (ledger as any).getOrRegisterHmac(walletPolicy, fingerprint);
-    }
-
-    // Convert to PsbtV2 for direct signing without intermediate base64 encode/decode
-    const psbtV2 = new PsbtV2().fromBitcoinJS(enhancedPsbt);
-    assertCurrent();
     assertPsbtAccountScope(enhancedPsbt, scope);
-    const signatureEntries = await ledger.ledgerUtxoClient.signPsbt(
-      psbtV2,
-      walletPolicy,
-      hmac
-    );
-    assertCurrent();
-
-    signatureEntries.forEach(([inputIndex, partialSig]) => {
-      const input = enhancedPsbt.data.inputs[inputIndex];
+    for (const entry of signatures) {
+      if (
+        !Number.isSafeInteger(entry.inputIndex) ||
+        entry.inputIndex < 0 ||
+        !/^(02|03)[0-9a-f]{64}$/i.test(entry.pubkeyHex) ||
+        !/^(?:[0-9a-f]{2})+$/i.test(entry.signatureHex) ||
+        entry.tapleafHashHex
+      )
+        throw new Error('Invalid Ledger signature response');
+      const partialSig = {
+        pubkey: Buffer.from(entry.pubkeyHex, 'hex'),
+        signature: Buffer.from(entry.signatureHex, 'hex'),
+      };
+      const input = enhancedPsbt.data.inputs[entry.inputIndex];
       if (
         !input ||
         input.finalScriptSig ||
         input.finalScriptWitness ||
         !input.bip32Derivation?.some((derivation) =>
-          Buffer.from(derivation.pubkey).equals(Buffer.from(partialSig.pubkey))
+          Buffer.from(derivation.pubkey).equals(partialSig.pubkey)
         )
-      ) {
+      )
         throw new Error('PSBT input is outside the approved account');
-      }
-      enhancedPsbt.updateInput(inputIndex, {
-        partialSig: [partialSig],
-      });
-    });
+      // An absent PSBT sighash request means SIGHASH_ALL. A valid signature
+      // with weaker coverage must not silently replace that approval.
+      const expectedSighash = input.sighashType ?? 0x01;
+      if (
+        partialSig.signature[partialSig.signature.length - 1] !==
+        expectedSighash
+      )
+        throw new Error(
+          'Ledger signature does not match the approved sighash type'
+        );
+      enhancedPsbt.updateInput(entry.inputIndex, { partialSig: [partialSig] });
+      if (
+        !enhancedPsbt.validateSignaturesOfInput(
+          entry.inputIndex,
+          (pubkey, hash, signature) => verify(hash, pubkey, signature),
+          partialSig.pubkey
+        )
+      )
+        throw new Error('Invalid Ledger signature for approved transaction');
+    }
 
     // Preserve external inputs that were finalized before device signing.
     enhancedPsbt.data.inputs.forEach((input, index) => {

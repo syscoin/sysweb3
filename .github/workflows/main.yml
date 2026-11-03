@@ -50,6 +50,7 @@ jobs:
       - name: Build keyring and validate vault custody
         run: |
           node node_modules/typescript/bin/tsc -p packages/sysweb3-keyring/tsconfig.json
+          node node_modules/typescript/bin/tsc -p packages/sysweb3-keyring/tsconfig-ledger-host.json
           cd packages/sysweb3-keyring
           # The initialization fixtures retain their existing hardware timers.
           # forceExit preserves the test result; it does not skip assertions.
@@ -62,7 +63,7 @@ jobs:
             test/unit/keyring-manager/storage-adapter.spec.ts \
             test/unit/keyring-manager/private-records.spec.ts
           node test/software-entry-runtime.cjs
-      - name: Validate Trezor transport and UTXO signing regressions
+      - name: Validate hardware transport and signing regressions
         working-directory: packages/sysweb3-keyring
         timeout-minutes: 10
         # The preceding build produces the plain-Node Connect protocol fixture.
@@ -75,6 +76,11 @@ jobs:
             test/unit/hardware/trezor-witness.spec.ts \
             test/unit/hardware/trezor-transaction-invariants.spec.ts \
             test/unit/hardware/trezor.spec.ts \
+            test/unit/hardware/ledger-dmk-session.spec.ts \
+            test/unit/hardware/ledger-dmk-utxo.spec.ts \
+            test/unit/hardware/ledger-dmk-evm.spec.ts \
+            test/unit/hardware/ledger-authority-boundary.spec.ts \
+            test/unit/hardware/ledger-output-map.spec.ts \
             test/unit/hardware/ledger.spec.ts \
             test/unit/hardware/ledger-finalized-inputs.spec.ts \
             test/unit/hardware/current-ledger-devices.spec.ts \
