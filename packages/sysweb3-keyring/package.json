@@ -11,6 +11,18 @@
       ],
       "cjs/storage-core.js": [
         "types/storage-core.d.ts"
+      ],
+      "cjs/transactions/syscoin-core": [
+        "types/transactions/syscoin-core.d.ts"
+      ],
+      "cjs/transactions/syscoin-core.js": [
+        "types/transactions/syscoin-core.d.ts"
+      ],
+      "cjs/transactions/ethereum": [
+        "types/transactions/ethereum.d.ts"
+      ],
+      "cjs/transactions/ethereum.js": [
+        "types/transactions/ethereum.d.ts"
       ]
     }
   },
