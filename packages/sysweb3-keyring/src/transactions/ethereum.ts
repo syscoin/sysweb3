@@ -60,7 +60,7 @@ import { getAddressDerivationPath } from '../utils/derivation-paths';
 
 import type { LedgerKeyring } from '../ledger';
 import type { TrezorKeyring } from '../trezor';
-import type { EthereumTransactionEIP1559 } from '@trezor/connect-web';
+import type { EthereumTransactionEIP1559 } from '@trezor/connect-webextension';
 
 /** Minimal trusted device capabilities used by EVM transaction routing. */
 export interface EthereumLedgerSigner {
@@ -83,6 +83,31 @@ const hardwareSignerUnavailable = (hardware: string) =>
 
 const stripHexPrefix = (value: string) =>
   value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
+
+// Connect returns hexadecimal signature fields; normalize their encoding
+// without mutating the response or reparsing an already numeric recovery v.
+const trezorSignature = (signature: {
+  r: string;
+  s: string;
+  v: string | number;
+}) => {
+  const { r, s, v } = signature;
+  if (![r, s].every((value) => /^(?:0x)?[0-9a-f]{64}$/i.test(value))) {
+    throw new Error('Invalid Trezor signature scalar encoding');
+  }
+  if (typeof v === 'string' && !/^(?:0x)?[0-9a-f]+$/i.test(v)) {
+    throw new Error('Invalid Trezor signature recovery value');
+  }
+  const recovery = typeof v === 'number' ? v : Number.parseInt(v, 16);
+  if (!Number.isSafeInteger(recovery) || recovery < 0) {
+    throw new Error('Invalid Trezor signature recovery value');
+  }
+  return {
+    r: `0x${stripHexPrefix(r)}`,
+    s: `0x${stripHexPrefix(s)}`,
+    v: recovery,
+  };
+};
 
 const normalizeEthersOverrideValue = (value: any) => normalizeTxValue(value);
 
@@ -1461,7 +1486,7 @@ export class EthereumTransactions<
         if (signature.success) {
           const signedTx = serializeTransaction(
             txFormattedForTrezor,
-            signature.payload
+            trezorSignature(signature.payload)
           );
           assertCurrent();
           const transactionResponse = await provider.sendTransaction(signedTx);
@@ -1852,10 +1877,9 @@ export class EthereumTransactions<
                 chainId: activeNetwork.chainId,
                 type: 2, // Need explicit type for hardware wallet serialization
               };
-          signature.payload.v = parseInt(signature.payload.v, 16); //v parameter must be a number by ethers standards
           const signedTx = serializeTransaction(
             txFormattedForEthers,
-            signature.payload
+            trezorSignature(signature.payload)
           );
           assertBeforeBroadcast();
           const finalTx = await provider.sendTransaction(signedTx);
@@ -2242,7 +2266,7 @@ export class EthereumTransactions<
         if (signature.success) {
           const signedTx = serializeTransaction(
             txFormattedForTrezor,
-            signature.payload
+            trezorSignature(signature.payload)
           );
           assertSignedSender(signedTx);
           assertBeforeBroadcast();
@@ -2621,10 +2645,9 @@ export class EthereumTransactions<
                 type: 2, // Need explicit type for hardware wallet serialization
               };
             }
-            signature.payload.v = parseInt(signature.payload.v, 16); //v parameter must be a number by ethers standards
             const signedTx = serializeTransaction(
               txFormattedForEthers,
-              signature.payload
+              trezorSignature(signature.payload)
             );
             assertCurrent();
             const finalTx = await provider.sendTransaction(signedTx);
@@ -2922,10 +2945,9 @@ export class EthereumTransactions<
                 type: 2, // Need explicit type for hardware wallet serialization
               };
             }
-            signature.payload.v = parseInt(signature.payload.v, 16); //v parameter must be a number by ethers standards
             const signedTx = serializeTransaction(
               txFormattedForEthers,
-              signature.payload
+              trezorSignature(signature.payload)
             );
             assertCurrent();
             const finalTx = await provider.sendTransaction(signedTx);
@@ -3220,10 +3242,9 @@ export class EthereumTransactions<
                 type: 2, // Need explicit type for hardware wallet serialization
               };
             }
-            signature.payload.v = parseInt(signature.payload.v, 16); //v parameter must be a number by ethers standards
             const signedTx = serializeTransaction(
               txFormattedForEthers,
-              signature.payload
+              trezorSignature(signature.payload)
             );
             assertCurrent();
             const finalTx = await provider.sendTransaction(signedTx);

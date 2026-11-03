@@ -5,19 +5,16 @@ import {
   SignTypedDataVersion,
   TypedDataV1,
 } from '@metamask/eth-sig-util';
-import TrezorConnect, {
-  AccountInfo,
-  DEVICE_EVENT,
-  EthereumTransaction,
-  EthereumTransactionEIP1559,
-  // @ts-ignore
-} from '@trezor/connect-webextension';
 import { address, bufferutils } from '@trezor/utxo-lib';
 import bitcoinops from 'bitcoin-ops';
 import { Psbt } from 'bitcoinjs-lib';
 import { Buffer } from 'buffer';
 import * as syscoinjs from 'syscoinjs-lib';
 
+import TrezorConnect, {
+  subscribeTrezorEvents,
+  trezorResponseError,
+} from './connect';
 import {
   HardwareWalletManager,
   HardwareWalletType,
@@ -27,6 +24,13 @@ import {
   getAddressDerivationPath,
   isEvmCoin,
 } from '../utils/derivation-paths';
+
+import type {
+  AccountInfo,
+  CoinSymbol,
+  EthereumTransaction,
+  EthereumTransactionEIP1559,
+} from '@trezor/connect-webextension';
 
 const bitcoinjs: any = (syscoinjs.utils as any).bitcoinjs;
 const { p2wsh } = bitcoinjs.payments;
@@ -88,6 +92,7 @@ export class TrezorKeyring {
   public model?: string;
   private hardwareWalletManager: HardwareWalletManager;
   private initialized = false;
+  private unsubscribeTrezor?: () => void;
 
   constructor() {
     this.publicKey = Buffer.from('', 'hex');
@@ -111,10 +116,13 @@ export class TrezorKeyring {
       }
     });
 
-    TrezorConnect.on(DEVICE_EVENT, (event: any) => {
-      if (event.payload.features) {
-        this.model = event.payload.features.model;
-      }
+    this.observeTrezor();
+  }
+
+  private observeTrezor(): void {
+    if (this.unsubscribeTrezor) return;
+    this.unsubscribeTrezor = subscribeTrezorEvents((event) => {
+      if (event.type === 'model') this.model = event.model;
     });
   }
 
@@ -122,6 +130,7 @@ export class TrezorKeyring {
    * Initialize Trezor script.
    */
   public async init(): Promise<boolean> {
+    this.observeTrezor();
     if (this.initialized) {
       return true;
     }
@@ -163,17 +172,19 @@ export class TrezorKeyring {
     // Use hardware wallet manager's retry mechanism with custom config
     return this.hardwareWalletManager
       .retryOperation(operation, operationName, trezorRetryConfig)
-      .catch((error) => {
+      .catch(async (error) => {
         // Clean up Trezor state on failure
+        const message = String(error.message || '').toLowerCase();
         if (
-          error.message?.includes('Popup closed') ||
-          error.message?.includes('cancelled') ||
-          error.message?.includes('denied')
+          message.includes('popup closed') ||
+          message.includes('cancelled') ||
+          message.includes('canceled') ||
+          message.includes('denied')
         ) {
           this.initialized = false;
           // Dispose Trezor connection to clean up
           try {
-            TrezorConnect.dispose();
+            await TrezorConnect.dispose();
           } catch (disposeError) {
             console.log('Failed to dispose Trezor on error:', disposeError);
           }
@@ -218,9 +229,7 @@ export class TrezorKeyring {
         });
 
         if (!addressResponse.success) {
-          throw new Error(
-            addressResponse.payload.error || 'Failed to get EVM address'
-          );
+          throw trezorResponseError(addressResponse);
         }
 
         // Return a compatible AccountInfo structure
@@ -237,14 +246,14 @@ export class TrezorKeyring {
 
       // For UTXO networks, use the standard getAccountInfo
       const response = await TrezorConnect.getAccountInfo({
-        coin,
+        coin: coin as CoinSymbol,
         path: this.hdPath,
       });
 
       if (response.success) {
         return response.payload;
       }
-      throw new Error(response.payload.error);
+      throw trezorResponseError(response);
     }, 'getAccountInfo');
   }
 
@@ -259,14 +268,16 @@ export class TrezorKeyring {
   }
 
   /**
-   * This removes the Trezor Connect iframe from the DOM
+   * This disposes the active Trezor Suite connection
    *
    * @returns void
    */
 
   public dispose() {
     try {
-      TrezorConnect.dispose();
+      void TrezorConnect.dispose().catch((error) => {
+        console.log('Error disposing Trezor:', error);
+      });
       this.initialized = false;
       // Clear any cached data
       this.publicKey = Buffer.from('', 'hex');
@@ -319,7 +330,7 @@ export class TrezorKeyring {
       if (success) {
         return { success, payload };
       }
-      throw new Error(payload.error);
+      throw trezorResponseError({ payload });
     }, 'verifyMessage');
   }
 
@@ -373,7 +384,7 @@ export class TrezorKeyring {
 
       // For UTXO networks, use standard getPublicKey
       const { success, payload } = await TrezorConnect.getPublicKey({
-        coin: coin,
+        coin: coin as CoinSymbol,
         path: this.hdPath,
       });
 
@@ -432,7 +443,7 @@ export class TrezorKeyring {
     const payload = await this.executeWithRetry(async () => {
       const response = await TrezorConnect.signTransaction(utxoTransaction);
       if (!response.success) {
-        throw new Error('Trezor sign failed: ' + response.payload.error);
+        throw trezorResponseError(response, 'Trezor sign failed: ');
       }
       return response.payload;
     }, 'signUtxoTransaction');
@@ -815,7 +826,7 @@ export class TrezorKeyring {
       if (response.success) {
         return response;
       }
-      throw new Error(response.payload.error);
+      throw trezorResponseError(response);
     }, 'signEthTransaction');
   }
 
@@ -865,12 +876,14 @@ export class TrezorKeyring {
     message?: string;
   }) {
     try {
+      if (typeof message !== 'string')
+        throw new Error('Message must be a string');
       // Use dynamic path generation instead of hardcoded switch
       this.setHdPath(coin, index || 0, slip44);
       const { success, payload } = await TrezorConnect.signMessage({
         path: this.hdPath,
-        coin: coin,
-        message: message,
+        coin: coin as CoinSymbol,
+        message,
       });
 
       if (success) {
@@ -912,12 +925,12 @@ export class TrezorKeyring {
               } else {
                 reject(
                   // @ts-ignore
-                  new Error(response.payload.error || 'Unknown error')
+                  trezorResponseError(response)
                 );
               }
             })
             .catch((e: any) => {
-              reject(new Error(e.toString() || 'Unknown error'));
+              reject(e instanceof Error ? e : new Error(String(e)));
             });
         } catch (error) {
           reject(error);
@@ -1051,7 +1064,7 @@ export class TrezorKeyring {
         return response.payload.signature;
       }
       // @ts-ignore
-      throw new Error(response.payload.error || 'Unknown error');
+      throw trezorResponseError(response);
     }, 'signTypedData');
   }
 
@@ -1079,7 +1092,7 @@ export class TrezorKeyring {
       try {
         const { payload, success } = await TrezorConnect.getAddress({
           path: fullPath,
-          coin: currency,
+          coin: currency as CoinSymbol,
           showOnTrezor: true, // This displays the address on device for verification
         });
         if (success) {
@@ -1105,6 +1118,8 @@ export class TrezorKeyring {
    * Clean up resources
    */
   public async destroy() {
+    this.unsubscribeTrezor?.();
+    this.unsubscribeTrezor = undefined;
     try {
       // First dispose Trezor Connect
       this.dispose();

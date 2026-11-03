@@ -150,6 +150,32 @@ const signature = await keyringManager.ethereumTransaction.signPersonalMessage([
 
 ### Hardware Wallet Support
 
+Trezor uses `@trezor/connect-webextension` 10.0.1. The hardware adapter loads it
+only when a supported MV3 extension invokes Trezor; ordinary Node CommonJS/ESM
+imports and the software entry do not initialize browser transports. Unsupported
+hosts reject hardware operations instead of falling back to software signing.
+
+The extension must configure `externally_connectable` for
+`https://suite.trezor.io/*` and host access to that origin, as required by the
+[published Connect 10 webextension package](https://www.npmjs.com/package/@trezor/connect-webextension/v/10.0.1).
+Connect selects Suite Desktop or the Suite Web popup. The old Connect 9 iframe,
+content script, and `connectSrc` settings are not part of this integration.
+
+Connect 10 does not expose the old device event emitter. SDK connection status
+and cached model information update from request results and disposal; they are
+not immediate physical unplug notifications. Disposal immediately rejects pending
+SDK operations and fences late replies. Suite Web may leave its popup open; a
+late approval there is discarded locally rather than treated as a fresh approval.
+When an underlying request is still active, transport cleanup is deferred to avoid
+triggering an automatic fallback popup. New initialization fails with
+`HARDWARE_SIGNER_BUSY` until that request settles; local lock/disposal does not
+wait for the remote prompt. An upstream transport failure can still trigger remote
+fallback UI while that old request is pending; the local SDK will reject its result.
+A failed or cancelled operation
+never authorizes a cached transaction, and terminal disconnect/unsupported-host
+errors are not retried. Device pairing, display verification, signing, and
+reconnection still require physical-device qualification in the consuming host.
+
 ```javascript
 // Import Trezor account
 const trezorAccount = await keyringManager.importTrezorAccount(

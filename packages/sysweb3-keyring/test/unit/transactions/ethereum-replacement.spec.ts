@@ -45,10 +45,6 @@ jest.mock('../../../src/ledger', () => ({
 jest.mock('../../../src/trezor', () => ({
   TrezorKeyring: jest.fn(),
 }));
-// Connect's protocol encoder is real; its unused standalone serialization
-// dependencies need no crypto implementation in these device-I/O tests.
-jest.mock('@ethereumjs/common', () => ({}));
-jest.mock('@ethereumjs/tx', () => ({}));
 
 const mockAes = jest.requireMock('crypto-js').AES;
 
@@ -1225,64 +1221,31 @@ describe('source SDK account-scoped replacement signing', () => {
   );
 
   it.each(['scoped', 'ordinary'] as const)(
-    'converts a Trezor type1 original to supported dynamic fees through the %s API using Connect access-list encoding',
+    'converts a Trezor type1 original to supported dynamic fees through the %s API preserving the public Connect access list',
     async (caller) => {
       const target = { type: KeyringAccountType.Trezor, id: 5 };
       const hash = useOriginal(
         transaction({ type: 1, nonce: 0, accessList: ACCESS_LIST })
       );
-      const connect = jest.requireActual(
-        '@trezor/connect/lib/api/ethereum/ethereumSignTx'
-      );
-      const strip = (value: string) => value.replace(/^0x/, '');
-      const typedCall = jest.fn(async (method, _response, message) => {
-        expect(method).toBe('EthereumSignTxEIP1559');
-        const signature = await deviceSignature({
-          type: 2,
-          chainId: message.chain_id,
-          nonce: `0x${message.nonce || '0'}`,
-          to: message.to,
-          value: `0x${message.value || '0'}`,
-          data: `0x${message.data_initial_chunk}`,
-          gasLimit: `0x${message.gas_limit}`,
-          maxFeePerGas: `0x${message.max_gas_fee}`,
-          maxPriorityFeePerGas: `0x${message.max_priority_fee}`,
-          accessList: message.access_list.map((entry: any) => ({
-            address: entry.address,
-            storageKeys: entry.storage_keys,
-          })),
-        });
-        return {
-          message: {
-            ['signature_v']: signature.v - 27,
-            ['signature_r']: strip(signature.r),
-            ['signature_s']: strip(signature.s),
-          },
-        };
-      });
-      trezor.signEthTransaction.mockImplementationOnce(async ({ tx }) => {
+      const deviceCall = jest.fn(async (tx) => {
         expect(tx.type).toBe(2);
         expect(tx.gasPrice).toBeUndefined();
         expect(typeof tx.maxFeePerGas).toBe('string');
         expect(typeof tx.maxPriorityFeePerGas).toBe('string');
+        expect(tx.accessList).toEqual(ACCESS_LIST);
+        const signature = await deviceSignature(tx);
         return {
           success: true,
-          payload: await connect.ethereumSignTxEIP1559(
-            typedCall,
-            [],
-            tx.to,
-            strip(tx.value),
-            strip(tx.gasLimit),
-            strip(tx.maxFeePerGas),
-            strip(tx.maxPriorityFeePerGas),
-            strip(tx.nonce),
-            tx.chainId,
-            false,
-            strip(tx.data),
-            tx.accessList
-          ),
+          payload: {
+            r: signature.r.replace(/^0x/, ''),
+            s: signature.s.replace(/^0x/, ''),
+            v: signature.v.toString(16),
+          },
         };
       });
+      trezor.signEthTransaction.mockImplementationOnce(({ tx }) =>
+        deviceCall(tx)
+      );
       if (caller === 'ordinary') {
         state.activeAccountType = target.type;
         state.activeAccountId = target.id;
@@ -1296,15 +1259,10 @@ describe('source SDK account-scoped replacement signing', () => {
             : { approvedMaximumFee: APPROVED_MAXIMUM_FEE }
         )
       ).resolves.toMatchObject({ isSpeedUp: true, transaction: response });
-      expect(typedCall).toHaveBeenCalledWith(
-        'EthereumSignTxEIP1559',
-        'EthereumTxRequest',
+      expect(deviceCall).toHaveBeenCalledWith(
         expect.objectContaining({
-          ['chain_id']: CHAIN,
-          ['access_list']: ACCESS_LIST.map((entry) => ({
-            address: entry.address,
-            ['storage_keys']: entry.storageKeys,
-          })),
+          chainId: CHAIN,
+          accessList: ACCESS_LIST,
         })
       );
       expect(getKey).not.toHaveBeenCalled();

@@ -6,6 +6,7 @@ import { createFreshTestKeyring, setupMocks } from '../../helpers/setup';
 
 describe('Trezor Hardware Wallet', () => {
   let keyringManager: KeyringManager;
+  const additionalKeyrings: KeyringManager[] = [];
   let mockVaultStateGetter: jest.Mock;
   let currentVaultState: any;
   let accountCounter = 0;
@@ -55,6 +56,7 @@ describe('Trezor Hardware Wallet', () => {
   });
 
   afterEach(async () => {
+    for (const keyring of additionalKeyrings.splice(0)) await keyring.destroy();
     // Clean up hardware wallet connections
     if (keyringManager) {
       await keyringManager.destroy();
@@ -165,6 +167,7 @@ describe('Trezor Hardware Wallet', () => {
         FAKE_PASSWORD,
         evmVaultStateGetter
       );
+      additionalKeyrings.push(evmKeyring);
 
       // Mock Trezor EVM methods with proper EVM address
       evmKeyring.trezorSigner.getPublicKey = jest.fn().mockResolvedValue({
@@ -454,6 +457,7 @@ describe('Trezor Hardware Wallet', () => {
         FAKE_PASSWORD,
         evmVaultStateGetter
       );
+      additionalKeyrings.push(evmKeyring);
 
       // Mock Trezor EVM methods
       evmKeyring.trezorSigner.getAccountInfo = jest.fn().mockResolvedValue({
@@ -518,6 +522,7 @@ describe('Trezor Hardware Wallet', () => {
         FAKE_PASSWORD,
         testnetVaultStateGetter
       );
+      additionalKeyrings.push(testnetKeyring);
 
       const account = await testnetKeyring.importTrezorAccount(
         'Testnet Trezor'
@@ -546,6 +551,7 @@ describe('Trezor Hardware Wallet', () => {
         FAKE_PASSWORD,
         testnetVaultStateGetter
       );
+      additionalKeyrings.push(testnetKeyring);
 
       // Import on testnet
       const testnetAccount = await testnetKeyring.importTrezorAccount(

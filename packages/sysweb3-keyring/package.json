@@ -1,6 +1,6 @@
 {
   "name": "@sidhujag/sysweb3-keyring",
-  "version": "1.0.628",
+  "version": "1.0.629",
   "description": "Keyring Manager for UTXO and Web3 Wallets",
   "main": "cjs/index.js",
   "types": "types/index.d.ts",
@@ -71,8 +71,7 @@
     "@sidhujag/sysweb3-core": "^1.0.29",
     "@sidhujag/sysweb3-network": "^1.0.109",
     "@sidhujag/sysweb3-utils": "^1.1.280",
-    "@trezor/connect-web": "^9.7.1",
-    "@trezor/connect-webextension": "^9.7.1",
+    "@trezor/connect-webextension": "10.0.1",
     "@trezor/utxo-lib": "^1.0.12",
     "bip32": "^5.0.1",
     "bip32-path": "^0.4.2",

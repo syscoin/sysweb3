@@ -1,8 +1,9 @@
 import Transport from '@ledgerhq/hw-transport';
 import HIDTransport from '@ledgerhq/hw-transport-webhid';
 import { listen } from '@ledgerhq/logs';
-import TrezorConnect from '@trezor/connect-webextension';
 import { EventEmitter } from 'events';
+
+import TrezorConnect, { subscribeTrezorEvents } from './trezor/connect';
 
 export enum HardwareWalletType {
   LEDGER = 'ledger',
@@ -49,6 +50,7 @@ export interface HardwareWalletStatus {
 export class HardwareWalletManager extends EventEmitter {
   private connectionPool: Map<string, ConnectionPoolEntry> = new Map();
   private statusMonitorInterval: NodeJS.Timeout | null = null;
+  private unsubscribeTrezor?: () => void;
   private readonly CONNECTION_TIMEOUT = 30000; // 30 seconds
   private readonly IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
   private readonly STATUS_CHECK_INTERVAL = 5000; // 5 seconds
@@ -62,6 +64,7 @@ export class HardwareWalletManager extends EventEmitter {
 
   constructor() {
     super();
+    this.observeTrezor();
     this.startStatusMonitoring();
 
     // Set up Ledger debug logging
@@ -70,6 +73,15 @@ export class HardwareWalletManager extends EventEmitter {
         console.log(`[Ledger] ${log.type}: ${log.message}`);
       });
     }
+  }
+
+  private observeTrezor(): void {
+    if (this.unsubscribeTrezor) return;
+    this.unsubscribeTrezor = subscribeTrezorEvents((event) => {
+      if (event.type === 'disconnected') {
+        this.handleDisconnect('trezor-default', HardwareWalletType.TREZOR);
+      }
+    });
   }
 
   /**
@@ -175,6 +187,8 @@ export class HardwareWalletManager extends EventEmitter {
    * Initialize Trezor with retry logic
    */
   async initializeTrezor(): Promise<boolean> {
+    this.observeTrezor();
+    this.startStatusMonitoring();
     const key = `${HardwareWalletType.TREZOR}-default`;
     const existing = this.connectionPool.get(key);
 
@@ -224,7 +238,7 @@ export class HardwareWalletManager extends EventEmitter {
           maxAttempts: trezorRetryConfig.maxRetries + 1,
         });
 
-        // Dispose any existing iframe before initialization
+        // Dispose the previous Suite connection before initialization
         try {
           await TrezorConnect.dispose();
         } catch (disposeError) {
@@ -240,13 +254,8 @@ export class HardwareWalletManager extends EventEmitter {
             appUrl: 'https://paliwallet.com/',
             email: 'support@syscoin.org',
           },
-          lazyLoad: true,
-          popup: true,
-          connectSrc: 'https://connect.trezor.io/9/',
-          _extendWebextensionLifetime: true,
-          transports: ['BridgeTransport', 'WebUsbTransport'],
           debug: false, // Disable debug mode to prevent extra logs
-          // Suite desktop handles newer devices; older devices retain the popup fallback.
+          // Connect chooses Suite Desktop, then the supported Suite Web fallback.
           coreMode: 'auto',
         });
 
@@ -256,16 +265,19 @@ export class HardwareWalletManager extends EventEmitter {
 
         this.emit('connected', { type: HardwareWalletType.TREZOR });
 
-        // Set up device event listeners
-        TrezorConnect.on('DEVICE_EVENT', (event: any) => {
-          if (event.type === 'device-disconnect') {
-            this.handleDisconnect(key, HardwareWalletType.TREZOR);
-          }
-        });
-
         return true;
       } catch (error) {
         lastError = error as Error;
+        if ((lastError as any).code === 'HARDWARE_SIGNER_BUSY') {
+          entry.status = ConnectionStatus.ERROR;
+          entry.error = lastError;
+          this.emit('connectionFailed', {
+            type: HardwareWalletType.TREZOR,
+            error: lastError.message,
+          });
+          throw lastError;
+        }
+        if ((lastError as any).code === 'HARDWARE_SIGNER_UNAVAILABLE') break;
 
         // Check if already initialized - this is actually OK
         if (
@@ -328,11 +340,7 @@ export class HardwareWalletManager extends EventEmitter {
         }
 
         // Don't retry if user cancelled
-        if (
-          lastError.message.includes('Popup closed') ||
-          lastError.message.includes('cancelled') ||
-          lastError.message.includes('denied')
-        ) {
+        if (this.isUserCancellationError(lastError)) {
           console.log(
             '[HardwareWalletManager] User cancelled Trezor connection'
           );
@@ -521,6 +529,8 @@ export class HardwareWalletManager extends EventEmitter {
    * Close all connections and stop monitoring
    */
   async destroy(): Promise<void> {
+    this.unsubscribeTrezor?.();
+    this.unsubscribeTrezor = undefined;
     // Stop monitoring
     if (this.statusMonitorInterval) {
       clearInterval(this.statusMonitorInterval);
@@ -616,6 +626,23 @@ export class HardwareWalletManager extends EventEmitter {
     const message = (err?.message || '').toLowerCase();
     const name = (err as any)?.name || '';
     const statusCode = (err as any)?.statusCode;
+    const code = (err as any)?.code;
+    if (
+      code === 'HARDWARE_SIGNER_UNAVAILABLE' ||
+      code === 'HARDWARE_SIGNER_BUSY' ||
+      code === 'Method_Cancel' ||
+      code === 'Method_Interrupted' ||
+      code === 'Method_PermissionsNotGranted' ||
+      code === 'Method_Unsupported' ||
+      code === 'Method_UnsupportedCoinForHost' ||
+      code === 'Device_Disconnected' ||
+      code === 'Device_NotFound' ||
+      code === 'Device_CallInProgress' ||
+      code === 'Transport_Missing' ||
+      code === 'Desktop_ConnectionMissing' ||
+      code === 'Browser_LocalNetworkPermissionMissing'
+    )
+      return true;
 
     // Ledger: 0x6985 (Conditions of use not satisfied) on rejection
     if (statusCode === 0x6985) return true;
@@ -628,6 +655,7 @@ export class HardwareWalletManager extends EventEmitter {
         message.includes('satisf')) ||
       message.includes('not allowed') ||
       message.includes('permission denied') ||
+      message.includes('permissions not granted') ||
       message.includes('user rejected') ||
       message.includes('denied by the user') ||
       message.includes('failure_actioncancelled') ||
