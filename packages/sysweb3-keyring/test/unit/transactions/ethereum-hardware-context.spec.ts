@@ -542,6 +542,7 @@ describe('EVM cancellation signing context', () => {
   const run = (legacy = true, fallbackNonce?: number) =>
     sdk.cancelSentTransaction(HASH, legacy, fallbackNonce, {
       assertCurrentContext: assertHostContext,
+      approvedMaximumFee: '9'.repeat(78),
       validateOriginal: () => undefined,
     });
   const original = (nonce = 7, fields: any = {}) => {
@@ -1015,6 +1016,7 @@ describe('EVM cancellation signing context', () => {
       });
       const pending = sdk.cancelSentTransaction(HASH, true, 7, {
         assertCurrentContext,
+        approvedMaximumFee: '9'.repeat(78),
         validateOriginal: () => undefined,
       });
       const rejected = expect(pending).rejects.toThrow(
@@ -1044,6 +1046,7 @@ describe('EVM cancellation signing context', () => {
         return { hash: Transaction.from(raw).hash };
       });
       const result = await sdk.cancelSentTransaction(HASH, true, 7, {
+        approvedMaximumFee: '9'.repeat(78),
         validateOriginal: () => undefined,
         assertCurrentContext: () => {
           if (!current) throw new Error('Host selection changed');
@@ -1072,6 +1075,7 @@ describe('EVM cancellation signing context', () => {
         return implementation(params);
       });
       const pending = sdk.cancelSentTransaction(HASH, true, 7, {
+        approvedMaximumFee: '9'.repeat(78),
         validateOriginal: () => undefined,
         assertCurrentContext: () => {
           if (!current) throw new Error('Host selection changed');
@@ -1091,6 +1095,7 @@ describe('EVM cancellation signing context', () => {
       current = false;
     });
     const result = await sdk.cancelSentTransaction(HASH, true, 7, {
+      approvedMaximumFee: '9'.repeat(78),
       validateOriginal: () => undefined,
       assertCurrentContext: () => {
         if (!current) throw new Error('Host selection changed');

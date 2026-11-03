@@ -1045,6 +1045,7 @@ export class EthereumTransactions<
   ): Promise<{
     error?: boolean;
     isCanceled: boolean;
+    maximumFee?: string;
     transaction?: TransactionResponse;
   }> => {
     // Cancellation is a signing operation too. Keep its account, network and
@@ -1061,16 +1062,65 @@ export class EthereumTransactions<
     ) {
       throw new Error('Invalid cancellation fallback nonce');
     }
+    const previewOnly = options.previewOnly === true;
+    const approvedMaximumFee = options.approvedMaximumFee;
+    if (
+      !previewOnly &&
+      (typeof approvedMaximumFee !== 'string' ||
+        !/^(0|[1-9][0-9]{0,77})$/.test(approvedMaximumFee))
+    ) {
+      throw new Error('Cancellation fee approval required');
+    }
     const assertHostContext = options.assertCurrentContext;
     assertHostContext();
-    const {
-      activeAccount,
-      activeAccountType,
-      activeAccountId,
-      activeNetwork,
-      provider,
-      assertCurrent: assertKeyringContext,
-    } = this.captureEvmSigningContext();
+    const state = this.getState();
+    const selectedType = state.activeAccountType;
+    const selectedId = state.activeAccountId;
+    const selectedAddress =
+      state.accounts?.[selectedType]?.[selectedId]?.address;
+    const activeAccountType = options.targetAccount?.type ?? selectedType;
+    const activeAccountId = options.targetAccount?.id ?? selectedId;
+    const targetAccount = options.targetAccount
+      ? { type: activeAccountType, id: activeAccountId }
+      : undefined;
+    const activeAccount = {
+      ...state.accounts?.[activeAccountType]?.[activeAccountId],
+    };
+    const activeNetwork = { ...state.activeNetwork };
+    if (
+      !selectedAddress ||
+      !activeAccount.address ||
+      (targetAccount && activeAccountType === KeyringAccountType.SmartAccount)
+    ) {
+      throw new Error('Cancellation signing account is unavailable');
+    }
+    if (!previewOnly) this.assertHardwareSignerAvailable(targetAccount);
+    const provider = this.web3Provider;
+    const assertSession = this.captureSigningContext?.();
+    const assertKeyringContext = () => {
+      assertSession?.();
+      const current = this.getState();
+      if (
+        current.activeAccountType !== selectedType ||
+        current.activeAccountId !== selectedId ||
+        current.accounts?.[selectedType]?.[
+          selectedId
+        ]?.address?.toLowerCase() !== selectedAddress.toLowerCase() ||
+        current.accounts?.[activeAccountType]?.[
+          activeAccountId
+        ]?.address?.toLowerCase() !== activeAccount.address.toLowerCase() ||
+        [current.activeNetwork, this.getNetwork()].some(
+          (selected) =>
+            selected.kind !== activeNetwork.kind ||
+            selected.chainId !== activeNetwork.chainId ||
+            selected.slip44 !== activeNetwork.slip44 ||
+            selected.url !== activeNetwork.url
+        ) ||
+        this.web3Provider !== provider
+      ) {
+        throw new Error('Wallet signing context changed');
+      }
+    };
     const assertCurrent = () => {
       assertHostContext();
       assertKeyringContext();
@@ -1243,6 +1293,31 @@ export class EthereumTransactions<
           }),
     };
 
+    const maximumFee = newGasValues.gasLimit!.mul(
+      isLegacy ? newGasValues.gasPrice! : newGasValues.maxFeePerGas!
+    );
+    assertCurrent();
+    if (previewOnly)
+      return {
+        isCanceled: false,
+        error: false,
+        maximumFee: maximumFee.toString(),
+      };
+    if (maximumFee.gt(approvedMaximumFee!))
+      throw new Error('Cancellation fee exceeds approval');
+    const assertApprovedEnvelope = (transaction: TransactionRequest) => {
+      const gas = nonNegativeFeeQuantity(
+        transaction.gasLimit,
+        'cancellation gas limit'
+      );
+      const cap = nonNegativeFeeQuantity(
+        isLegacy ? transaction.gasPrice : transaction.maxFeePerGas,
+        'cancellation maximum fee'
+      );
+      if (!gas.eq(42000) || gas.mul(cap).gt(approvedMaximumFee!))
+        throw new Error('Cancellation fee exceeds approval');
+    };
+
     // Base cancel transaction parameters (same for all wallet types)
     const baseCancelTx = {
       nonce: tx.nonce,
@@ -1291,6 +1366,7 @@ export class EthereumTransactions<
               type: 2, // Need explicit type for hardware wallet serialization
             };
 
+        assertApprovedEnvelope(txFormattedForEthers);
         const rawTx = serializeTransaction(txFormattedForEthers);
         const signature =
           await this.requireLedgerSigner().evm.signEVMTransaction({
@@ -1373,6 +1449,7 @@ export class EthereumTransactions<
                 );
         }
 
+        assertApprovedEnvelope(txFormattedForTrezor);
         const signature = await this.requireTrezorSigner().signEthTransaction({
           coin: trezorCoin,
           tx: txFormattedForTrezor,
@@ -1411,7 +1488,8 @@ export class EthereumTransactions<
     const cancelWithPrivateKey = async () => {
       try {
         assertCurrent();
-        const { address, decryptedPrivateKey } = this.getDecryptedPrivateKey();
+        const { address, decryptedPrivateKey } =
+          this.getDecryptedPrivateKey(targetAccount);
         if (address?.toLowerCase() !== activeAccount.address.toLowerCase()) {
           throw new Error('Wallet signing context changed');
         }
@@ -1420,7 +1498,8 @@ export class EthereumTransactions<
           decryptedPrivateKey,
           changedTxToCancel,
           assertCurrent,
-          assertCurrent
+          assertCurrent,
+          assertApprovedEnvelope
         );
 
         if (transactionResponse) {
@@ -1994,7 +2073,6 @@ export class EthereumTransactions<
     const maximumFee = newGasValues.gasLimit!.mul(
       isLegacy ? newGasValues.gasPrice! : newGasValues.maxFeePerGas!
     );
-    let adjustedValue = txValue;
     if (isLikelyMaxSend && txValue.add(maximumFee).gt(currentBalance)) {
       if (isContractCall) {
         console.error(
@@ -2008,16 +2086,20 @@ export class EthereumTransactions<
             'Cannot speed up a likely max-send contract call; value cannot be adjusted to fit new gas',
         };
       }
-      adjustedValue = currentBalance.gt(maximumFee)
-        ? currentBalance.sub(maximumFee)
-        : Zero;
+      return {
+        isSpeedUp: false,
+        error: true,
+        code: 'REPLACEMENT_VALUE_WOULD_CHANGE',
+        message:
+          'Add funds before speeding up this transaction; the original amount will not be changed',
+      };
     }
     const txWithEditedFee: TransactionRequest = {
       chainId: activeNetwork.chainId,
       from: tx.from,
       to: tx.to,
       nonce: tx.nonce,
-      value: adjustedValue,
+      value: txValue,
       data: txData,
       gasLimit: newGasValues.gasLimit,
       ...(tx.accessList != null ? { accessList: tx.accessList } : {}),

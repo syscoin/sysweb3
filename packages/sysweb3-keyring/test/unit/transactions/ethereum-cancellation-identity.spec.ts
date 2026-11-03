@@ -59,6 +59,7 @@ describe('cancellation original identity admission', () => {
   let hostCurrent: boolean;
   let validateOriginal: jest.Mock;
   const options = () => ({
+    approvedMaximumFee: '9'.repeat(78),
     assertCurrentContext: () => {
       if (!hostCurrent) throw new Error('Host original changed');
     },
