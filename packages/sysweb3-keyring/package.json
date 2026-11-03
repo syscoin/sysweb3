@@ -23,6 +23,18 @@
       ],
       "cjs/transactions/ethereum.js": [
         "types/transactions/ethereum.d.ts"
+      ],
+      "cjs/software": [
+        "types/software.d.ts"
+      ],
+      "cjs/software.js": [
+        "types/software.d.ts"
+      ],
+      "cjs/keyring-core": [
+        "types/keyring-core.d.ts"
+      ],
+      "cjs/keyring-core.js": [
+        "types/keyring-core.d.ts"
       ]
     }
   },
