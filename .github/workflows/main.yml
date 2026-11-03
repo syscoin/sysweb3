@@ -58,6 +58,7 @@ jobs:
           NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent --forceExit \
             test/unit/storage-core.spec.ts \
             test/unit/keyring-manager/software-entry.spec.ts \
+            test/unit/keyring-manager/software-indexed-hd.spec.ts \
             test/unit/keyring-manager/initialization.spec.ts \
             test/unit/keyring-manager/unlock-errors.spec.ts \
             test/unit/keyring-manager/vault-kdf-compatibility.spec.ts \

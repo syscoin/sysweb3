@@ -40,22 +40,18 @@ import {
   IEncryptPrivateRecordParams,
 } from './private-records';
 import { getSyscoinSigners, SyscoinHDSigner } from './signers';
+import { snapshotEvmHdIndex } from './software-hd-account';
 import { VaultAuthenticationError } from './storage-core';
 import { EthereumTransactions } from './transactions/ethereum';
+import {
+  deriveEvmAccountFromMnemonic,
+  privateKeyToAccount,
+} from './transactions/evm-local-signer';
 import {
   preparedEvmGuard,
   signPreparedEvmEnvelope,
   snapshotPreparedEvmRequest,
 } from './transactions/prepared-evm';
-import type {
-  PreparedEvmSigningOptions,
-  PreparedSoftwareEvmSigningRequest,
-  SignedPreparedEvmTransaction,
-} from './transactions/prepared-evm';
-import {
-  deriveEvmAccountFromMnemonic,
-  privateKeyToAccount,
-} from './transactions/evm-local-signer';
 import {
   SyscoinTransactionsCore,
   createHardwareSignerUnavailableError,
@@ -82,7 +78,17 @@ import {
 import { deriveDescriptorAddress } from './utils/watch-descriptor';
 
 import type { LedgerKeyring } from './ledger';
+import type {
+  EncryptedEvmHdRuntimeAccount,
+  EvmHdRuntimeAccountOptions,
+  EvmHdRuntimeAccountRequest,
+} from './software-hd-account';
 import type { VaultPersistence, VaultStoragePort } from './storage-core';
+import type {
+  PreparedEvmSigningOptions,
+  PreparedSoftwareEvmSigningRequest,
+  SignedPreparedEvmTransaction,
+} from './transactions/prepared-evm';
 import type { TrezorKeyring } from './trezor';
 
 /** Explicit asynchronous host storage; no browser or global DI fallback. */
@@ -1992,6 +1998,60 @@ export class KeyringCore<
     assertCurrent();
     return assertCurrent;
   };
+
+  /** Fixed-path derivation for an authenticated software host; no persistence. */
+  protected async deriveSoftwareEvmHdRuntimeAccount(
+    input: EvmHdRuntimeAccountRequest,
+    options: EvmHdRuntimeAccountOptions
+  ): Promise<EncryptedEvmHdRuntimeAccount> {
+    // Capture the session and selection before inspecting caller-owned objects.
+    // Hydration may have no account records yet; account existence is not a guard.
+    const session = this.sessionPassword;
+    const mnemonic = this.sessionMnemonic;
+    const revision = this.privateRecordSessionRevision;
+    const vault = this.getVault();
+    const selected = { ...vault.activeAccount };
+    const network = { ...vault.activeNetwork };
+    const assertCurrent = () => {
+      const current = this.getVault();
+      if (
+        !session ||
+        session.isCleared() ||
+        this.sessionPassword !== session ||
+        !mnemonic ||
+        mnemonic.isCleared() ||
+        this.sessionMnemonic !== mnemonic ||
+        this.privateRecordSessionRevision !== revision ||
+        network.kind !== INetworkType.Ethereum ||
+        network.slip44 !== 60 ||
+        !Number.isSafeInteger(network.chainId) ||
+        network.chainId <= 0 ||
+        typeof network.url !== 'string' ||
+        !network.url ||
+        current.activeAccount.id !== selected.id ||
+        current.activeAccount.type !== selected.type ||
+        current.activeNetwork.kind !== network.kind ||
+        current.activeNetwork.chainId !== network.chainId ||
+        current.activeNetwork.slip44 !== network.slip44 ||
+        current.activeNetwork.url !== network.url
+      )
+        throw new Error(
+          'Ethereum HD derivation context changed or is unsupported'
+        );
+    };
+    assertCurrent();
+    const index = snapshotEvmHdIndex(input);
+    const hostGuard = preparedEvmGuard(options);
+    hostGuard();
+    assertCurrent();
+    const account = await this.setDerivedWeb3Accounts(
+      index,
+      `Account ${index + 1}`
+    );
+    hostGuard();
+    assertCurrent();
+    return account;
+  }
 
   /** The software facade owns this public capability; no device fallback. */
   protected signPreparedSoftwareEvmTransaction(

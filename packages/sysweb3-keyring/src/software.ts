@@ -3,6 +3,11 @@ import { KeyringCore } from './keyring-core';
 import { createVaultPersistence } from './storage-core';
 
 import type { KeyringStoragePort } from './keyring-core';
+import type {
+  EncryptedEvmHdRuntimeAccount,
+  EvmHdRuntimeAccountOptions,
+  EvmHdRuntimeAccountRequest,
+} from './software-hd-account';
 import type { VaultPersistence } from './storage-core';
 import type {
   PreparedEvmSigningOptions,
@@ -56,6 +61,18 @@ export class SoftwareKeyring extends KeyringCore<undefined, undefined> {
   }
 
   /**
+   * Derive a fixed-path Ethereum HD runtime account without network or storage
+   * writes. The returned password-encrypted xprv is internal runtime state,
+   * never a public account/catalogue DTO. The host owns index allocation.
+   */
+  public deriveEvmHdRuntimeAccount(
+    request: EvmHdRuntimeAccountRequest,
+    options: EvmHdRuntimeAccountOptions
+  ): Promise<EncryptedEvmHdRuntimeAccount> {
+    return this.deriveSoftwareEvmHdRuntimeAccount(request, options);
+  }
+
+  /**
    * Sign exactly the prepared envelope without RPC, fee/nonce discovery or
    * broadcasting. The host must journal the result before submitting it.
    * A later lock cannot revoke already returned signed bytes.
@@ -106,3 +123,9 @@ export type {
   PreparedSoftwareEvmSigningRequest,
   SignedPreparedEvmTransaction,
 } from './transactions/prepared-evm';
+
+export type {
+  EncryptedEvmHdRuntimeAccount,
+  EvmHdRuntimeAccountOptions,
+  EvmHdRuntimeAccountRequest,
+} from './software-hd-account';

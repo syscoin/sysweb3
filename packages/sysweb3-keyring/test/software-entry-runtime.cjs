@@ -107,6 +107,18 @@ const storage = () => {
     assert.equal(a.trezorSigner, undefined);
     assert.notEqual(first.records.get('vault'), second.records.get('vault'));
     assert(!JSON.stringify([...first.records]).includes(mnemonic));
+    const storageBeforeDerivation = JSON.stringify([...first.records]);
+    const indexed = await a.deriveEvmHdRuntimeAccount(
+      { index: 1 },
+      { assertCurrent() {} }
+    );
+    assert.equal(indexed.id, 1);
+    assert.equal(indexed.address, '0x6Fac4D18c912343BF86fa7049364Dd4E424Ab9C0');
+    assert.match(indexed.xpub, /^0x04[0-9a-f]{128}$/i);
+    assert.equal(typeof indexed.xprv, 'string');
+    assert(!Object.hasOwn(indexed, 'privateKey'));
+    assert(!Object.hasOwn(aState.accounts.HDAccount, 1));
+    assert.equal(JSON.stringify([...first.records]), storageBeforeDerivation);
     const signature = await a.ethereumTransaction.signPersonalMessage([
       '0x11',
       aState.accounts.HDAccount[0].address,

@@ -2,6 +2,8 @@
 
 ## 2.0.0
 
+- Add `SoftwareKeyring.deriveEvmHdRuntimeAccount` for host-allocated Ethereum BIP44 indices. It returns the existing password-encrypted runtime account record without installing an account, writing storage or querying a network. The method binds session, selection and network identity and requires a synchronous host guard. Hosts must strip encrypted `xprv` before producing public metadata.
+
 - Add `SoftwareKeyring.signPreparedEvmTransaction` for offline signing of fully specified legacy/EIP-1559 envelopes. The request binds the selected software account and exact network/endpoint, requires synchronous host admission, validates all signed fields and recovered identity, and returns immutable signed bytes plus their local hash. It never estimates fees, resolves names, fills fields or broadcasts; hosts must durably retain the result before submission and reconcile uncertain broadcasts by hash.
 
 - Breaking: Ledger signing requires an explicitly injected semantic `LedgerHost`. Raw LedgerJS transports/clients are removed; use the isolated browser ESM host entry for device access.

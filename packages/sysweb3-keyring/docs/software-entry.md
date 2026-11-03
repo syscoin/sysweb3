@@ -175,3 +175,24 @@ exercises separate encrypted stores, software message and prepared-transaction s
 missing-device rejection and restart with browser globals absent. Test KDF
 iterations are reduced by the existing test configuration; production KDF
 qualification remains covered separately.
+
+
+## Indexed Ethereum HD runtime accounts
+
+`deriveEvmHdRuntimeAccount({ index }, { assertCurrent })` derives the existing
+Ethereum BIP44 path for a nonhardened index between 0 and 0x7fffffff. The caller
+allocates indices and persists its account catalogue; this method does neither.
+It requires an unlocked software session on an Ethereum/SLIP-44 60 network and
+rejects changed session, selection or network identity, including changes made
+by the synchronous host guard. The selected account record may be absent during
+initial hydration. No arbitrary derivation path, hardware access, RPC or storage
+operation is introduced.
+
+The result is an `EncryptedEvmHdRuntimeAccount`, matching the internal account
+record returned by `createFirstAccount` and `addNewAccount`. Its `xprv` is
+password-encrypted runtime signing state, not public metadata. Never send that
+field to UI, a public snapshot or a public account catalogue. Store only the
+explicit public identity/label fields required by the host, and regenerate the
+runtime record after authentication. No plaintext private key, phrase or
+password is returned. Account signing remains subject to the existing prepared
+transaction context and approval checks.
