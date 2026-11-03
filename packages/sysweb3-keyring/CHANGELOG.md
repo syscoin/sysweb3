@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.628
+
+- Add the `cjs/software` entry with explicit asynchronous host storage and an opaque wallet-authority handle. Software keyrings do not load browser hardware transports or global storage.
+- Keep the legacy `KeyringManager` entry and normal device defaults. The software entry rejects unavailable hardware, storage rebinding, direct session injection and cross-authority session transfer.
+- Expose reusable vault persistence and software transaction cores with typed deep imports. Preserve vault encryption formats, KDF profiles, private-record domains and account derivation.
+- Move Pali's existing cancellation fee-consent safeguards into source: optional unsigned preview and selected payer, required approved fee ceiling for sending, and final populated-envelope validation.
+- Preserve the original value of a MAX-send replacement; return `REPLACEMENT_VALUE_WOULD_CHANGE` if the higher fee cannot be funded without reducing it.
+- Add an optional synchronous final validator to local transaction sending. Promise/thenable decisions are rejected before signing; the existing five-argument call remains supported.
+
+### Cancellation callers
+
+A cancellation send now requires `approvedMaximumFee` (decimal wei), in addition to the existing synchronous `assertCurrentContext` and `validateOriginal` callbacks. `previewOnly: true` returns `maximumFee` without requesting credentials, device signing or broadcast. After the user deliberately reviews and approves that fee ceiling, pass the approved value when sending; a later higher fee is rejected. `targetAccount` selects the supported outer payer while the host's selected-account context remains guarded.
+
+Pali already enforces these rules through its 1.0.627 package patch. It may remove that patch only when adopting this release and validating the actual installed package.
+
+### Host integration limits
+
+The software entry is a low-level SDK, not a native-wallet security boundary by itself. The host must invalidate its authorization generation immediately on lock/background, clear late unlock results, and control public-state publication. Native cryptographic/storage adapters, biometrics, device behavior and full mobile functionality still require their own implementation and qualification. See `docs/software-entry.md` and `docs/storage-core.md` in the source repository.
+
 ## 1.0.626
 
 - Add an optional synchronous host guard to formatted EVM transaction submission. The SDK captures it once and rechecks it with the existing account, network and session guards before signing and broadcast.
