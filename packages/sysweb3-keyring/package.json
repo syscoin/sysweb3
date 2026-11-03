@@ -4,6 +4,16 @@
   "description": "Keyring Manager for UTXO and Web3 Wallets",
   "main": "cjs/index.js",
   "types": "types/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "cjs/storage-core": [
+        "types/storage-core.d.ts"
+      ],
+      "cjs/storage-core.js": [
+        "types/storage-core.d.ts"
+      ]
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/syscoin/sysweb3.git"
