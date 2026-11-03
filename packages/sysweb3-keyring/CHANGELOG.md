@@ -8,6 +8,7 @@
 - Move Pali's existing cancellation fee-consent safeguards into source: optional unsigned preview and selected payer, required approved fee ceiling for sending, and final populated-envelope validation.
 - Preserve the original value of a MAX-send replacement; return `REPLACEMENT_VALUE_WOULD_CHANGE` if the higher fee cannot be funded without reducing it.
 - Add an optional synchronous final validator to local transaction sending. Promise/thenable decisions are rejected before signing; the existing five-argument call remains supported.
+- Exclude compiled test fixtures from the published package; runtime code and declarations are unchanged.
 
 ### Cancellation callers
 
