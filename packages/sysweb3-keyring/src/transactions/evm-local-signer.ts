@@ -169,7 +169,9 @@ export const sendLocalEvmTransaction = async (
   privateKey: string,
   transaction: Deferrable<Record<string, any>>,
   beforeBroadcast?: () => void,
-  beforeSign?: () => void
+  beforeSign?: () => void,
+  /** Synchronous final-envelope check; throw to reject. Promise results are rejected. */
+  validateBeforeSign?: (transaction: TransactionRequest) => void
 ) => {
   const account = privateKeyToAccount(privateKey);
   const resolved = await resolveProperties(transaction);
@@ -236,6 +238,16 @@ export const sendLocalEvmTransaction = async (
   }
 
   beforeSign?.();
+  const validation = validateBeforeSign?.(tx) as unknown;
+  if (
+    validation &&
+    (typeof validation === 'object' || typeof validation === 'function') &&
+    typeof (validation as PromiseLike<unknown>).then === 'function'
+  ) {
+    // Final envelope admission must finish synchronously before signing.
+    void Promise.resolve(validation).catch(() => undefined);
+    throw new Error('Transaction validation must be synchronous');
+  }
   const signedTx = signTransaction(tx, privateKey);
   beforeBroadcast?.();
   return provider.sendTransaction(signedTx);

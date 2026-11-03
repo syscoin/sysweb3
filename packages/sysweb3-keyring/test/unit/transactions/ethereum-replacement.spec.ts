@@ -1624,4 +1624,90 @@ describe('source SDK account-scoped replacement signing', () => {
     expect(beforeBroadcast).not.toHaveBeenCalled();
     expect(provider.sendTransaction).not.toHaveBeenCalled();
   });
+
+  describe('native MAX replacement value preservation', () => {
+    const targets = [
+      { type: KeyringAccountType.HDAccount, id: 3 },
+      { type: KeyringAccountType.Ledger, id: 4 },
+      { type: KeyringAccountType.Trezor, id: 5 },
+    ];
+    const cases = targets.flatMap((target) =>
+      [true, false].flatMap((legacy) =>
+        [true, false].map((previewOnly) => ({ target, legacy, previewOnly }))
+      )
+    );
+    it.each(cases)(
+      'refuses to reduce the original amount for %j',
+      async ({ target, legacy, previewOnly }) => {
+        const value = BigNumber.from('1000000000');
+        const hash = useOriginal(
+          transaction({
+            type: legacy ? 0 : 2,
+            value,
+            data: '0x',
+          })
+        );
+        // The original fits exactly; the replacement's higher fee does not.
+        provider.getBalance.mockResolvedValue(value.add(2100000));
+        await expect(
+          sdk.sendTransactionWithEditedFee(hash, legacy, {
+            ...options(target),
+            previewOnly,
+          })
+        ).resolves.toEqual({
+          isSpeedUp: false,
+          error: true,
+          code: 'REPLACEMENT_VALUE_WOULD_CHANGE',
+          message:
+            'Add funds before speeding up this transaction; the original amount will not be changed',
+        });
+        expect(getKey).not.toHaveBeenCalled();
+        expect(sendLocalEvmTransaction).not.toHaveBeenCalled();
+        expect(ledger.evm.signEVMTransaction).not.toHaveBeenCalled();
+        expect(trezor.signEthTransaction).not.toHaveBeenCalled();
+        expect(provider.sendTransaction).not.toHaveBeenCalled();
+      }
+    );
+    it.each(
+      targets.flatMap((target) =>
+        [true, false].map((legacy) => ({ target, legacy }))
+      )
+    )(
+      'preserves the original amount when the larger fee is funded for %j',
+      async ({ target, legacy }) => {
+        const value = BigNumber.from('1000000000');
+        const hash = useOriginal(
+          transaction({ type: legacy ? 0 : 2, value, data: '0x' })
+        );
+        provider.getBalance.mockResolvedValue(value.add(APPROVED_MAXIMUM_FEE));
+        await expect(
+          sdk.sendTransactionWithEditedFee(hash, legacy, options(target))
+        ).resolves.toMatchObject({ isSpeedUp: true });
+        const call =
+          target.type === KeyringAccountType.HDAccount
+            ? jest.mocked(sendLocalEvmTransaction).mock.calls[0][2]
+            : target.type === KeyringAccountType.Ledger
+            ? Transaction.from(
+                `0x${ledger.evm.signEVMTransaction.mock.calls[0][0].rawTx}`
+              )
+            : trezor.signEthTransaction.mock.calls[0][0].tx;
+        expect(BigNumber.from(call.value).toString()).toBe(value.toString());
+        expect(provider.sendTransaction).toHaveBeenCalledTimes(1);
+      }
+    );
+    it('retains the existing contract-call MAX rejection', async () => {
+      const value = BigNumber.from('1000000000');
+      const hash = useOriginal(transaction({ value, data: '0x1234' }));
+      provider.getBalance.mockResolvedValue(value.add(2100000));
+      await expect(
+        sdk.sendTransactionWithEditedFee(hash, false, options())
+      ).resolves.toMatchObject({
+        isSpeedUp: false,
+        error: true,
+        code: 'CONTRACT_CALL_MAX_SEND',
+      });
+      expect(getKey).not.toHaveBeenCalled();
+      expect(provider.sendTransaction).not.toHaveBeenCalled();
+    });
+  });
 });

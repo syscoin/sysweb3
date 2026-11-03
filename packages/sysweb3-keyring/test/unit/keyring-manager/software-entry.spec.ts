@@ -206,6 +206,7 @@ describe.each(missingHardwareCases)(
         'cancellation',
         (sdk) =>
           sdk.cancelSentTransaction('0x11', false, undefined, {
+            approvedMaximumFee: '10',
             assertCurrentContext: () => undefined,
             validateOriginal: () => undefined,
           }),

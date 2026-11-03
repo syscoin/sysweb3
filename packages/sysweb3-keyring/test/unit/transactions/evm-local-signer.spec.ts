@@ -240,6 +240,272 @@ describe('EVM local signer', () => {
     expect(provider.sendTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it('validates the fully populated transaction after the context guard and before signing', async () => {
+    const order: string[] = [];
+    const provider = {
+      verifyConfiguredChainId: jest.fn().mockResolvedValue(undefined),
+      getNetwork: jest.fn().mockResolvedValue({ chainId: 1 }),
+      resolveName: jest.fn().mockResolvedValue(ADDRESS),
+      getTransactionCount: jest.fn().mockResolvedValue(7),
+      estimateGas: jest.fn().mockResolvedValue(BigNumber.from(21000)),
+      getFeeData: jest.fn().mockResolvedValue({
+        maxFeePerGas: BigNumber.from(300),
+        maxPriorityFeePerGas: BigNumber.from(20),
+      }),
+      sendTransaction: jest.fn(async (signed: string) => {
+        order.push('broadcast');
+        const transaction = Transaction.from(signed);
+        expect(transaction).toMatchObject({
+          to: ADDRESS,
+          chainId: 1n,
+          nonce: 7,
+          gasLimit: 21000n,
+          type: 2,
+          maxFeePerGas: 300n,
+          maxPriorityFeePerGas: 20n,
+          value: 0n,
+          data: '0x',
+        });
+        return { hash: '0x' + '12'.repeat(32) };
+      }),
+    } as any;
+    const beforeSign = jest.fn(() => {
+      order.push('context');
+    });
+    const beforeBroadcast = jest.fn(() => {
+      order.push('beforeBroadcast');
+    });
+    const validate = jest.fn((transaction) => {
+      order.push('validate');
+      expect(provider.resolveName).toHaveBeenCalledWith('alice.eth');
+      expect(provider.getTransactionCount).toHaveBeenCalledWith(
+        ADDRESS,
+        'pending'
+      );
+      expect(provider.estimateGas).toHaveBeenCalledTimes(1);
+      expect(provider.getFeeData).toHaveBeenCalledTimes(1);
+      expect(transaction).toMatchObject({
+        to: ADDRESS,
+        chainId: 1,
+        nonce: 7,
+        type: 2,
+        value: '0x0',
+        data: '0x',
+      });
+      expect(transaction.gasLimit.toString()).toBe('21000');
+      expect(transaction.maxFeePerGas.toString()).toBe('300');
+      expect(transaction.maxPriorityFeePerGas.toString()).toBe('20');
+      expect(transaction).not.toHaveProperty('from');
+      expect(transaction).not.toHaveProperty('ccipReadEnabled');
+      expect(transaction).not.toHaveProperty('customData');
+    });
+
+    await sendLocalEvmTransaction(
+      provider,
+      PRIVATE_KEY,
+      {
+        from: Promise.resolve(ADDRESS),
+        to: Promise.resolve('alice.eth'),
+        ccipReadEnabled: true,
+        customData: { ignored: true },
+      },
+      beforeBroadcast,
+      beforeSign,
+      validate
+    );
+
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([
+      'context',
+      'validate',
+      'beforeBroadcast',
+      'broadcast',
+    ]);
+  });
+
+  it('rejects a populated envelope before signing or broadcasting when final validation fails', async () => {
+    const provider = {
+      verifyConfiguredChainId: jest.fn().mockResolvedValue(undefined),
+      getNetwork: jest.fn().mockResolvedValue({ chainId: 1 }),
+      getTransactionCount: jest.fn().mockResolvedValue(0),
+      estimateGas: jest.fn().mockResolvedValue(BigNumber.from(42000)),
+      getFeeData: jest.fn().mockResolvedValue({
+        maxFeePerGas: BigNumber.from(301),
+        maxPriorityFeePerGas: BigNumber.from(20),
+      }),
+      sendTransaction: jest.fn(),
+    } as any;
+    const error = new Error('Final fee exceeds approval');
+    const beforeSign = jest.fn();
+    const beforeBroadcast = jest.fn();
+    const validate = jest.fn((transaction) => {
+      expect(beforeSign).toHaveBeenCalledTimes(1);
+      expect(
+        transaction.gasLimit.mul(transaction.maxFeePerGas).toString()
+      ).toBe('12642000');
+      throw error;
+    });
+    const signer = jest.spyOn(
+      // Observe the actual exported signing boundary; no successful signing mock.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      require('../../../src/transactions/evm-local-signer'),
+      'signTransaction'
+    );
+    try {
+      await expect(
+        sendLocalEvmTransaction(
+          provider,
+          PRIVATE_KEY,
+          { to: ADDRESS },
+          beforeBroadcast,
+          beforeSign,
+          validate
+        )
+      ).rejects.toBe(error);
+      expect(validate).toHaveBeenCalledTimes(1);
+      expect(signer).not.toHaveBeenCalled();
+      expect(beforeBroadcast).not.toHaveBeenCalled();
+      expect(provider.sendTransaction).not.toHaveBeenCalled();
+    } finally {
+      signer.mockRestore();
+    }
+  });
+
+  it.each(['resolve', 'reject'])(
+    'rejects an async final validator before its pending decision (%s)',
+    async (decision) => {
+      const provider = {
+        verifyConfiguredChainId: jest.fn().mockResolvedValue(undefined),
+        sendTransaction: jest.fn(),
+      } as any;
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const validate = jest.fn(async () => {
+        entered();
+        await pending;
+        if (decision === 'reject') throw new Error('Late validator rejection');
+      });
+      const beforeBroadcast = jest.fn();
+      const signer = jest.spyOn(
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require('../../../src/transactions/evm-local-signer'),
+        'signTransaction'
+      );
+      try {
+        const result = sendLocalEvmTransaction(
+          provider,
+          PRIVATE_KEY,
+          {
+            to: ADDRESS,
+            nonce: 0,
+            chainId: 1,
+            gasLimit: 21000,
+            gasPrice: 100,
+            type: 0,
+          },
+          beforeBroadcast,
+          undefined,
+          validate
+        );
+        const rejected = expect(result).rejects.toThrow(
+          'Transaction validation must be synchronous'
+        );
+        await ready;
+        // The call must reject while the validator still has no decision.
+        await rejected;
+        expect(signer).not.toHaveBeenCalled();
+        expect(beforeBroadcast).not.toHaveBeenCalled();
+        expect(provider.sendTransaction).not.toHaveBeenCalled();
+        release();
+        // Let the delayed rejection run; it must already have a rejection handler.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      } finally {
+        release();
+        signer.mockRestore();
+      }
+    }
+  );
+
+  it('rejects a custom final-validation thenable and consumes its rejection', async () => {
+    const provider = {
+      verifyConfiguredChainId: jest.fn().mockResolvedValue(undefined),
+      sendTransaction: jest.fn(),
+    } as any;
+    const then = jest.fn((_resolve, reject) => {
+      reject(new Error('Thenable rejection'));
+    });
+    const validate = jest.fn(() => ({ then }));
+    const beforeBroadcast = jest.fn();
+    const signer = jest.spyOn(
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      require('../../../src/transactions/evm-local-signer'),
+      'signTransaction'
+    );
+    try {
+      await expect(
+        sendLocalEvmTransaction(
+          provider,
+          PRIVATE_KEY,
+          {
+            to: ADDRESS,
+            nonce: 0,
+            chainId: 1,
+            gasLimit: 21000,
+            gasPrice: 100,
+            type: 0,
+          },
+          beforeBroadcast,
+          undefined,
+          validate
+        )
+      ).rejects.toThrow('Transaction validation must be synchronous');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(then).toHaveBeenCalledTimes(1);
+      expect(signer).not.toHaveBeenCalled();
+      expect(beforeBroadcast).not.toHaveBeenCalled();
+      expect(provider.sendTransaction).not.toHaveBeenCalled();
+    } finally {
+      signer.mockRestore();
+    }
+  });
+
+  it('preserves the five-argument send API when no final validator is supplied', async () => {
+    const order: string[] = [];
+    const provider = {
+      verifyConfiguredChainId: jest.fn().mockResolvedValue(undefined),
+      sendTransaction: jest.fn(async () => {
+        order.push('broadcast');
+        return { hash: '0x' + '34'.repeat(32) };
+      }),
+    } as any;
+    await sendLocalEvmTransaction(
+      provider,
+      PRIVATE_KEY,
+      {
+        to: ADDRESS,
+        nonce: 0,
+        chainId: 1,
+        gasLimit: 21000,
+        gasPrice: 100,
+        type: 0,
+      },
+      () => {
+        order.push('beforeBroadcast');
+      },
+      () => {
+        order.push('context');
+      }
+    );
+    expect(order).toEqual(['context', 'beforeBroadcast', 'broadcast']);
+    expect(provider.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
   it('signs personal messages in MetaMask-compatible format', () => {
     const signature = signPersonalMessage(PERSONAL_MESSAGE, PRIVATE_KEY);
     const recovered = recoverPersonalSignature({

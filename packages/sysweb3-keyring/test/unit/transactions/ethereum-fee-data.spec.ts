@@ -547,6 +547,7 @@ describe('formatted standard transaction fee-model retention', () => {
 describe('cancellation recommendations keep base fee separate from replacement tip', () => {
   const cancelFields = () => localSend.mock.calls[0][2];
   const contextFor = (sdk: EthereumTransactions, provider: unknown) => ({
+    approvedMaximumFee: '9'.repeat(78),
     validateOriginal: () => undefined,
     assertCurrentContext: () => {
       if (sdk.web3Provider !== provider)

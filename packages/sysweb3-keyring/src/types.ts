@@ -77,6 +77,12 @@ export interface IEvmReplacementOptions {
 }
 
 export interface IEvmCancellationOptions {
+  /** Select the locally controlled outer gas payer for a smart-account transaction. */
+  targetAccount?: { id: number; type: KeyringAccountType };
+  /** Read-only preview; never requests credentials, a device signature or broadcast. */
+  previewOnly?: boolean;
+  /** Required for sending: maximum execution gas fee in decimal wei approved by the user. */
+  approvedMaximumFee?: string;
   /** Synchronous host guard for selection or session state outside the keyring. */
   assertCurrentContext: () => void;
   /**
@@ -101,6 +107,7 @@ export interface IEthereumTransactions {
   ) => Promise<{
     error?: boolean;
     isCanceled: boolean;
+    maximumFee?: string;
     transaction?: TransactionResponse;
   }>;
   decryptMessage: (msgParams: string[]) => string;
