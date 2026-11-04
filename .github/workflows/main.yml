@@ -98,6 +98,11 @@ jobs:
       - name: Validate offline public BIP84 account entry
         working-directory: packages/sysweb3-keyring
         run: |
-          NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent test/unit/utils/public-bip84.spec.ts test/unit/transactions/bip84-native-plan.spec.ts test/unit/keyring-manager/software-utxo-account.spec.ts
+          NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent \
+            test/unit/utils/public-bip84.spec.ts \
+            test/unit/transactions/bip84-native-plan.spec.ts \
+            test/unit/keyring-manager/software-utxo-account.spec.ts \
+            test/unit/transactions/prepared-bip84.spec.ts \
+            test/unit/keyring-manager/prepared-bip84-signing.spec.ts
           node ../../scripts/package/copy
           node test/public-bip84-package.cjs

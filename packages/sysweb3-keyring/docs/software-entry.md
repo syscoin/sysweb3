@@ -72,7 +72,7 @@ Native secure storage, entropy/WebCrypto/Buffer compatibility, biometric policy,
 backup flows and React Native bundler/device qualification are separate work.
 Do not claim this Node-verified entry establishes those properties.
 
-## Prepared EVM signing (unreleased 2.0.0)
+## Prepared EVM signing (2.0.0)
 
 `SoftwareKeyring.signPreparedEvmTransaction(request, { assertCurrent })` signs a
 complete type-0 or type-2 transaction synchronously. It does not contact an RPC,
@@ -198,7 +198,7 @@ password is returned. Account signing remains subject to the existing prepared
 transaction context and approval checks.
 
 
-## Prepared BIP84 native signing (unreleased)
+## Prepared BIP84 native signing (2.1.0)
 
 `SoftwareKeyring.signPreparedBip84Transaction(request, { assertCurrent })` returns
 an asynchronous frozen result containing raw transaction bytes, display-order

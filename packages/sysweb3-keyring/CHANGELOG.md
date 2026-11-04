@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0
+
+- Add the standalone `cjs/public-bip84` entry for strict Bitcoin/Syscoin mainnet account parsing and native SegWit address derivation. It returns public data only; an account public key does not prove ancestry or ownership.
+- Add `SoftwareKeyring.deriveBip84HdPublicAccount` for guarded public derivation from an unlocked software HD wallet, without selecting accounts, writing storage or discovering addresses.
+- Add the standalone `cjs/bip84-native` planner for bounded native-coin P2WPKH transactions with explicit parent data, change, RBF and exact fee limits. Asset, special and coinbase parents are excluded.
+- Add `SoftwareKeyring.signPreparedBip84Transaction` for the selected Bitcoin/Syscoin mainnet HD account. It binds the account, network and synchronous host guard, verifies the rebuilt transaction and signatures, and returns immutable signed bytes, identifiers and exact fee/size data.
+- These offline APIs do not unlock, access a provider, persist records or broadcast. Hosts still own input eligibility, fresh approval, change reservations and durable journaling before broadcast. Existing vault, EVM, generic PSBT and hardware APIs remain unchanged; native and live qualification remain separate.
+
 ## 2.0.0
 
 - Add `SoftwareKeyring.deriveEvmHdRuntimeAccount` for host-allocated Ethereum BIP44 indices. It returns the existing password-encrypted runtime account record without installing an account, writing storage or querying a network. The method binds session, selection and network identity and requires a synchronous host guard. Hosts must strip encrypted `xprv` before producing public metadata.

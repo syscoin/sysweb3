@@ -166,7 +166,7 @@ Oversized valid parents are unavailable to this initial planner; no data is
 truncated or silently omitted. Returned bytes/data are public and privacy-sensitive.
 
 This is a development foundation, **not a native UTXO sending capability**.
-The unreleased `SoftwareKeyring.signPreparedBip84Transaction(request, { assertCurrent })`
+`SoftwareKeyring.signPreparedBip84Transaction(request, { assertCurrent })` (added in 2.1.0)
 signs only the selected HD account's exact prepared plan. It requires the SDK
 selected type/index, requested account and seed-derived canonical public key to
 agree. The mandatory synchronous host guard additionally binds fresh approval,

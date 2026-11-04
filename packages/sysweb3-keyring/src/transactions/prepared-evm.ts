@@ -130,6 +130,7 @@ export function snapshotPreparedEvmRequest(
     !network.url ||
     network.url.length > 4096 ||
     network.url.trim() !== network.url ||
+    // eslint-disable-next-line no-control-regex -- Reject endpoint control characters and lone surrogates.
     /[\uD800-\uDFFF\u0000-\u001f\u007f]/u.test(network.url)
   )
     throw invalid();
