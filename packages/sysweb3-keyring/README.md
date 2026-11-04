@@ -74,6 +74,65 @@ const keyringManager = await KeyringManager.createInitialized(
 );
 ```
 
+### Offline BIP84 public account derivation
+
+The standalone public entry accepts a bare **mainnet xpub or zpub** for a depth-3
+account whose child number is hardened. It derives only native SegWit P2WPKH
+addresses at `/0/index` (receive) or `/1/index` (change), with a nonhardened index
+from 0 through 2,147,483,647. Choose `bitcoin` or `syscoin` explicitly. Testnet
+versions, private keys, descriptors, origin/path suffixes and arbitrary networks
+are rejected. Requests must be plain own-data objects with exactly the documented
+fields; inherited properties, getters and extra fields are rejected. Existing
+generic watch-descriptor and keyring APIs are unchanged.
+
+```typescript
+import {
+  parseBip84PublicAccount,
+  deriveBip84PublicAddress,
+} from '@sidhujag/sysweb3-keyring/cjs/public-bip84';
+
+const account = parseBip84PublicAccount({
+  network: 'syscoin',
+  accountKey: exportedPublicAccountKey,
+});
+const receive = deriveBip84PublicAddress({
+  network: account.network,
+  accountKey: account.canonicalKey,
+  branch: 0,
+  index: 0,
+});
+// receive.address, receive.scriptPubKey; no keyring or provider required.
+```
+
+The canonical account identity is the tuple `(network, policy, canonicalKey)`.
+`policy` is `bip84-p2wpkh`; `canonicalKey` normalizes xpub/zpub aliases to zpub.
+`accountIndex` is the encoded hardened child number minus 2^31. Key serialization
+and depth cannot prove the original purpose, coin type, full ancestry or ownership.
+In particular, the same public key can be encoded for either supported network;
+network selection changes the address encoding and identity, not the derived
+witness program. Require the user to verify their source wallet's BIP84 account
+and network, and compare a known receive address before using a watch account.
+
+Calls are synchronous and stateless: one key of at most 112 Base58 characters,
+one account parse and two requested child derivations per address; no range scan,
+cache, fetch, storage, RNG or wallet signing. The upstream BIP32 factory runs
+deterministic ECC known-vector self-tests at module initialization (including
+fixed-fixture signatures); it never receives a wallet private key here. The
+underlying BIP32 implementation can retry an invalid child internally; a returned index mismatch is rejected instead
+of silently changing the requested path. There is no wall-clock guarantee for
+pathological library retries. Successful outputs are frozen objects containing
+only strings and numbers (including a frozen nested account), never a BIP32 node.
+Invalid input throws `PublicBip84Error` with a constant `INVALID_INPUT`,
+`INVALID_ACCOUNT` or `INVALID_DERIVATION` code and no echoed key.
+
+An account public key reveals all nonhardened receive and change addresses and
+allows their activity to be linked. It cannot spend funds on its own, but remains
+privacy-sensitive. The API performs no discovery or history lookup. A consuming
+wallet must obtain informed consent before sharing an account key or derived
+addresses with an indexer, own explicit discovery/page/concurrency bounds, and
+label partial or unavailable history honestly. This library slice does not
+implement or qualify a complete mobile watch-account feature.
+
 ### Account Management
 
 ```javascript

@@ -95,3 +95,9 @@ jobs:
             test/unit/keyring-manager/import-watchonly.spec.ts \
             test/unit/keyring-manager/watch-descriptor-lifecycle.spec.ts \
             test/unit/utils/watch-descriptor.spec.ts
+      - name: Validate offline public BIP84 account entry
+        working-directory: packages/sysweb3-keyring
+        run: |
+          NODE_ENV=test node ../../node_modules/jest/bin/jest.js --config jest.config.js --runInBand --silent test/unit/utils/public-bip84.spec.ts
+          node ../../scripts/package/copy
+          node test/public-bip84-package.cjs

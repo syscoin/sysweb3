@@ -47,6 +47,12 @@
       ],
       "cjs/ledger/host-types.js": [
         "types/ledger/host-types.d.ts"
+      ],
+      "cjs/public-bip84": [
+        "types/public-bip84.d.ts"
+      ],
+      "cjs/public-bip84.js": [
+        "types/public-bip84.d.ts"
       ]
     }
   },
