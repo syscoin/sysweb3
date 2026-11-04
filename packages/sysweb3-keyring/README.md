@@ -467,3 +467,41 @@ Signatures are checked against the expected account; UTXO signatures must also
 match the approved PSBT and its requested sighash coverage. The custom UTXO host
 supports the existing Syscoin and Bitcoin app protocols. Physical-device and
 firmware qualification remain separate from source and mocked-device tests.
+
+
+## Shared standard EVM fees
+
+`cjs/evm-fees` is a dependency-free read-only entry. Both the existing
+`EthereumTransactions.getFeeDataWithDynamicMaxPriorityFeePerGas` method and
+restricted hosts use the same calculation:
+
+```ts
+import { getEvmFeeData } from '@sidhujag/sysweb3-keyring/cjs/evm-fees';
+
+const fees = await getEvmFeeData(readOnlyProvider, {
+  signal,
+  assertCurrent: () => assertSameAccountAndNetwork(),
+});
+```
+
+The reader supplies only `getGasPrice()`, `getBlock('latest')`, and
+`send('eth_maxPriorityFeePerGas' | 'eth_feeHistory', params)`. It must validate
+its RPC responses and bind its endpoint/chain; this helper does not instantiate
+a provider, estimate gas, select an account, sign or broadcast. The host must
+retain request deadlines and perform its ordinary account/network/session
+checks before signing.
+
+Results are frozen bigint fields: `gasPrice`, `maxFeePerGas`, and
+`maxPriorityFeePerGas`, with `baseFeePerGas` only when the observed header has
+that field. An absent base fee produces the existing legacy zero sentinels for
+the two EIP-1559 fields. A zero base fee or zero tip remains valid EIP-1559 data.
+An explicitly unsupported priority method may use actual recent fee-history
+rewards; other failures never turn into fallback fees. Quantities and calculated
+fees are bounded to uint256, history to the requested five blocks, and no
+signing authority or dependencies are loaded by this entry.
+
+The optional `minPriorityFee` and whole-percent `feeMultiplier` preserve the
+existing configured recommendation policy (default multiplier 250). Options
+are snapshotted before asynchronous reads. The synchronous `assertCurrent`
+callback must return `undefined`; an async callback is rejected. Cancellation
+rejects pending discovery without permitting later results to produce a quote.

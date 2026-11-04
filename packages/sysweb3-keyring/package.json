@@ -1,6 +1,6 @@
 {
   "name": "@sidhujag/sysweb3-keyring",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Keyring Manager for UTXO and Web3 Wallets",
   "main": "cjs/index.js",
   "types": "types/index.d.ts",
@@ -59,6 +59,12 @@
       ],
       "cjs/bip84-native.js": [
         "types/bip84-native.d.ts"
+      ],
+      "cjs/evm-fees": [
+        "types/evm-fees.d.ts"
+      ],
+      "cjs/evm-fees.js": [
+        "types/evm-fees.d.ts"
       ]
     }
   },

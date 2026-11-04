@@ -35,6 +35,7 @@ import {
   resolveProperties,
   serializeTransaction,
 } from '../ethers-v6';
+import { getEvmFeeData, parseEvmFeeQuantity } from '../evm-fees';
 import { CustomJsonRpcProvider, wrapTransactionResponse } from '../providers';
 import {
   IResponseFromSendErcSignedTransaction,
@@ -98,8 +99,11 @@ const assertHardwareTransactionSender = (
   }
 };
 
-const stripHexPrefix = (value: string) =>
-  value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
+const stripHexPrefix = (value: string) => {
+  return value.startsWith('0x') || value.startsWith('0X')
+    ? value.slice(2)
+    : value;
+};
 
 // Connect returns hexadecimal signature fields; normalize their encoding
 // without mutating the response or reparsing an already numeric recovery v.
@@ -128,68 +132,8 @@ const trezorSignature = (signature: {
 
 const normalizeEthersOverrideValue = (value: any) => normalizeTxValue(value);
 
-const nonNegativeFeeQuantity = (value: unknown, label: string): BigNumber => {
-  // Match the exported BigNumberish object contract without trusting a
-  // private marker or BigNumber.from's null/empty-to-zero coercions. Normalize
-  // once so validation and conversion use the same integer representation.
-  if (value !== null && typeof value === 'object') {
-    const objectValue = value as {
-      _hex?: unknown;
-      hex?: unknown;
-      toString?: () => unknown;
-    };
-    value =
-      objectValue._hex ??
-      objectValue.hex ??
-      (typeof objectValue.toString === 'function'
-        ? objectValue.toString()
-        : undefined);
-    if (typeof value !== 'string') throw new Error(`Invalid ${label}`);
-  }
-  if (
-    !(
-      (typeof value === 'string' && /^(?:0x[\da-f]+|\d+)$/i.test(value)) ||
-      (typeof value === 'number' &&
-        Number.isSafeInteger(value) &&
-        value >= 0) ||
-      (typeof value === 'bigint' && value >= 0n)
-    )
-  )
-    throw new Error(`Invalid ${label}`);
-  const quantity = BigNumber.from(
-    value as Parameters<typeof BigNumber.from>[0]
-  );
-  if (quantity.isNegative()) throw new Error(`Invalid ${label}`);
-  return quantity;
-};
-
-const isUnsupportedPriorityFeeRpc = (error: any): boolean => {
-  const unsupportedCode = (code: unknown) => code === -32601 || code === 4200;
-  if (unsupportedCode(error?.code)) return true;
-  // Ethers' HTTP normalizer retains the matched JSON-RPC error and request
-  // under one of these two shapes. A generic outer unsupported/network error
-  // is not evidence that this particular RPC method is unavailable.
-  if (!['UNKNOWN_ERROR', 'UNSUPPORTED_OPERATION'].includes(error?.code)) {
-    return false;
-  }
-  if (
-    error?.operation != null &&
-    error.operation !== 'eth_maxPriorityFeePerGas'
-  ) {
-    return false;
-  }
-  return [
-    { cause: error.error, payload: error.payload },
-    { cause: error.info?.error, payload: error.info?.payload },
-  ].some(
-    ({ cause, payload }) =>
-      cause?.name !== 'AbortError' &&
-      unsupportedCode(cause?.code) &&
-      payload?.method === 'eth_maxPriorityFeePerGas' &&
-      Array.isArray(payload.params) &&
-      payload.params.length === 0
-  );
-};
+const nonNegativeFeeQuantity = (value: unknown, label: string): BigNumber =>
+  BigNumber.from(parseEvmFeeQuantity(value, label));
 
 const normalizeEthersOverrides = (overrides: Record<string, any>) => {
   const normalized = { ...overrides };
@@ -943,77 +887,21 @@ export class EthereumTransactions<
   getFeeDataWithDynamicMaxPriorityFeePerGas = async (
     provider = this.web3Provider
   ) => {
-    // Keep the actual legacy-price recommendation separate from the buffered
-    // EIP-1559 maximum. A failed read is not evidence of a zero/legacy fee.
-    const gasPrice = nonNegativeFeeQuantity(
-      await provider.getGasPrice(),
-      'gas price'
-    );
-    const block = await provider.getBlock('latest');
-    if (!block) throw new Error('Block not found');
-    if (block.baseFeePerGas == null) {
-      return {
-        gasPrice,
-        maxFeePerGas: BigNumber.from(0),
-        maxPriorityFeePerGas: BigNumber.from(0),
-      };
-    }
-    const baseFeePerGas = nonNegativeFeeQuantity(
-      block.baseFeePerGas,
-      'base fee'
-    );
-    let maxPriorityFeePerGas: BigNumber;
-    try {
-      maxPriorityFeePerGas = nonNegativeFeeQuantity(
-        await provider.send('eth_maxPriorityFeePerGas', []),
-        'priority fee'
-      );
-    } catch (error) {
-      if (
-        error?.code === 'SYSWEB3_RPC_RESPONSE_INVALID' ||
-        error?.name === 'AbortError' ||
-        this.abortController.signal.aborted ||
-        provider.signal?.aborted ||
-        !isUnsupportedPriorityFeeRpc(error)
-      )
-        throw error;
-      // An explicitly unsupported method may use actual observed history,
-      // including zero rewards. Missing/corrupt history never invents a tip.
-      const history = await provider.send('eth_feeHistory', [
-        '0x5',
-        'latest',
-        [25, 50, 75],
-      ]);
-      if (!Array.isArray(history?.reward) || history.reward.length === 0)
-        throw new Error('Priority fee history unavailable');
-      const recentFees = history.reward
-        .map((reward: unknown) => {
-          if (!Array.isArray(reward) || reward.length !== 3)
-            throw new Error('Invalid priority fee history');
-          return nonNegativeFeeQuantity(reward[1], 'priority fee history');
-        })
-        .sort((a: BigNumber, b: BigNumber) => (a.lt(b) ? -1 : a.gt(b) ? 1 : 0));
-      maxPriorityFeePerGas = recentFees[Math.floor(recentFees.length / 2)]
-        .mul(150)
-        .div(100);
-    }
-    if (
-      this.gasOverrides.minPriorityFee &&
-      maxPriorityFeePerGas.lt(this.gasOverrides.minPriorityFee)
-    )
-      maxPriorityFeePerGas = this.gasOverrides.minPriorityFee;
-    const baselineMaxFee = gasPrice.mul(120).div(100);
-    const calculatedMaxFee = baseFeePerGas
-      .mul(this.gasOverrides.feeMultiplier || 250)
-      .div(100)
-      .add(maxPriorityFeePerGas);
-    let maxFeePerGas = calculatedMaxFee.gt(baselineMaxFee)
-      ? calculatedMaxFee
-      : baselineMaxFee;
-    const minMaxFee = maxPriorityFeePerGas.mul(120).div(100);
-    if (maxFeePerGas.lt(minMaxFee)) maxFeePerGas = minMaxFee;
-    if (maxFeePerGas.isZero()) throw new Error('Invalid EIP-1559 maximum fee');
-    return { gasPrice, baseFeePerGas, maxFeePerGas, maxPriorityFeePerGas };
+    const fee = await getEvmFeeData(provider, {
+      signal: this.abortController.signal,
+      minPriorityFee: this.gasOverrides.minPriorityFee,
+      feeMultiplier: this.gasOverrides.feeMultiplier,
+    });
+    return {
+      gasPrice: BigNumber.from(fee.gasPrice),
+      ...(fee.baseFeePerGas === undefined
+        ? {}
+        : {
+            baseFeePerGas: BigNumber.from(fee.baseFeePerGas),
+          }),
+      maxFeePerGas: BigNumber.from(fee.maxFeePerGas),
+      maxPriorityFeePerGas: BigNumber.from(fee.maxPriorityFeePerGas),
+    };
   };
   calculateNewGasValues = (
     oldTxsParams: IGasParams,
