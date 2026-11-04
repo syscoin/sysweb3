@@ -63,6 +63,13 @@ import {
   privateKeyToAccount,
 } from './transactions/evm-local-signer';
 import {
+  clearBip84PrivateNodes,
+  PreparedBip84SigningRequest,
+  SignedBip84NativeTransaction,
+  signValidatedBip84Plan,
+  snapshotPreparedBip84Request,
+} from './transactions/prepared-bip84';
+import {
   preparedEvmGuard,
   signPreparedEvmEnvelope,
   snapshotPreparedEvmRequest,
@@ -2123,6 +2130,119 @@ export class KeyringCore<
     } finally {
       // Only buffers owned by this operation; library/JS copies are not claimed zeroized.
       for (const node of nodes) node.privateKey?.fill(0);
+      if (this.bip84Operation === operation) this.bip84Operation = undefined;
+    }
+  }
+
+  /** Fixed selected-account native signing. No storage, discovery or broadcast. */
+  protected async signPreparedSoftwareBip84Transaction(
+    input: PreparedBip84SigningRequest,
+    options: Bip84Guard
+  ): Promise<SignedBip84NativeTransaction> {
+    if (this.bip84Operation) throw new Bip84NativeError('BUSY');
+    const operation = {};
+    this.bip84Operation = operation;
+    const nodes: import('bip32').BIP32Interface[] = [];
+    try {
+      const session = this.sessionPassword;
+      const mnemonic = this.sessionMnemonic;
+      const revision = this.privateRecordSessionRevision;
+      const vault = this.getVault();
+      const selected = { ...vault.activeAccount };
+      const selectedAccount = vault.accounts[selected.type]?.[selected.id];
+      const identity = {
+        id: selectedAccount?.id,
+        address: selectedAccount?.address,
+        xpub: selectedAccount?.xpub,
+      };
+      const network = { ...vault.activeNetwork };
+      const { account, validated } = snapshotPreparedBip84Request(input);
+      const hostGuard = snapshotBip84Guard(options);
+      const profile = bip84Profile(validated.prepared.plan.network.network);
+      const assertCurrent = () => {
+        const current = this.getVault();
+        const active = current.accounts[selected.type]?.[selected.id];
+        if (
+          !session ||
+          session.isCleared() ||
+          this.sessionPassword !== session ||
+          !mnemonic ||
+          mnemonic.isCleared() ||
+          this.sessionMnemonic !== mnemonic ||
+          this.privateRecordSessionRevision !== revision ||
+          this.bip84Operation !== operation ||
+          selected.type !== KeyringAccountType.HDAccount ||
+          selected.id !== account.index ||
+          current.activeAccount.type !== selected.type ||
+          current.activeAccount.id !== selected.id ||
+          !active ||
+          active.id !== account.index ||
+          active.id !== identity.id ||
+          active.address !== identity.address ||
+          active.xpub !== identity.xpub ||
+          active.isImported ||
+          active.isLedgerWallet ||
+          active.isTrezorWallet ||
+          active.isSmartAccount ||
+          network.kind !== INetworkType.Syscoin ||
+          network.chainId !== profile.chainId ||
+          network.slip44 !== profile.slip44 ||
+          network.url !== validated.prepared.plan.network.endpoint ||
+          current.activeNetwork.kind !== network.kind ||
+          current.activeNetwork.chainId !== network.chainId ||
+          current.activeNetwork.slip44 !== network.slip44 ||
+          current.activeNetwork.url !== network.url
+        )
+          throw new Bip84NativeError('CANCELLED');
+      };
+      const guard = () => {
+        assertCurrent();
+        hostGuard();
+        assertCurrent();
+      };
+      guard();
+      if (
+        typeof identity.xpub !== 'string' ||
+        parseBip84PublicAccount({
+          network: validated.prepared.plan.network.network,
+          accountKey: identity.xpub,
+        }).canonicalKey !== account.expectedAccountKey
+      )
+        throw new Bip84NativeError('ACCOUNT_MISMATCH');
+      const words = this.getDecryptedMnemonic();
+      if (!BIP84.validateMnemonic(words))
+        throw new Bip84NativeError('ACCOUNT_MISMATCH');
+      guard();
+      const config = getNetworkConfig(profile.slip44, profile.currency);
+      const { hd } = getSyscoinSigners({
+        mnemonic: words,
+        rpc: {
+          formattedNetwork: { ...network, currency: profile.currency },
+          networkConfig: {
+            networks: config.networks,
+            types: {
+              xPubType: config.types.xPubType,
+              zPubType: config.types.zPubType,
+            },
+          },
+        },
+      });
+      let node = hd.getRootNode();
+      nodes.push(node);
+      for (const child of [84, profile.slip44, account.index]) {
+        guard();
+        node = node.deriveHardened(child);
+        nodes.push(node);
+        if (node.index !== child + 0x80000000)
+          throw new Bip84NativeError('ACCOUNT_MISMATCH');
+      }
+      guard();
+      return signValidatedBip84Plan(validated, node, guard);
+    } catch (error) {
+      if (error instanceof Bip84NativeError) throw error;
+      throw new Bip84NativeError('INVALID_REQUEST');
+    } finally {
+      clearBip84PrivateNodes(nodes);
       if (this.bip84Operation === operation) this.bip84Operation = undefined;
     }
   }

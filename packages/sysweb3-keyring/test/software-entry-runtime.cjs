@@ -151,7 +151,95 @@ const storage = () => {
       assert(!JSON.stringify(publicAccount).includes(mnemonic));
       assert(!Object.hasOwn(publicAccount, 'xprv'));
       assert.equal(JSON.stringify([...first.records]), beforePublicDerivation);
-      assert.equal(utxo.signPreparedBip84Transaction, undefined);
+      const { Transaction } = require('bitcoinjs-lib');
+      const { prepareBip84NativeTransaction } = require(path.join(
+        path.dirname(entry),
+        'bip84-native.js'
+      ));
+      const { deriveBip84PublicAddress } = require(path.join(
+        path.dirname(entry),
+        'public-bip84.js'
+      ));
+      for (const coin of ['bitcoin', 'syscoin']) {
+        utxoState.activeNetwork = {
+          ...utxoState.activeNetwork,
+          chainId: coin === 'bitcoin' ? 0 : 57,
+          slip44: coin === 'bitcoin' ? 0 : 57,
+          currency: coin === 'bitcoin' ? 'btc' : 'sys',
+        };
+        const derived = await utxo.deriveBip84HdPublicAccount(
+          {
+            network: { network: coin, endpoint: 'https://offline.invalid' },
+            accountIndex: 2,
+          },
+          { assertCurrent() {} }
+        );
+        utxoState.accounts.HDAccount[2] = {
+          id: 2,
+          address: derived.receive.address,
+          xpub: derived.account.canonicalKey,
+          xprv: '',
+          label: 'HD2',
+          isImported: false,
+          isLedgerWallet: false,
+          isTrezorWallet: false,
+          balances: { syscoin: 0, ethereum: 0 },
+        };
+        utxoState.activeAccount = { id: 2, type: KeyringAccountType.HDAccount };
+        const parent = new Transaction();
+        parent.version = 2;
+        parent.addInput(Buffer.alloc(32, 2), 0);
+        parent.addOutput(
+          Buffer.from(derived.receive.scriptPubKey, 'hex'),
+          100000n
+        );
+        const recipient = deriveBip84PublicAddress({
+          network: coin,
+          accountKey: derived.account.canonicalKey,
+          branch: 0,
+          index: 9,
+        });
+        const prepared = prepareBip84NativeTransaction({
+          network: { network: coin, endpoint: 'https://offline.invalid' },
+          account: derived.account,
+          inputs: [{ txid: parent.getId(), vout: 0, branch: 0, index: 0 }],
+          previousTransactions: [
+            { txid: parent.getId(), rawTransaction: parent.toHex() },
+          ],
+          recipient: { address: recipient.address, valueSatoshis: '99000' },
+          change: null,
+          locktime: 0,
+          rbf: true,
+          feeLimits: { maxFeeSatoshis: '1000', maxFeeRateSatPerVByte: '1000' },
+        });
+        const request = {
+          account: {
+            type: 'HDAccount',
+            index: 2,
+            expectedAccountKey: derived.account.canonicalKey,
+          },
+          prepared,
+        };
+        const signed = await utxo.signPreparedBip84Transaction(request, {
+          assertCurrent() {},
+        });
+        const tx = Transaction.fromHex(signed.rawTransaction),
+          unsigned = tx.clone();
+        unsigned.stripWitnesses();
+        assert.equal(unsigned.toHex(), prepared.unsignedTransaction);
+        assert.equal(tx.ins[0].witness.length, 2);
+        assert.equal(signed.feeSatoshis, '1000');
+        assert.equal(tx.getId(), signed.txid);
+        assert.equal(tx.virtualSize(), signed.virtualSize);
+        assert(Object.isFrozen(signed));
+        assert(!JSON.stringify(signed).includes(mnemonic));
+        utxoState.activeAccount.id = 0;
+        await assert.rejects(
+          utxo.signPreparedBip84Transaction(request, { assertCurrent() {} }),
+          { code: 'CANCELLED' }
+        );
+      }
+      assert.equal(JSON.stringify([...first.records]), beforePublicDerivation);
     } finally {
       await utxo.destroy();
     }

@@ -15,6 +15,10 @@ import type {
 import type { VaultPersistence } from './storage-core';
 import type { Bip84Guard } from './transactions/bip84-native-plan';
 import type {
+  PreparedBip84SigningRequest,
+  SignedBip84NativeTransaction,
+} from './transactions/prepared-bip84';
+import type {
   PreparedEvmSigningOptions,
   PreparedSoftwareEvmSigningRequest,
   SignedPreparedEvmTransaction,
@@ -85,6 +89,14 @@ export class SoftwareKeyring extends KeyringCore<undefined, undefined> {
     return this.deriveSoftwareBip84HdPublicAccount(request, options);
   }
 
+  /** Sign the selected HD account's exact prepared native transaction offline. */
+  public signPreparedBip84Transaction(
+    request: PreparedBip84SigningRequest,
+    options: Bip84Guard
+  ): Promise<SignedBip84NativeTransaction> {
+    return this.signPreparedSoftwareBip84Transaction(request, options);
+  }
+
   /**
    * Sign exactly the prepared envelope without RPC, fee/nonce discovery or
    * broadcasting. The host must journal the result before submitting it.
@@ -148,3 +160,8 @@ export type {
   Bip84HdPublicResult,
 } from './software-utxo-account';
 export type { Bip84Guard } from './transactions/bip84-native-plan';
+
+export type {
+  PreparedBip84SigningRequest,
+  SignedBip84NativeTransaction,
+} from './transactions/prepared-bip84';

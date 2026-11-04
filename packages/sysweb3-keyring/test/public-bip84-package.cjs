@@ -55,6 +55,8 @@ try {
     'types/public-bip84.d.ts',
     'cjs/bip84-native.js',
     'types/bip84-native.d.ts',
+    'cjs/transactions/prepared-bip84.js',
+    'types/transactions/prepared-bip84.d.ts',
     'package.json',
     'README.md',
   ])
@@ -119,6 +121,16 @@ try {
       consumer
     )
   );
+  process.stdout.write(
+    run(
+      process.execPath,
+      [
+        path.join(__dirname, 'software-entry-runtime.cjs'),
+        path.join(unpacked, 'cjs/software.js'),
+      ],
+      consumer
+    )
+  );
   fs.writeFileSync(
     path.join(consumer, 'consumer.ts'),
     `
@@ -126,13 +138,19 @@ import { parseBip84PublicAccount, deriveBip84PublicAddress, PublicBip84Error, Bi
 import { deriveBip84PublicAddress as withExtension } from '@sidhujag/sysweb3-keyring/cjs/public-bip84.js';
 import { prepareBip84NativeTransaction, Bip84NativePlan } from '@sidhujag/sysweb3-keyring/cjs/bip84-native';
 import { prepareBip84NativeTransaction as withNativeExtension } from '@sidhujag/sysweb3-keyring/cjs/bip84-native.js';
-import type { SoftwareKeyring } from '@sidhujag/sysweb3-keyring/cjs/software.js';
+import type { SoftwareKeyring, PreparedBip84SigningRequest, SignedBip84NativeTransaction } from '@sidhujag/sysweb3-keyring/cjs/software.js';
 declare const keyring: SoftwareKeyring;
 declare const plan: Bip84NativePlan;
 prepareBip84NativeTransaction(plan); withNativeExtension(plan);
 keyring.deriveBip84HdPublicAccount({ network: { network: 'bitcoin', endpoint: 'https://offline.invalid' }, accountIndex: 1 }, { assertCurrent() {} });
-// @ts-expect-error part one does not enable private native signing
-keyring.signPreparedBip84Transaction({});
+declare const signing: PreparedBip84SigningRequest;
+const signed: Promise<SignedBip84NativeTransaction> = keyring.signPreparedBip84Transaction(signing, { assertCurrent() {} });
+void signed;
+// @ts-expect-error mandatory guard
+keyring.signPreparedBip84Transaction(signing);
+// @ts-expect-error only selected HD accounts, no imported scalar signing
+const unsupported: PreparedBip84SigningRequest = { account: { type: 'Imported', index: 0, expectedAccountKey: '' }, prepared: signing.prepared };
+void unsupported;
 const request = { network: 'syscoin' as const, accountKey: 'public fixture' };
 const account: Bip84PublicAccount = parseBip84PublicAccount(request);
 const result = deriveBip84PublicAddress({ ...request, branch: 1, index: 7 });

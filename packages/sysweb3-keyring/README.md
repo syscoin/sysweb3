@@ -160,13 +160,21 @@ This is a wallet resource policy, not a consensus limit; large scripts remain
 subject to the separate byte limits. Wallet policy additionally caps absolute fees
 at 10,000,000 satoshis and fee rate at 1,000 sat/vB; callers must provide limits
 no higher than those ceilings. Maximum signature size is used only to reject
-fees that cannot possibly satisfy the rate ceiling; final signed size must be
-checked by a future signer. Zero fee is arithmetic-valid, not a relay guarantee.
+fees that cannot possibly satisfy the rate ceiling; the prepared signer checks
+that ceiling again using the actual finalized virtual size. Zero fee is arithmetic-valid, not a relay guarantee.
 Oversized valid parents are unavailable to this initial planner; no data is
 truncated or silently omitted. Returned bytes/data are public and privacy-sensitive.
 
 This is a development foundation, **not a native UTXO sending capability**.
-There is no prepared native signing method in this slice. The host still owns
+The unreleased `SoftwareKeyring.signPreparedBip84Transaction(request, { assertCurrent })`
+signs only the selected HD account's exact prepared plan. It requires the SDK
+selected type/index, requested account and seed-derived canonical public key to
+agree. The mandatory synchronous host guard additionally binds fresh approval,
+monotonic revision and review expiry. It rebuilds the plan, verifies complete
+low-S SIGHASH_ALL signatures and exact unsigned bytes, and checks the final fee
+against actual virtual size. It performs no unlock, storage, discovery or
+broadcast and returns only frozen signed bytes, identifiers and fee/size data.
+It does not consume or create per-account encrypted xprvs. The host still owns
 canonical-chain/unspent checks, confirmed-input eligibility, protected collateral
 and pending outpoint reservations, change-index persistence, fresh authentication,
 review cancellation and eventual journal-before-broadcast behavior. Full parent

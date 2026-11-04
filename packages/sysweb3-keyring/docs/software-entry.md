@@ -196,3 +196,34 @@ explicit public identity/label fields required by the host, and regenerate the
 runtime record after authentication. No plaintext private key, phrase or
 password is returned. Account signing remains subject to the existing prepared
 transaction context and approval checks.
+
+
+## Prepared BIP84 native signing (unreleased)
+
+`SoftwareKeyring.signPreparedBip84Transaction(request, { assertCurrent })` returns
+an asynchronous frozen result containing raw transaction bytes, display-order
+`txid`/`wtxid`, the reviewed unsigned bytes, exact `feeSatoshis` and actual
+`virtualSize`. Only Bitcoin/Syscoin mainnet HD native P2WPKH spends supported by
+the standalone planner are admitted; asset/special/coinbase parents are excluded.
+
+The request is `{ account: { type: 'HDAccount', index, expectedAccountKey },
+prepared }`. `expectedAccountKey` is the planner's canonical account zpub.
+The SDK selected account must exist and have that same type/index/public key;
+public derivation of an arbitrary index does not select or authorize it. Keys
+are derived once from the existing authenticated seed, not a caller PSBT or
+per-account xprv. The method never unlocks, selects accounts, reads/writes
+storage, calls a provider or broadcasts. It rebuilds the prepared plan, permits
+only fully verified low-S SIGHASH_ALL witnesses and checks final unsigned bytes
+and exact BigInt fee against actual finalized vsize. Existing generic PSBT,
+EVM and hardware paths are unchanged.
+
+The host must supply a synchronous guard returning exactly undefined, bind a
+monotonic revision and fresh approval to the complete review, enforce expiry,
+canonical/unspent/protected-input eligibility and change reservations, and check
+again after awaiting. Account/network A-B-A must revoke the review. The shared
+BIP84 operation gate rejects reentrancy. Failure never locks a replacement
+runtime. Owned private buffers are cleared when possible; JavaScript strings,
+SJS seed internals and cryptographic-library copies cannot be promised zeroized.
+Returned signed bytes cannot be revoked; the host must journal before broadcast.
+This SDK API does not establish mobile custody, relay eligibility, native or
+live qualification.
