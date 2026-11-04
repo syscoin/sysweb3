@@ -53,6 +53,12 @@
       ],
       "cjs/public-bip84.js": [
         "types/public-bip84.d.ts"
+      ],
+      "cjs/bip84-native": [
+        "types/bip84-native.d.ts"
+      ],
+      "cjs/bip84-native.js": [
+        "types/bip84-native.d.ts"
       ]
     }
   },

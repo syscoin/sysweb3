@@ -119,6 +119,42 @@ const storage = () => {
     assert(!Object.hasOwn(indexed, 'privateKey'));
     assert(!Object.hasOwn(aState.accounts.HDAccount, 1));
     assert.equal(JSON.stringify([...first.records]), storageBeforeDerivation);
+    const utxo = new SoftwareKeyring(firstHost);
+    const utxoState = makeState();
+    utxoState.activeNetwork = {
+      kind: INetworkType.Syscoin,
+      chainId: 0,
+      slip44: 0,
+      currency: 'btc',
+      label: 'Bitcoin',
+      url: 'https://offline.invalid',
+    };
+    utxo.setVaultStateGetter(() => utxoState);
+    try {
+      assert.equal((await utxo.unlock(password)).canLogin, true);
+      const beforePublicDerivation = JSON.stringify([...first.records]);
+      const publicAccount = await utxo.deriveBip84HdPublicAccount(
+        {
+          network: { network: 'bitcoin', endpoint: 'https://offline.invalid' },
+          accountIndex: 0,
+        },
+        { assertCurrent() {} }
+      );
+      assert.equal(
+        publicAccount.receive.address,
+        'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu'
+      );
+      assert.equal(publicAccount.account.accountIndex, 0);
+      assert(
+        Object.isFrozen(publicAccount) && Object.isFrozen(publicAccount.account)
+      );
+      assert(!JSON.stringify(publicAccount).includes(mnemonic));
+      assert(!Object.hasOwn(publicAccount, 'xprv'));
+      assert.equal(JSON.stringify([...first.records]), beforePublicDerivation);
+      assert.equal(utxo.signPreparedBip84Transaction, undefined);
+    } finally {
+      await utxo.destroy();
+    }
     const signature = await a.ethereumTransaction.signPersonalMessage([
       '0x11',
       aState.accounts.HDAccount[0].address,
@@ -190,7 +226,7 @@ const storage = () => {
     global.fetch = originalFetch;
   }
   process.stdout.write(
-    'Software entry: browser/device-free import, no timers, isolated vaults, signing and restart passed.\n'
+    'Software entry: browser/device-free import, no timers, isolated vaults, public BIP84 derivation, signing and restart passed.\n'
   );
 })().catch((error) => {
   process.stderr.write(`${error.stack}\n`);

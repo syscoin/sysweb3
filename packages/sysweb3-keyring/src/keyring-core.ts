@@ -39,9 +39,24 @@ import {
   IEncryptedPrivateRecord,
   IEncryptPrivateRecordParams,
 } from './private-records';
+import {
+  deriveBip84PublicAddress,
+  parseBip84PublicAccount,
+} from './public-bip84';
 import { getSyscoinSigners, SyscoinHDSigner } from './signers';
 import { snapshotEvmHdIndex } from './software-hd-account';
+import {
+  snapshotBip84HdPublicRequest,
+  Bip84HdPublicRequest,
+  Bip84HdPublicResult,
+} from './software-utxo-account';
 import { VaultAuthenticationError } from './storage-core';
+import {
+  bip84Profile,
+  Bip84Guard,
+  Bip84NativeError,
+  snapshotBip84Guard,
+} from './transactions/bip84-native-plan';
 import { EthereumTransactions } from './transactions/ethereum';
 import {
   deriveEvmAccountFromMnemonic,
@@ -285,6 +300,7 @@ export class KeyringCore<
   private sessionPassword: SecureBuffer | null = null;
   private sessionMnemonic: SecureBuffer | null = null; // can be a mnemonic or a zprv, can be changed to a zprv when using an imported wallet
   private privateRecordSessionRevision = 0;
+  private bip84Operation: object | undefined;
 
   constructor(dependencies: KeyringCoreDependencies<TLedger, TTrezor>) {
     if (
@@ -1998,6 +2014,118 @@ export class KeyringCore<
     assertCurrent();
     return assertCurrent;
   };
+
+  /** Fixed-profile public UTXO derivation; private material remains operation-local. */
+  protected async deriveSoftwareBip84HdPublicAccount(
+    input: Bip84HdPublicRequest,
+    options: Bip84Guard
+  ): Promise<Bip84HdPublicResult> {
+    if (this.bip84Operation) throw new Bip84NativeError('BUSY');
+    const operation = {};
+    this.bip84Operation = operation;
+    const nodes: import('bip32').BIP32Interface[] = [];
+    try {
+      const session = this.sessionPassword;
+      const mnemonic = this.sessionMnemonic;
+      const revision = this.privateRecordSessionRevision;
+      const vault = this.getVault();
+      const selected = { ...vault.activeAccount };
+      const selectedAccount = vault.accounts[selected.type]?.[selected.id];
+      const identity = {
+        address: selectedAccount?.address,
+        xpub: selectedAccount?.xpub,
+      };
+      const network = { ...vault.activeNetwork };
+      const request = snapshotBip84HdPublicRequest(input);
+      const hostGuard = snapshotBip84Guard(options);
+      const profile = bip84Profile(request.network.network);
+      const assertCurrent = () => {
+        const current = this.getVault();
+        const account = current.accounts[selected.type]?.[selected.id];
+        if (
+          !session ||
+          session.isCleared() ||
+          this.sessionPassword !== session ||
+          !mnemonic ||
+          mnemonic.isCleared() ||
+          this.sessionMnemonic !== mnemonic ||
+          this.privateRecordSessionRevision !== revision ||
+          this.bip84Operation !== operation ||
+          selected.type !== KeyringAccountType.HDAccount ||
+          current.activeAccount.type !== selected.type ||
+          current.activeAccount.id !== selected.id ||
+          account?.address !== identity.address ||
+          account?.xpub !== identity.xpub ||
+          account?.isLedgerWallet ||
+          account?.isTrezorWallet ||
+          account?.isSmartAccount ||
+          network.kind !== INetworkType.Syscoin ||
+          network.chainId !== profile.chainId ||
+          network.slip44 !== profile.slip44 ||
+          network.url !== request.network.endpoint ||
+          current.activeNetwork.kind !== network.kind ||
+          current.activeNetwork.chainId !== network.chainId ||
+          current.activeNetwork.slip44 !== network.slip44 ||
+          current.activeNetwork.url !== network.url
+        )
+          throw new Bip84NativeError('CANCELLED');
+      };
+      const guard = () => {
+        assertCurrent();
+        hostGuard();
+        assertCurrent();
+      };
+      guard();
+      const config = getNetworkConfig(profile.slip44, profile.currency);
+      const { hd } = getSyscoinSigners({
+        mnemonic: this.getDecryptedMnemonic(),
+        rpc: {
+          formattedNetwork: { ...network, currency: profile.currency },
+          networkConfig: {
+            networks: config.networks,
+            types: {
+              xPubType: config.types.xPubType,
+              zPubType: config.types.zPubType,
+            },
+          },
+        },
+      });
+      let node = hd.getRootNode();
+      nodes.push(node);
+      for (const child of [84, profile.slip44, request.accountIndex]) {
+        node = node.deriveHardened(child);
+        nodes.push(node);
+        if (node.index !== child + 0x80000000)
+          throw new Bip84NativeError('ACCOUNT_MISMATCH');
+      }
+      const account = parseBip84PublicAccount({
+        network: request.network.network,
+        accountKey: node.neutered().toBase58(),
+      });
+      if (account.accountIndex !== request.accountIndex)
+        throw new Bip84NativeError('ACCOUNT_MISMATCH');
+      const receive = deriveBip84PublicAddress({
+        network: request.network.network,
+        accountKey: account.canonicalKey,
+        branch: 0,
+        index: 0,
+      });
+      guard();
+      return Object.freeze({
+        type: 'HDAccount',
+        accountIndex: request.accountIndex,
+        account,
+        receive,
+      });
+    } catch (error) {
+      if (error instanceof Bip84NativeError) throw error;
+      throw new Bip84NativeError('INVALID_REQUEST');
+    } finally {
+      // Only buffers owned by this operation; library/JS copies are not claimed zeroized.
+      for (const node of nodes) node.privateKey?.fill(0);
+      if (this.bip84Operation === operation) this.bip84Operation = undefined;
+    }
+  }
 
   /** Fixed-path derivation for an authenticated software host; no persistence. */
   protected async deriveSoftwareEvmHdRuntimeAccount(

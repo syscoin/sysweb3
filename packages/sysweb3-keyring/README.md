@@ -133,6 +133,47 @@ addresses with an indexer, own explicit discovery/page/concurrency bounds, and
 label partial or unavailable history honestly. This library slice does not
 implement or qualify a complete mobile watch-account feature.
 
+### Development BIP84 native-transfer foundation
+
+`SoftwareKeyring.deriveBip84HdPublicAccount(request, { assertCurrent })` derives
+an explicit HD index for a captured Bitcoin/Syscoin mainnet context and returns
+only frozen public account and receive-address data. It requires an already
+unlocked software host; it does not select accounts, update a catalogue, store an
+xprv, discover addresses or contact a provider. The host must supply a synchronous
+revision/consent guard and recheck it after awaiting the operation. Labels and
+currency strings do not choose the derivation path.
+
+The standalone `@sidhujag/sysweb3-keyring/cjs/bip84-native` entry exports
+`prepareBip84NativeTransaction` and its types. It builds exact unsigned version-2
+bytes from a bounded immutable plan: one P2WPKH recipient, optional verified
+branch-1 change, explicit RBF, locktime zero, full previous transaction data and
+integer fee limits. Parent transactions must be ordinary version 1/2 and
+non-coinbase. All SYS special/asset parents are excluded even when a selected
+output appears to be native change. Missing provider asset metadata is not proof
+that an output is safe to spend.
+
+The planner allows at most 64 inputs/parents, 1,000,000 bytes per parent and
+2,000,000 aggregate parent bytes. Before decoding any parent, it also enforces
+an aggregate budget of 8,192 decoded components: parent inputs, outputs, witness
+vectors and witness items each consume one component, including empty items.
+This is a wallet resource policy, not a consensus limit; large scripts remain
+subject to the separate byte limits. Wallet policy additionally caps absolute fees
+at 10,000,000 satoshis and fee rate at 1,000 sat/vB; callers must provide limits
+no higher than those ceilings. Maximum signature size is used only to reject
+fees that cannot possibly satisfy the rate ceiling; final signed size must be
+checked by a future signer. Zero fee is arithmetic-valid, not a relay guarantee.
+Oversized valid parents are unavailable to this initial planner; no data is
+truncated or silently omitted. Returned bytes/data are public and privacy-sensitive.
+
+This is a development foundation, **not a native UTXO sending capability**.
+There is no prepared native signing method in this slice. The host still owns
+canonical-chain/unspent checks, confirmed-input eligibility, protected collateral
+and pending outpoint reservations, change-index persistence, fresh authentication,
+review cancellation and eventual journal-before-broadcast behavior. Full parent
+bytes prove an outpoint's content, not chain membership, maturity or spendability.
+Existing generic PSBT, EVM and hardware APIs are unchanged. Native and live
+qualification remain future work.
+
 ### Account Management
 
 ```javascript

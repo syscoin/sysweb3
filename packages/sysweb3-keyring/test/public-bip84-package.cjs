@@ -53,6 +53,8 @@ try {
   for (const file of [
     'cjs/public-bip84.js',
     'types/public-bip84.d.ts',
+    'cjs/bip84-native.js',
+    'types/bip84-native.d.ts',
     'package.json',
     'README.md',
   ])
@@ -87,11 +89,15 @@ try {
     assert.deepEqual(manifest.typesVersions['*'][`cjs/public-bip84${suffix}`], [
       'types/public-bip84.d.ts',
     ]);
+  for (const suffix of ['', '.js'])
+    assert.deepEqual(manifest.typesVersions['*'][`cjs/bip84-native${suffix}`], [
+      'types/bip84-native.d.ts',
+    ]);
   run(
     process.execPath,
     [
       '-e',
-      "require('node:assert/strict').equal(require('@sidhujag/sysweb3-keyring/cjs/public-bip84'), require('@sidhujag/sysweb3-keyring/cjs/public-bip84.js'));",
+      "require('node:assert/strict').equal(require('@sidhujag/sysweb3-keyring/cjs/public-bip84'), require('@sidhujag/sysweb3-keyring/cjs/public-bip84.js')); require('node:assert/strict').equal(require('@sidhujag/sysweb3-keyring/cjs/bip84-native'), require('@sidhujag/sysweb3-keyring/cjs/bip84-native.js'));",
     ],
     consumer
   );
@@ -103,11 +109,30 @@ try {
       consumer
     )
   );
+  process.stdout.write(
+    run(
+      process.execPath,
+      [
+        path.join(__dirname, 'bip84-native-runtime.cjs'),
+        path.join(unpacked, 'cjs/bip84-native.js'),
+      ],
+      consumer
+    )
+  );
   fs.writeFileSync(
     path.join(consumer, 'consumer.ts'),
     `
 import { parseBip84PublicAccount, deriveBip84PublicAddress, PublicBip84Error, Bip84PublicAccount } from '@sidhujag/sysweb3-keyring/cjs/public-bip84';
 import { deriveBip84PublicAddress as withExtension } from '@sidhujag/sysweb3-keyring/cjs/public-bip84.js';
+import { prepareBip84NativeTransaction, Bip84NativePlan } from '@sidhujag/sysweb3-keyring/cjs/bip84-native';
+import { prepareBip84NativeTransaction as withNativeExtension } from '@sidhujag/sysweb3-keyring/cjs/bip84-native.js';
+import type { SoftwareKeyring } from '@sidhujag/sysweb3-keyring/cjs/software.js';
+declare const keyring: SoftwareKeyring;
+declare const plan: Bip84NativePlan;
+prepareBip84NativeTransaction(plan); withNativeExtension(plan);
+keyring.deriveBip84HdPublicAccount({ network: { network: 'bitcoin', endpoint: 'https://offline.invalid' }, accountIndex: 1 }, { assertCurrent() {} });
+// @ts-expect-error part one does not enable private native signing
+keyring.signPreparedBip84Transaction({});
 const request = { network: 'syscoin' as const, accountKey: 'public fixture' };
 const account: Bip84PublicAccount = parseBip84PublicAccount(request);
 const result = deriveBip84PublicAddress({ ...request, branch: 1, index: 7 });
